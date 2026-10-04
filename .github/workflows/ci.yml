@@ -13,21 +13,21 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          global-json-file: client-capture/capture-cs/global.json
+          global-json-file: odx-capture/capture-cs/global.json
 
       # Video fixtures are encoded with ffmpeg; ffprobe cross-checks the MP4 reader.
       - name: Install ffmpeg
         run: choco install ffmpeg -y --no-progress
 
       - name: capture-cs build and test
-        working-directory: client-capture/capture-cs
+        working-directory: odx-capture/capture-cs
         run: |
           dotnet build OdxCapture.sln -c Release
           dotnet test OdxCapture.sln -c Release --no-build
 
       # Built after capture-cs so ctest can run `odx build` + `odx validate` on the synthetic capture.
       - name: extractor build and test
-        working-directory: client-capture/extractor
+        working-directory: odx-capture/extractor
         run: |
           cmake -B build
           cmake --build build --config Release

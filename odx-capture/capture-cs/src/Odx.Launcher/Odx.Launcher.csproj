@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- "Odx Capture.exe" in the package: a NativeAOT executable of a few MB, so Windows Defender scans it at once and
+       its splash shows immediately, while the first launch of the 240 MB odx-app.exe still waits on that scan. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>odx-launcher</AssemblyName>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishAot>true</PublishAot>
+    <ApplicationIcon>../Odx.App/odx.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The same image as odx-app's WPF splash, so the hand-over is seamless. -->
+    <EmbeddedResource Include="../Odx.App/splash.png" LogicalName="splash.png" />
+  </ItemGroup>
+</Project>
