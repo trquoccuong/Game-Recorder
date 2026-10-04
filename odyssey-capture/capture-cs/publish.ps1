@@ -1,5 +1,5 @@
 # Builds a self-contained Windows x64 package: odx-app, the odx command-line tool (input, record, build, validate), the
-# .NET runtime, ffmpeg and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
+# .NET runtime, a minimal ffmpeg and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
 # odx-app.exe (or odx.exe); nothing else needs installing.
 #
 #   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0]
@@ -8,12 +8,8 @@
 param([string]$Version = "0.1.0")
 $ErrorActionPreference = 'Stop'
 
-# Pinned gyan.dev "essentials" build: has libx264 and h264_nvenc. It is GPLv3; its LICENSE ships next to the binaries.
-# Our tools only run it as a separate process, so they are not linked against it.
-$FfmpegVersion = '9.0.2'
-$FfmpegUrl = "https://github.com/GyanD/codexffmpeg/releases/download/$FfmpegVersion/ffmpeg-$FfmpegVersion-essentials_build.zip"
-$FfmpegSha256 = '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba'
-
+# ffmpeg is built from pinned sources by ffmpeg/build-ffmpeg.sh (minimal: only what odx record uses) in MSYS2 and
+# cached under .cache/, keyed by the script's hash so a changed script rebuilds it.
 $root = $PSScriptRoot
 $name = "odx-capture-$Version-win-x64"
 $dist = Join-Path $root 'dist'
@@ -40,28 +36,28 @@ foreach ($p in $publishes) {
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish $($p.Project) failed" }
 }
 
-$ffmpegZip = Join-Path $cache "ffmpeg-$FfmpegVersion-essentials_build.zip"
-if (-not (Test-Path $ffmpegZip) -or (Get-FileHash $ffmpegZip -Algorithm SHA256).Hash -ne $FfmpegSha256) {
-    Write-Host "downloading $FfmpegUrl"
-    Invoke-WebRequest $FfmpegUrl -OutFile $ffmpegZip -UseBasicParsing
-    $hash = (Get-FileHash $ffmpegZip -Algorithm SHA256).Hash
-    if ($hash -ne $FfmpegSha256) { throw "ffmpeg archive SHA-256 mismatch: $hash" }
+$buildScript = Join-Path $root 'ffmpeg/build-ffmpeg.sh'
+$scriptHash = (Get-FileHash $buildScript -Algorithm SHA256).Hash.Substring(0, 12)
+$ffmpegBuild = Join-Path $cache "ffmpeg-$scriptHash"
+if (-not (Test-Path (Join-Path $ffmpegBuild 'ffmpeg.exe'))) {
+    $msys = if ($env:MSYS2_ROOT) { $env:MSYS2_ROOT } else { 'C:\msys64' }
+    $bash = Join-Path $msys 'usr\bin\bash.exe'
+    if (-not (Test-Path $bash)) {
+        throw "ffmpeg is not built yet and MSYS2 was not found at $msys (set MSYS2_ROOT). Install MSYS2, then in it: " +
+              "pacman -S make diffutils mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf"
+    }
+    Write-Host "building ffmpeg (once, ~10-20 min) into $ffmpegBuild"
+    $toUnix = Join-Path $msys 'usr\bin\cygpath.exe'
+    $env:MSYSTEM = 'UCRT64'
+    $env:CHERE_INVOKING = '1'
+    & $bash -lc "bash '$(& $toUnix -u $buildScript)' '$(& $toUnix -u $ffmpegBuild)' '$(& $toUnix -u (Join-Path $cache 'ffmpeg-work'))'"
+    if ($LASTEXITCODE -ne 0) { throw 'ffmpeg build failed' }
 }
-
-Add-Type -AssemblyName System.IO.Compression.FileSystem
 $ffmpegDir = Join-Path $out 'ffmpeg'
 New-Item -ItemType Directory -Force $ffmpegDir | Out-Null
-$archive = [IO.Compression.ZipFile]::OpenRead($ffmpegZip)
-try {
-    foreach ($entry in $archive.Entries) {
-        if ($entry.FullName -match '/(bin/ffmpeg\.exe|bin/ffprobe\.exe|LICENSE|README\.txt)$') {
-            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, (Join-Path $ffmpegDir $entry.Name), $true)
-        }
-    }
-} finally {
-    $archive.Dispose()
-}
+Copy-Item (Join-Path $ffmpegBuild '*') $ffmpegDir
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $packageZip = Join-Path $dist "$name.zip"
 if (Test-Path $packageZip) { Remove-Item -Force $packageZip }
 [IO.Compression.ZipFile]::CreateFromDirectory($out, $packageZip, [IO.Compression.CompressionLevel]::Optimal, $true)
