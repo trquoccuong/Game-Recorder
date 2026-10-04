@@ -6,7 +6,7 @@ namespace Odx.Tests;
 public class HotkeyTests
 {
     [Fact]
-    public void Default_is_ctrl_shift_r() => Assert.Equal("Ctrl+Shift+R", Hotkey.Default.ToString());
+    public void Default_is_f10() => Assert.Equal("F10", Hotkey.Default.ToString());
 
     [Theory]
     [InlineData(HotkeyModifiers.None, 0x78, "F9")]
