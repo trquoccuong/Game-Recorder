@@ -16,6 +16,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.Resources>
             <Style TargetType="Label">
@@ -33,26 +34,31 @@
                   Margin="0,0,0,6" DisplayMemberPath="Label" />
         <Button x:Name="RefreshButton" Grid.Row="0" Grid.Column="2" Content="Refresh" Click="Refresh_Click" />
 
-        <Label Grid.Row="1" Content="FPS" />
-        <ComboBox x:Name="FpsBox" Grid.Row="1" Grid.Column="1" Margin="0,0,0,6" Width="80"
+        <Label Grid.Row="1" Content="Game profile" />
+        <ComboBox x:Name="GameBox" AutomationProperties.AutomationId="GameBox" Grid.Row="1" Grid.Column="1"
+                  Margin="0,0,0,6" DisplayMemberPath="Label"
+                  ToolTip="Builds frames.csv + session.json after recording and validates them" />
+
+        <Label Grid.Row="2" Content="FPS" />
+        <ComboBox x:Name="FpsBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" Width="80"
                   HorizontalAlignment="Left" />
 
-        <Label Grid.Row="2" Content="Output folder" />
-        <TextBox x:Name="OutputBox" Grid.Row="2" Grid.Column="1" Margin="0,0,0,6" VerticalContentAlignment="Center" />
-        <Button x:Name="BrowseButton" Grid.Row="2" Grid.Column="2" Content="Browse…" Click="Browse_Click" />
+        <Label Grid.Row="3" Content="Output folder" />
+        <TextBox x:Name="OutputBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" VerticalContentAlignment="Center" />
+        <Button x:Name="BrowseButton" Grid.Row="3" Grid.Column="2" Content="Browse…" Click="Browse_Click" />
 
-        <Label Grid.Row="3" Content="Start/stop hotkey" />
-        <TextBox x:Name="HotkeyBox" AutomationProperties.AutomationId="HotkeyBox" Grid.Row="3" Grid.Column="1"
+        <Label Grid.Row="4" Content="Start/stop hotkey" />
+        <TextBox x:Name="HotkeyBox" AutomationProperties.AutomationId="HotkeyBox" Grid.Row="4" Grid.Column="1"
                  Margin="0,0,0,6" IsReadOnly="True" IsReadOnlyCaretVisible="False" VerticalContentAlignment="Center"
                  ToolTip="Click, then press the new key combination"
                  GotKeyboardFocus="Hotkey_GotFocus" LostKeyboardFocus="Hotkey_LostFocus"
                  PreviewKeyDown="Hotkey_PreviewKeyDown" />
 
-        <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Grid.Row="4"
+        <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Grid.Row="5"
                 Grid.ColumnSpan="3" Margin="0,8,0,8" Padding="0,8" FontSize="14" Content="Start recording"
                 Click="StartStop_Click" />
 
-        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Grid.Row="5"
+        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Grid.Row="6"
                    Grid.ColumnSpan="3" TextWrapping="Wrap" Text="Ready" />
     </Grid>
 </Window>

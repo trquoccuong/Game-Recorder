@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using Odx.Core;
+using Odx.Session;
 
 namespace Odx.App;
 
@@ -12,6 +13,7 @@ public sealed record RunResult(string SessionDir, bool Ok, string Summary);
 /// <summary>
 /// One recording: odx-input and odx-record run as child processes into the same session folder, both stopped through
 /// a shared named event. If either child exits on its own (error, captured window closed), the other is stopped too.
+/// After a clean stop the folder is built into a spec v2 session with the chosen game profile and validated.
 /// </summary>
 public sealed class CaptureRun
 {
@@ -20,6 +22,7 @@ public sealed class CaptureRun
     private readonly EventWaitHandle _stop;
     private readonly StringBuilder _stderr = new();
     private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly string? _gameProfile;
 
     public string SessionDir { get; }
     /// <summary>Completes when odx-record reports that capture is running; odx-record can take seconds on a cold start.</summary>
@@ -29,6 +32,7 @@ public sealed class CaptureRun
     private CaptureRun(AppSettings settings)
     {
         SessionDir = Path.Combine(settings.OutputRoot, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+        _gameProfile = settings.GameProfile;
         Directory.CreateDirectory(SessionDir);
         string stopName = $@"Local\odx-stop-{Guid.NewGuid():N}";
         _stop = new EventWaitHandle(false, EventResetMode.ManualReset, stopName);
@@ -102,7 +106,33 @@ public sealed class CaptureRun
         bool ok = input.ExitCode == 0 && record.ExitCode == 0;
         var summary = new StringBuilder(Describe());
         lock (_stderr) summary.Append(_stderr);
+        if (ok) ok = BuildSession(summary);
         return new RunResult(SessionDir, ok, summary.ToString().TrimEnd());
+    }
+
+    private bool BuildSession(StringBuilder summary)
+    {
+        if (_gameProfile is null)
+        {
+            summary.AppendLine("No game profile selected: session not built (run odx-build later).");
+            return true;
+        }
+        try
+        {
+            var report = SessionBuilder.Build(SessionDir, GameProfile.Load(_gameProfile));
+            var issues = SessionValidator.ValidateSession(SessionDir);
+            int errors = issues.Count(i => i.Severity == "error");
+            summary.AppendLine($"Validation {(errors == 0 ? "PASS" : "FAIL")}: {errors} errors, {issues.Count - errors} warnings");
+            foreach (var i in issues.Take(5)) summary.AppendLine($"  [{i.Severity}] {i.Rule}: {i.Message}");
+            if (report.UnboundKeys.Count > 0)
+                summary.AppendLine("Keys not bound in the game profile (left out): " + string.Join(", ", report.UnboundKeys.Keys));
+            return errors == 0;
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or FormatException or JsonException)
+        {
+            summary.AppendLine($"Could not build the session: {e.Message}");
+            return false;
+        }
     }
 
     private string Describe()

@@ -17,6 +17,10 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
+    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../../games/*.json" Link="games/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- Development builds copy odx-input and odx-record next to the app, which runs them as child processes. A RID-specific
        publish (publish.ps1) ships them self-contained in tools/<name>/ instead, so they are left out here. -->

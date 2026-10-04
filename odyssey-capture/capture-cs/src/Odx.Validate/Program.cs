@@ -3,7 +3,7 @@
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Odx.Validate;
+using Odx.Session;
 
 Console.OutputEncoding = new UTF8Encoding(false);
 bool json = args.Contains("--json"), video = !args.Contains("--no-video");

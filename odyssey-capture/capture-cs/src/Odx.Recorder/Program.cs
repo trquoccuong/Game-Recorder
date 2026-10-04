@@ -6,7 +6,8 @@
 // (GridResampler) and piped to ffmpeg, so the MP4 is CFR and its frame N is row N of video_frames.csv. Writes:
 //   <dir>/video.mp4         CFR H.264, no B-frames
 //   <dir>/video_frames.csv  frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate
-//   <dir>/recording.json    size, fps, encoder, start time (UTC + QPC), counts of duplicated/dropped frames
+//   <dir>/recording.json    capture id, capture and screen size, fps, encoder, start time (UTC + QPC),
+//                           counts of duplicated/dropped frames
 // Stop with Ctrl+C, --seconds, --stop-event (a named event set by Odx.App), or by closing the captured window.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
@@ -31,7 +32,9 @@ if (!GraphicsCaptureSession.IsSupported())
     return 1;
 }
 
+CaptureInterop.UsePhysicalPixels();
 GraphicsCaptureItem item;
+IntPtr monitor;
 if (opts.Window is string processName)
 {
     var proc = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(processName))
@@ -42,13 +45,16 @@ if (opts.Window is string processName)
         return 1;
     }
     item = CaptureInterop.ItemForWindow(proc.MainWindowHandle);
+    monitor = CaptureInterop.MonitorOf(proc.MainWindowHandle);
 }
 else
 {
     item = CaptureInterop.ItemForPrimaryMonitor();
+    monitor = CaptureInterop.PrimaryMonitor();
 }
 
 int width = item.Size.Width, height = item.Size.Height;
+var (screenWidth, screenHeight) = CaptureInterop.MonitorSize(monitor);
 Directory.CreateDirectory(opts.OutDir);
 
 D3D11.D3D11CreateDevice(null, DriverType.Hardware, DeviceCreationFlags.BgraSupport, null, out ID3D11Device? device)
@@ -170,8 +176,11 @@ staging?.Dispose();
 
 var meta = new Dictionary<string, object?>
 {
+    ["capture_id"] = Guid.NewGuid().ToString("N"),
     ["width"] = width,
     ["height"] = height,
+    ["screen_width"] = screenWidth,
+    ["screen_height"] = screenHeight,
     ["fps"] = opts.Fps,
     ["encoder"] = opts.Encoder,
     ["source"] = opts.Window is null ? "monitor:primary" : $"window:{opts.Window}",

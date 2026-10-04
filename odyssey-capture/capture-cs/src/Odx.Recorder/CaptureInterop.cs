@@ -31,10 +31,40 @@ internal static class CaptureInterop
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO { public int Size; public RECT Monitor, Work; public uint Flags; }
+
     [DllImport("user32.dll")]
     private static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
 
-    private const uint MONITOR_DEFAULTTOPRIMARY = 1;
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetMonitorInfoW(IntPtr monitor, ref MONITORINFO info);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
+
+    private const uint MONITOR_DEFAULTTOPRIMARY = 1, MONITOR_DEFAULTTONEAREST = 2;
+    private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
+
+    /// <summary>Without this, Win32 reports DPI-scaled sizes to this (unaware) process; capture sizes are physical.</summary>
+    public static void UsePhysicalPixels() => SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+
+    public static IntPtr PrimaryMonitor() => MonitorFromPoint(default, MONITOR_DEFAULTTOPRIMARY);
+
+    public static IntPtr MonitorOf(IntPtr hwnd) => MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
+    public static (int Width, int Height) MonitorSize(IntPtr monitor)
+    {
+        var info = new MONITORINFO { Size = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfoW(monitor, ref info)) throw new InvalidOperationException("GetMonitorInfo failed");
+        return (info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top);
+    }
 
     public static GraphicsCaptureItem ItemForWindow(IntPtr hwnd) => CreateItem(i =>
     {
@@ -45,7 +75,7 @@ internal static class CaptureInterop
     public static GraphicsCaptureItem ItemForPrimaryMonitor() => CreateItem(i =>
     {
         var iid = GraphicsCaptureItemIid;
-        return i.CreateForMonitor(MonitorFromPoint(default, MONITOR_DEFAULTTOPRIMARY), ref iid);
+        return i.CreateForMonitor(PrimaryMonitor(), ref iid);
     });
 
     private static GraphicsCaptureItem CreateItem(Func<IGraphicsCaptureItemInterop, IntPtr> create)

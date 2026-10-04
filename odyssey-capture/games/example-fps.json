@@ -1,0 +1,30 @@
+{
+  "game_title": "Example FPS",
+  "platform": "PC",
+  "localization": "en-US",
+  "input_mouse_convention": {
+    "maps_to": "camera_look_velocity",
+    "dx_positive": "right",
+    "dx_negative": "left",
+    "dy_positive": "down",
+    "dy_negative": "up"
+  },
+  "bindings": {
+    "W": "Forward",
+    "S": "Backward",
+    "A": "Strafe Left",
+    "D": "Strafe Right",
+    "Space": "Jump",
+    "Ctrl": "Crouch",
+    "Shift": "Walk",
+    "R": "Reload",
+    "E": "Use",
+    "G": "Drop",
+    "1": "Primary Weapon",
+    "2": "Secondary Weapon",
+    "3": "Knife",
+    "Tab": "Scoreboard",
+    "Left": "Shoot",
+    "Right": "Aim"
+  }
+}
