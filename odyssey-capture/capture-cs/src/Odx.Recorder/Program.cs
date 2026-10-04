@@ -189,6 +189,7 @@ staging?.Dispose();
 var meta = new Dictionary<string, object?>
 {
     ["capture_id"] = Guid.NewGuid().ToString("N"),
+    ["tool_version"] = BuildInfo.Version,
     ["width"] = width,
     ["height"] = height,
     ["screen_width"] = screenWidth,
@@ -208,7 +209,11 @@ var meta = new Dictionary<string, object?>
     ["error"] = error,
 };
 File.WriteAllText(Path.Combine(opts.OutDir, "recording.json"),
-    JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
+    JsonSerializer.Serialize(meta, new JsonSerializerOptions
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    }));
 
 if (error is null && ffmpegExit != 0) error = $"ffmpeg exited with code {ffmpegExit}";
 if (opts.JsonStatus)

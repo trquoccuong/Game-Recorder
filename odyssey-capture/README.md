@@ -71,6 +71,10 @@ odx-capture-<version>-win-x64/
 
 The tools use `ffmpeg/` from the package when present, otherwise `ffmpeg`/`ffprobe` on PATH. The ffmpeg build is GPLv3: its LICENSE ships alongside, and our tools only run it as a separate process (not linked).
 
+## Versions and CI
+
+Every tool stamps `<version>+<git commit>` into its output: `tool_version` in `recording.json`, `vendor_tool_version` in `session.json` (an extra field; the schema allows additional properties). The .NET SDK is pinned by `capture-cs/global.json`. CI (`.github/workflows/ci.yml`, Windows) builds and tests capture-cs, then the extractor with ctest.
+
 ## Build and validate a session
 
 `odx-app` does both automatically after each recording when a game profile is selected. By hand:

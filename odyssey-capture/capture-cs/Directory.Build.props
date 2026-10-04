@@ -6,5 +6,7 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- publish.ps1 overrides it with -Version; the SDK appends +<git commit> to InformationalVersion. -->
+    <Version>0.1.0</Version>
   </PropertyGroup>
 </Project>
