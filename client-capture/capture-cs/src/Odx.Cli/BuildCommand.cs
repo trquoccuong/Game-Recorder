@@ -33,6 +33,10 @@ public static class BuildCommand
             var report = SessionBuilder.Build(dir, GameProfile.Load(profilePath), vendor, cameraDir);
             Console.WriteLine($"built {report.SessionId}: {report.FrameCount} frames, {report.DurationMs / 1000:F1} s, " +
                               $"camera on {report.CameraFrames} frames");
+            var c = report.Clock;
+            Console.WriteLine(c.Source == "ntp"
+                ? $"clock: NTP {c.Server}, RTT {c.RttMs:F1} ms, Windows clock off by {c.SystemOffsetMs:F1} ms"
+                : $"clock: {c.Source} (Windows clock, not checked against NTP; capture with odx input --ntp <server>)");
             if (report.UnboundKeys.Count > 0)
                 Console.WriteLine("unbound keys left out of input_keys: " +
                                   string.Join(", ", report.UnboundKeys.Select(kv => $"{kv.Key} ×{kv.Value}")));
