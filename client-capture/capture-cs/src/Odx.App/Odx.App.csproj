@@ -10,7 +10,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <!-- WPF text layout needs culture data (XmlLanguage.GetSpecificCulture throws in invariant mode). -->
     <InvariantGlobalization>false</InvariantGlobalization>
+    <ApplicationIcon>odx.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="odx.ico" />
+  </ItemGroup>
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
     <Using Remove="System.Drawing" />

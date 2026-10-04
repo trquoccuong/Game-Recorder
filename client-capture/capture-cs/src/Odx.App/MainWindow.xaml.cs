@@ -52,7 +52,8 @@ public partial class MainWindow : Window
         _clock.Tick += (_, _) => ShowRecordingStatus();
 
         _trayStartStop.Click += (_, _) => Toggle();
-        _tray.Icon = System.Drawing.SystemIcons.Application;
+        using (var icon = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/odx.ico")).Stream)
+            _tray.Icon = new System.Drawing.Icon(icon, Forms.SystemInformation.SmallIconSize);
         _tray.ContextMenuStrip = new Forms.ContextMenuStrip();
         _tray.ContextMenuStrip.Items.Add(_trayStartStop);
         _tray.ContextMenuStrip.Items.Add("Show", null, (_, _) => RestoreFromTray());

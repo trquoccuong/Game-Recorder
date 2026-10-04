@@ -1,7 +1,7 @@
 <Window x:Class="Odx.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Client Capture" Width="520" SizeToContent="Height" ResizeMode="CanMinimize"
+        Title="Client Capture" Icon="odx.ico" Width="520" SizeToContent="Height" ResizeMode="CanMinimize"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="16">
         <Grid.ColumnDefinitions>
