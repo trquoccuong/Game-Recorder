@@ -11,7 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="../../src/Odx.Core/Odx.Core.csproj" />
     <ProjectReference Include="../../src/Odx.Session/Odx.Session.csproj" />
-    <ProjectReference Include="../../src/Odx.Validate/Odx.Validate.csproj" />
+    <ProjectReference Include="../../src/Odx.Cli/Odx.Cli.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- Pinned log formats: the C# writers (and the C++ camera_samples.csv writer) must reproduce them byte for byte. -->

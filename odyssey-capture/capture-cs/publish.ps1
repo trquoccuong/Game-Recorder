@@ -1,6 +1,6 @@
-# Builds a self-contained Windows x64 package: odx-app, odx-input, odx-record, odx-build, odx-validate, the .NET runtime,
-# ffmpeg/ffprobe and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run odx-app.exe (or tools\odx-validate\odx-validate.exe);
-# nothing else needs installing.
+# Builds a self-contained Windows x64 package: odx-app, the odx command-line tool (input, record, build, validate), the
+# .NET runtime, ffmpeg/ffprobe and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
+# odx-app.exe (or tools\odx\odx.exe); nothing else needs installing.
 #
 #   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0]
 #
@@ -23,21 +23,18 @@ $cache = Join-Path $root '.cache'
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory -Force $out, $cache | Out-Null
 
-# Layout: odx-app at the root, each command-line tool self-contained in tools/<name>/, ffmpeg in ffmpeg/.
-# Separate folders because the tools' runtimes differ (WPF vs console, System.Text.Json 8 vs 9 via Vortice);
-# sharing one folder would overwrite one tool's assemblies with another's.
-# ReadyToRun avoids most JIT work at startup (odx-record took ~3 s on a cold start without it).
-$projects = [ordered]@{
-    'Odx.App'      = $out
-    'Odx.Input'    = Join-Path $out 'tools/odx-input'
-    'Odx.Recorder' = Join-Path $out 'tools/odx-record'
-    'Odx.Build'    = Join-Path $out 'tools/odx-build'
-    'Odx.Validate' = Join-Path $out 'tools/odx-validate'
-}
-foreach ($project in $projects.Keys) {
-    dotnet publish (Join-Path $root "src/$project") -c Release -r win-x64 --self-contained `
-        -p:PublishReadyToRun=true -p:Version=$Version -o $projects[$project]
-    if ($LASTEXITCODE -ne 0) { throw "dotnet publish $project failed" }
+# Layout: odx-app at the root, odx self-contained in tools/odx/, ffmpeg in ffmpeg/. Two runtimes because they differ
+# (WPF vs console, System.Text.Json 8 vs 9 via Vortice); sharing one folder would overwrite one's assemblies with the
+# other's. ReadyToRun avoids most JIT work at startup (odx record took ~3 s on a cold start without it).
+$publishes = @(
+    @{ Project = 'Odx.App'; Out = $out; Framework = $null },
+    @{ Project = 'Odx.Cli'; Out = (Join-Path $out 'tools/odx'); Framework = 'net8.0-windows10.0.22621.0' }
+)
+foreach ($p in $publishes) {
+    $frameworkArgs = if ($p.Framework) { @('-f', $p.Framework) } else { @() }
+    dotnet publish (Join-Path $root "src/$($p.Project)") -c Release -r win-x64 --self-contained @frameworkArgs `
+        -p:PublishReadyToRun=true -p:Version=$Version -o $p.Out
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish $($p.Project) failed" }
 }
 
 $ffmpegZip = Join-Path $cache "ffmpeg-$FfmpegVersion-essentials_build.zip"

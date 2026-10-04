@@ -2,7 +2,7 @@
 //
 // On load: reads odx_config.lua next to the DLL, loads the game profile and hooks Present. The toggle key (default F9)
 // starts/stops a recording; each one writes <out_dir>/<game>-<UTC time>/camera_samples.csv + extractor.json, to be
-// merged by `odx build --camera <that folder>` with an odx-input + odx-record capture of the same play.
+// merged by `odx build --camera <that folder>` with an odx input + odx record capture of the same play.
 // Log: odx_log.txt next to the DLL.
 #include <windows.h>
 
@@ -60,7 +60,7 @@ std::string sanitize(std::string s) {
     return s;
 }
 
-// "F1".."F24", "A".."Z", "0".."9" (odx-input key names); 0 if unsupported.
+// "F1".."F24", "A".."Z", "0".."9" (odx input key names); 0 if unsupported.
 int virtual_key(const std::string& name) {
     if (name.size() == 1 && std::isalnum(static_cast<unsigned char>(name[0])))
         return std::toupper(static_cast<unsigned char>(name[0]));

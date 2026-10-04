@@ -1,8 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <AssemblyName>odx-record</AssemblyName>
-    <!-- Windows SDK projection gives Windows.Graphics.Capture; buildable (not runnable) on other OSes. -->
+    <!-- `odx record` (Odx.Cli). Windows SDK projection gives Windows.Graphics.Capture; buildable (not runnable) on other OSes. -->
     <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>

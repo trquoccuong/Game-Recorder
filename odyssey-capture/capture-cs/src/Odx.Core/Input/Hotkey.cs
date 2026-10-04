@@ -6,7 +6,7 @@ public enum HotkeyModifiers { None = 0, Alt = 1, Ctrl = 2, Shift = 4, Win = 8 }
 
 public readonly record struct Hotkey(HotkeyModifiers Modifiers, int VirtualKey)
 {
-    // A lone F10: no gameplay binding uses it, so odx-build drops it from input_keys instead of adding actions.
+    // A lone F10: no gameplay binding uses it, so odx build drops it from input_keys instead of adding actions.
     public static readonly Hotkey Default = new(HotkeyModifiers.None, 0x79);
 
     public override string ToString()

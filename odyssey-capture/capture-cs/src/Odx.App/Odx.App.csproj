@@ -22,10 +22,9 @@
   <ItemGroup>
     <None Include="../../../games/*.json" Link="games/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
-  <!-- Development builds copy odx-input and odx-record next to the app, which runs them as child processes. A RID-specific
-       publish (publish.ps1) ships them self-contained in tools/<name>/ instead, so they are left out here. -->
+  <!-- Development builds copy odx next to the app, which runs `odx input` and `odx record` as child processes. A
+       RID-specific publish (publish.ps1) ships it self-contained in tools/odx/ instead, so it is left out here. -->
   <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
-    <ProjectReference Include="../Odx.Input/Odx.Input.csproj" />
-    <ProjectReference Include="../Odx.Recorder/Odx.Recorder.csproj" />
+    <ProjectReference Include="../Odx.Cli/Odx.Cli.csproj" />
   </ItemGroup>
 </Project>

@@ -1,7 +1,7 @@
 // odx_synth <profile.lua> <capture_dir> [frames]
-// A synthetic capture of the fake game, as odx-record and the extractor DLL would leave it: video_frames.csv and
+// A synthetic capture of the fake game, as odx record and the extractor DLL would leave it: video_frames.csv and
 // recording.json (60 fps grid, no video) plus camera_samples.csv + extractor.json from the Lua profile reading the
-// fake game's memory. ctest runs `odx-build` and `odx-validate --no-video` on it.
+// fake game's memory. ctest runs `odx build` and `odx validate --no-video` on it.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>

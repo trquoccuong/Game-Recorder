@@ -12,7 +12,7 @@ public sealed record BuildReport(string SessionId, int FrameCount, double Durati
     int CameraFrames);
 
 /// <summary>
-/// Turns a capture folder (odx-input + odx-record logs) into a spec v2 session: writes frames.csv and session.json next
+/// Turns a capture folder (odx input + odx record logs) into a spec v2 session: writes frames.csv and session.json next
 /// to video.mp4. Frame clock: video_frames.csv grid times. Camera columns come from the extractor DLL's
 /// camera_samples.csv + extractor.json when present (in the capture folder or <c>cameraDir</c>), else they are null.
 /// </summary>
@@ -61,7 +61,7 @@ public static class SessionBuilder
             ["localization"] = profile.Localization,
             ["platform"] = profile.Platform,
             ["input_mouse_convention"] = profile.InputMouseConvention.DeepClone(),
-            // Not in the spec (additionalProperties is allowed): which odx-build / odx-app build produced the session.
+            // Not in the spec (additionalProperties is allowed): which odx / odx-app build produced the session.
             ["vendor_tool_version"] = BuildInfo.Version,
         };
         File.WriteAllText(Path.Combine(captureDir, "session.json"),
