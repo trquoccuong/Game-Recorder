@@ -1,6 +1,6 @@
 # Builds a self-contained Windows x64 package: odx-app, the odx command-line tool (input, record, build, validate), the
 # .NET runtime, ffmpeg/ffprobe and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
-# odx-app.exe (or tools\odx\odx.exe); nothing else needs installing.
+# odx-app.exe (or odx.exe); nothing else needs installing.
 #
 #   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0]
 #
@@ -23,17 +23,20 @@ $cache = Join-Path $root '.cache'
 if (Test-Path $out) { Remove-Item -Recurse -Force $out }
 New-Item -ItemType Directory -Force $out, $cache | Out-Null
 
-# Layout: odx-app at the root, odx self-contained in tools/odx/, ffmpeg in ffmpeg/. Two runtimes because they differ
-# (WPF vs console, System.Text.Json 8 vs 9 via Vortice); sharing one folder would overwrite one's assemblies with the
-# other's. ReadyToRun avoids most JIT work at startup (odx record took ~3 s on a cold start without it).
+# Layout: odx-app.exe and odx.exe side by side, ffmpeg in ffmpeg/, game profiles in games/.
+# Single-file: each executable embeds its own .NET runtime and libraries (WPF's native libraries are extracted at first
+# run), so the two never share or overwrite files; no .pdb files. Not compressed: decompressing on every start took
+# odx-app ~10 s to show its window, and the zip is compressed anyway. ReadyToRun avoids most JIT work at startup
+# (odx record took ~3 s cold without it).
 $publishes = @(
     @{ Project = 'Odx.App'; Out = $out; Framework = $null },
-    @{ Project = 'Odx.Cli'; Out = (Join-Path $out 'tools/odx'); Framework = 'net8.0-windows10.0.22621.0' }
+    @{ Project = 'Odx.Cli'; Out = $out; Framework = 'net8.0-windows10.0.22621.0' }
 )
 foreach ($p in $publishes) {
     $frameworkArgs = if ($p.Framework) { @('-f', $p.Framework) } else { @() }
     dotnet publish (Join-Path $root "src/$($p.Project)") -c Release -r win-x64 --self-contained @frameworkArgs `
-        -p:PublishReadyToRun=true -p:Version=$Version -o $p.Out
+        -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:DebugType=None -p:Version=$Version -o $p.Out
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish $($p.Project) failed" }
 }
 
