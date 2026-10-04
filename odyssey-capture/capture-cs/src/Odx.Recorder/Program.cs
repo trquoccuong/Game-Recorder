@@ -1,5 +1,5 @@
-// odx-record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder nvenc|x264] [--ffmpeg <path>]
-//            [--cursor] [--seconds N]
+// odx-record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder x264|nvenc] [--ffmpeg <path>]
+//            [--cursor] [--seconds N] [--stop-event <name>]
 //
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
 // capture time (SystemRelativeTime), the same clock as odx-input. Frames are resampled onto a constant-rate grid
@@ -7,7 +7,7 @@
 //   <dir>/video.mp4         CFR H.264, no B-frames
 //   <dir>/video_frames.csv  frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate
 //   <dir>/recording.json    size, fps, encoder, start time (UTC + QPC), counts of duplicated/dropped frames
-// Stop with Ctrl+C, --seconds, or by closing the captured window.
+// Stop with Ctrl+C, --seconds, --stop-event (a named event set by Odx.App), or by closing the captured window.
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -22,7 +22,7 @@ var opts = Options.Parse(args);
 if (opts is null)
 {
     Console.Error.WriteLine("usage: odx-record --out <dir> (--window <process name> | --monitor) [--fps 60] " +
-                            "[--encoder nvenc|x264] [--ffmpeg <path>] [--cursor] [--seconds N]");
+                            "[--encoder x264|nvenc] [--ffmpeg <path>] [--cursor] [--seconds N] [--stop-event <name>]");
     return 2;
 }
 if (!GraphicsCaptureSession.IsSupported())
@@ -143,6 +143,11 @@ framePool.FrameArrived += (pool, _) =>
 };
 item.Closed += (_, _) => stop.Set();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Set(); };
+if (opts.StopEvent is string stopEventName)
+{
+    var stopEvent = EventWaitHandle.OpenExisting(stopEventName);
+    _ = Task.Run(() => { stopEvent.WaitOne(); stop.Set(); });
+}
 
 session.StartCapture();
 Console.WriteLine($"recording {width}x{height} @ {opts.Fps} fps to {opts.OutDir} (Ctrl+C to stop)");
@@ -190,11 +195,11 @@ if (error is not null) Console.Error.WriteLine(error);
 return error is null && ffmpegExit == 0 ? 0 : 1;
 
 internal sealed record Options(string OutDir, string? Window, double Fps, string Encoder, string Ffmpeg, bool Cursor,
-    double? Seconds)
+    double? Seconds, string? StopEvent)
 {
     public static Options? Parse(string[] args)
     {
-        string? outDir = null, window = null, encoder = "nvenc", ffmpeg = "ffmpeg";
+        string? outDir = null, window = null, encoder = "x264", ffmpeg = ExternalTools.Ffmpeg("ffmpeg"), stopEvent = null;
         bool monitor = false, cursor = false;
         double fps = 60;
         double? seconds = null;
@@ -212,10 +217,11 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
                 case "--ffmpeg": ffmpeg = Next(); break;
                 case "--cursor": cursor = true; break;
                 case "--seconds" when double.TryParse(Next(), System.Globalization.NumberStyles.Float, inv, out var s): seconds = s; break;
+                case "--stop-event": stopEvent = Next(); break;
                 default: return null;
             }
         }
         if (outDir is null || encoder is null || ffmpeg is null || (window is null) == !monitor || fps <= 0) return null;
-        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, seconds);
+        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, seconds, stopEvent);
     }
 }

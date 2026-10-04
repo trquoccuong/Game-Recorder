@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>odx-app</AssemblyName>
+    <TargetFramework>net8.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
+    <!-- Only for the tray NotifyIcon; WPF has none. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF text layout needs culture data (XmlLanguage.GetSpecificCulture throws in invariant mode). -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
+  </ItemGroup>
+  <!-- Development builds copy odx-input and odx-record next to the app, which runs them as child processes. A RID-specific
+       publish (publish.ps1) ships them self-contained in tools/<name>/ instead, so they are left out here. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <ProjectReference Include="../Odx.Input/Odx.Input.csproj" />
+    <ProjectReference Include="../Odx.Recorder/Odx.Recorder.csproj" />
+  </ItemGroup>
+</Project>
