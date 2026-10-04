@@ -1,0 +1,3 @@
+t_qpc_ms,utc_unix_ms,rtt_ms,system_offset_ms,server
+5000.25,1791108000000.5,18.75,-12.5,time.windows.com
+20000.5,1791108015000.25,22,-12.75,time.windows.com

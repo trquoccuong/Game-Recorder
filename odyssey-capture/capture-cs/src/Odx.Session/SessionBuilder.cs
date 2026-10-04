@@ -9,7 +9,13 @@ namespace Odx.Session;
 /// every active key to map to an action, so they are left out of input_keys.</param>
 /// <param name="CameraFrames">Frames with camera columns; 0 for an action-only capture (no camera samples).</param>
 public sealed record BuildReport(string SessionId, int FrameCount, double DurationMs, IReadOnlyDictionary<string, int> UnboundKeys,
-    int CameraFrames);
+    int CameraFrames, ClockSync Clock);
+
+/// <summary>Where the session's UTC times come from (spec v3 §4: NTP baseline plus measured offset and RTT).</summary>
+/// <param name="Source">"ntp" (ntp_samples.csv), "system" (Windows clock, clock_samples.csv) or "recording" (recording.json).</param>
+/// <param name="RttMs">Median round trip of the NTP samples used.</param>
+/// <param name="SystemOffsetMs">Median of how far the Windows clock was behind the NTP server (negative: ahead).</param>
+public sealed record ClockSync(string Source, string? Server, int Samples, double? RttMs, double? SystemOffsetMs);
 
 /// <summary>
 /// Turns a capture folder (odx input + odx record logs) into a spec v2 session: writes frames.csv and session.json next
@@ -41,7 +47,8 @@ public static class SessionBuilder
 
         // Duration covers the last frame's display interval, so timestamp_ms[-1] + 1 frame ≈ duration_ms.
         double durationMs = frames.Count * 1000.0 / fps;
-        double startUnixMs = times[0] + QpcToUnixOffsetMs(captureDir, recording);
+        var (clockMap, clock) = ClockFor(captureDir, recording);
+        double startUnixMs = clockMap.ToUnixMs(times[0]);
         string sessionId = Required<string>(recording, "capture_id");
         var session = new JsonObject
         {
@@ -63,6 +70,8 @@ public static class SessionBuilder
             ["input_mouse_convention"] = profile.InputMouseConvention.DeepClone(),
             // Not in the spec (additionalProperties is allowed): which odx / odx-app build produced the session.
             ["vendor_tool_version"] = BuildInfo.Version,
+            // Not in the spec: how created_at_utc / ended_at_utc were obtained (spec v3 §4 asks for offset + RTT).
+            ["vendor_clock_sync"] = ClockJson(clock),
         };
         File.WriteAllText(Path.Combine(captureDir, "session.json"),
             session.ToJsonString(new JsonSerializerOptions
@@ -70,7 +79,7 @@ public static class SessionBuilder
                 WriteIndented = true,
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
             }));
-        return new BuildReport(sessionId, frames.Count, durationMs, unbound, cameras?.Count(c => c is not null) ?? 0);
+        return new BuildReport(sessionId, frames.Count, durationMs, unbound, cameras?.Count(c => c is not null) ?? 0, clock);
     }
 
     private sealed class FrameCameras(string model, int count) : List<(double[,] C2w, Intrinsics Intrinsics)?>(count)
@@ -144,16 +153,44 @@ public static class SessionBuilder
     }
 
     /// <summary>Median of utc_unix_ms − t_qpc_ms over clock_samples.csv; recording.json's start pair if there are none.</summary>
-    private static double QpcToUnixOffsetMs(string captureDir, JsonObject recording)
+    /// <summary>
+    /// QPC → UTC: NTP samples if any (the lower-RTT half, per plan §7.4: the shortest round trips have the least path
+    /// asymmetry), else the Windows clock samples, else recording.json's start pair.
+    /// </summary>
+    private static (ClockMap Map, ClockSync Sync) ClockFor(string captureDir, JsonObject recording)
     {
-        string path = Path.Combine(captureDir, "clock_samples.csv");
-        var offsets = File.Exists(path)
-            ? Csv.ReadFile(path).Rows
-                .Select(r => Frames.ParseDouble(r["utc_unix_ms"]) - Frames.ParseDouble(r["t_qpc_ms"])).Order().ToList()
+        string ntpPath = Path.Combine(captureDir, "ntp_samples.csv");
+        var ntp = File.Exists(ntpPath) ? NtpSampleReader.Read(ntpPath) : [];
+        if (ntp.Count > 0)
+        {
+            var best = ntp.OrderBy(s => s.RttMs).Take((ntp.Count + 1) / 2).OrderBy(s => s.TQpcMs).ToList();
+            var sync = new ClockSync("ntp", string.Join(",", best.Select(s => s.Server).Distinct()), best.Count,
+                Median(best.Select(s => s.RttMs)), Median(ntp.Select(s => s.SystemOffsetMs)));
+            return (ClockMap.Fit(best.Select(s => (s.TQpcMs, s.UtcUnixMs)).ToList()), sync);
+        }
+        string clockPath = Path.Combine(captureDir, "clock_samples.csv");
+        var system = File.Exists(clockPath)
+            ? Csv.ReadFile(clockPath).Rows.Select(r => (Frames.ParseDouble(r["t_qpc_ms"]), Frames.ParseDouble(r["utc_unix_ms"]))).ToList()
             : [];
-        if (offsets.Count > 0) return offsets[offsets.Count / 2];
+        if (system.Count > 0) return (ClockMap.Fit(system), new ClockSync("system", null, system.Count, null, null));
         var started = DateTimeOffset.Parse(Required<string>(recording, "started_utc"), CultureInfo.InvariantCulture);
-        return started.ToUnixTimeMilliseconds() - Required<double>(recording, "started_qpc_ms");
+        return (ClockMap.Fit([(Required<double>(recording, "started_qpc_ms"), started.ToUnixTimeMilliseconds())]),
+            new ClockSync("recording", null, 1, null, null));
+    }
+
+    private static double Median(IEnumerable<double> values)
+    {
+        var sorted = values.Order().ToList();
+        return sorted[sorted.Count / 2];
+    }
+
+    private static JsonObject ClockJson(ClockSync c)
+    {
+        var json = new JsonObject { ["source"] = c.Source, ["samples"] = c.Samples };
+        if (c.Server is not null) json["server"] = c.Server;
+        if (c.RttMs is double rtt) json["rtt_ms"] = Math.Round(rtt, 1);
+        if (c.SystemOffsetMs is double offset) json["system_clock_offset_ms"] = Math.Round(offset, 1);
+        return json;
     }
 
     private static string IsoUtc(double unixMs) =>

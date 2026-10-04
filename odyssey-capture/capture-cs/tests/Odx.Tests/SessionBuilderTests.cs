@@ -83,6 +83,35 @@ public class SessionBuilderTests
         }
     }
 
+    [Fact]
+    public void Ntp_samples_set_the_session_time_instead_of_the_windows_clock()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"odx-build-{Guid.NewGuid():N}");
+        try
+        {
+            WriteCapture(dir);  // Windows clock: frame 0 at 10:00:00.000Z
+            using (var ntp = new NtpSampleWriter(new StreamWriter(Path.Combine(dir, "ntp_samples.csv"))))
+            {
+                // NTP says the Windows clock is 44 s behind; the high-RTT sample disagrees and is ignored.
+                ntp.Write(new NtpSample(5_000_000 - 500, 1_791_108_044_000 - 500, 20, 44_000, "ntp.test"));
+                ntp.Write(new NtpSample(5_000_000 + 1000, 1_791_108_044_000 + 1000, 25, 44_000, "ntp.test"));
+                ntp.Write(new NtpSample(5_000_000 + 1500, 1_791_108_044_000 + 1500 + 400, 900, 44_400, "ntp.test"));
+            }
+
+            var report = SessionBuilder.Build(dir, GameProfile.Load(WriteProfile(dir)));
+
+            Assert.Equal(new ClockSync("ntp", "ntp.test", 2, 25, 44_000), report.Clock);
+            var session = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "session.json")))!;
+            Assert.Equal("2026-10-04T10:00:44.000Z", session["created_at_utc"]!.GetValue<string>());
+            Assert.Equal("ntp", session["vendor_clock_sync"]!["source"]!.GetValue<string>());
+            Assert.Empty(SessionValidator.ValidateSession(dir, video: SessionFixtures.HasFfmpeg));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

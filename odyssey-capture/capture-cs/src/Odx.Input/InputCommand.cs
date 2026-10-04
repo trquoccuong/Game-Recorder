@@ -1,10 +1,12 @@
-// odx input --out <dir> [--pid <game_pid>] [--stop-event <name>]
+// odx input --out <dir> [--pid <game_pid>] [--stop-event <name>] [--ntp <server>]
 //
 // Captures keyboard/mouse with the Raw Input API in its own process (RIDEV_INPUTSINK: keeps receiving while the game
 // has focus) and never touches the game. Writes, QPC-stamped:
 //   <dir>/input_events.csv   raw events (t_qpc_ms,kind,value,dx,dy)
 //   <dir>/clock_samples.csv  QPC <-> UTC once per second, to align with server events / demo ticks
 // --pid: stop when that process exits. --stop-event: stop when that named event is set (Odx.App).
+// --ntp: also measure QPC -> UTC against that NTP server at start and every 15 s (<dir>/ntp_samples.csv); the
+// Windows clock in clock_samples.csv is only as good as its own time sync. NTP failures are reported, not fatal.
 // Stop with Ctrl+C.
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -22,7 +24,7 @@ public static class InputCommand
         var opts = ParseArgs(args);
         if (opts is null)
         {
-            Console.Error.WriteLine("usage: odx input --out <dir> [--pid <game_pid>] [--stop-event <name>]");
+            Console.Error.WriteLine("usage: odx input --out <dir> [--pid <game_pid>] [--stop-event <name>] [--ntp <server>]");
             return 2;
         }
 
@@ -55,6 +57,11 @@ public static class InputCommand
             var stopEvent = EventWaitHandle.OpenExisting(stopEventName);
             _ = Task.Run(() => { stopEvent.WaitOne(); PostThreadMessageW(loopThread, WM_QUIT, UIntPtr.Zero, IntPtr.Zero); });
         }
+
+        using var ntpStop = new CancellationTokenSource();
+        var ntpLoop = opts.Value.Ntp is string ntpServer
+            ? Task.Run(() => MeasureNtp(ntpServer, Path.Combine(opts.Value.OutDir, "ntp_samples.csv"), ntpStop.Token))
+            : Task.CompletedTask;
 
         SetTimer(hwnd, 1, 1000, IntPtr.Zero);
         WriteClockSample();
@@ -92,6 +99,8 @@ public static class InputCommand
         events.Flush();
         clock.Flush();
         Console.WriteLine("stopped");
+        ntpStop.Cancel();
+        ntpLoop.Wait();
         return 0;
 
         void WriteClockSample()
@@ -101,11 +110,36 @@ public static class InputCommand
             events.Flush();
         }
 
-        static (string OutDir, int? Pid, string? StopEvent)? ParseArgs(string[] args)
+        static async Task MeasureNtp(string server, string path, CancellationToken stop)
+        {
+            using var log = new NtpSampleWriter(new StreamWriter(path));
+            while (!stop.IsCancellationRequested)
+            {
+                try
+                {
+                    log.Write(SntpClient.Query(server, TimeSpan.FromSeconds(2)));
+                    log.Flush();
+                }
+                catch (Exception e) when (e is System.Net.Sockets.SocketException or InvalidDataException)
+                {
+                    Console.Error.WriteLine($"NTP {server}: {e.Message}");
+                }
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(15), stop);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
+            }
+        }
+
+        static (string OutDir, int? Pid, string? StopEvent, string? Ntp)? ParseArgs(string[] args)
         {
             string? outDir = null;
             int? pid = null;
-            string? stopEvent = null;
+            string? stopEvent = null, ntp = null;
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
@@ -113,11 +147,12 @@ public static class InputCommand
                     case "--out" when i + 1 < args.Length: outDir = args[++i]; break;
                     case "--pid" when i + 1 < args.Length && int.TryParse(args[i + 1], out var p): pid = p; i++; break;
                     case "--stop-event" when i + 1 < args.Length: stopEvent = args[++i]; break;
+                    case "--ntp" when i + 1 < args.Length: ntp = args[++i]; break;
                     default: return null;
                 }
             }
             if (outDir is null) return null;
-            return (outDir, pid, stopEvent);
+            return (outDir, pid, stopEvent, ntp);
         }
     }
 }
