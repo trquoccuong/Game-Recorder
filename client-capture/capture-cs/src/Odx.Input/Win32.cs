@@ -53,14 +53,4 @@ internal static class Win32
 
     [DllImport("kernel32.dll")]
     public static extern uint GetCurrentThreadId();
-
-    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-    public static extern IntPtr CreateFileW(string name, uint access, uint share, IntPtr security, uint disposition,
-        uint flags, IntPtr template);
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    public static extern bool WriteFile(IntPtr file, byte[] buffer, uint count, out uint written, IntPtr overlapped);
-
-    public const uint GENERIC_WRITE = 0x40000000, FILE_SHARE_READ = 0x1, OPEN_EXISTING = 3;
-    public static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
 }

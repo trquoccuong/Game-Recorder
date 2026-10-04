@@ -14,7 +14,7 @@
     <ProjectReference Include="../../src/Odx.Validate/Odx.Validate.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Pinned log formats: the C# writers must reproduce them byte for byte. -->
+    <!-- Pinned log formats: the C# writers (and the C++ camera_samples.csv writer) must reproduce them byte for byte. -->
     <None Include="../../../tests/fixtures/*.csv" Link="fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

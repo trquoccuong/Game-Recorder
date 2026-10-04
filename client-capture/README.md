@@ -23,10 +23,14 @@ Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 8) in `c
 ```bash
 cd capture-cs
 dotnet test                                   # .NET 8 SDK; video tests are skipped without ffmpeg/ffprobe on PATH
-dotnet run --project src/Odx.Input -- --out C:/odx_capture/session1 [--pid <game_pid>] [--forward]
+dotnet run --project src/Odx.Input -- --out C:/odx_capture/session1 [--pid <game_pid>]
 ```
 
-`--forward` also sends events to the C++ extractor DLL (Path B) over a mailslot. Language split: plan §6.5.
+Language split: plan §6.5.
+
+## In-game camera extractor (C++, `extractor/`, Path B)
+
+`client_extractor.dll` runs inside the game: a Lua profile finds the camera by signature and reads it on every Present. Its toggle key (default F9, read with `GetAsyncKeyState`) starts/stops writing `camera_samples.csv` (QPC time, position, forward/right/up, FOV — in engine axes and units, format pinned by `tests/fixtures/camera_samples.csv`) and `extractor.json` (the profile's `convention`, `units_to_world`, `fov_axis`, `camera_model`). It does nothing else: `odx-build --camera <that folder>` converts the samples to the canonical C2W + intrinsics and puts them on the video frames (newest sample at or before each frame's capture time, none if older than 100 ms). Input and video come from `odx-input` + `odx-record` as for any title.
 
 `odx-record` captures a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC time, the same clock as `odx-input`. Frames are resampled onto a constant-rate grid and piped to ffmpeg (x264 by default, NVENC optional; no B-frames). Outputs:
 - `video.mp4`

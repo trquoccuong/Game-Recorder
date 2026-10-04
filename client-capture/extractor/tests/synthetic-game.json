@@ -1,0 +1,13 @@
+{
+  "game_title": "Synthetic",
+  "platform": "PC",
+  "localization": "en-US",
+  "input_mouse_convention": {
+    "maps_to": "camera_look_velocity",
+    "dx_positive": "right",
+    "dx_negative": "left",
+    "dy_positive": "down",
+    "dy_negative": "up"
+  },
+  "bindings": {}
+}

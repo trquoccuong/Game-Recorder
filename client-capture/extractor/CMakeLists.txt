@@ -22,10 +22,10 @@ if(UNIX)
   target_compile_definitions(lua_static PRIVATE LUA_USE_POSIX)
 endif()
 
-# Portable core: geometry, input aggregation, output writers, memory/signatures, Lua profiles, recorder.
+# Portable core: memory/signatures, Lua profiles, camera sample recorder. Canonical geometry, input aggregation and
+# frames.csv / session.json live in capture-cs only (odx-build), which consumes the recorder's output.
 add_library(odx_core STATIC
-  src/math.cpp src/input.cpp src/output.cpp src/memory.cpp
-  src/profile.cpp src/config.cpp src/recorder.cpp src/fake_game.cpp)
+  src/memory.cpp src/profile.cpp src/config.cpp src/recorder.cpp src/fake_game.cpp)
 target_include_directories(odx_core PUBLIC include)
 target_link_libraries(odx_core PUBLIC lua_static)
 
@@ -69,18 +69,24 @@ if(ODX_BUILD_TESTS)
   add_executable(odx_tests tests/test_core.cpp)
   target_include_directories(odx_tests PRIVATE ${doctest_SOURCE_DIR})
   target_link_libraries(odx_tests PRIVATE odx_core)
-  target_compile_definitions(odx_tests PRIVATE ODX_PROFILES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/profiles")
+  target_compile_definitions(odx_tests PRIVATE ODX_PROFILES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/profiles"
+                                              ODX_FIXTURES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../tests/fixtures")
   add_test(NAME core COMMAND odx_tests)
 
-  # End to end: fake game -> Lua profile -> recorder -> odx-validate (capture-cs, if built).
-  set(ODX_SYNTH_DIR ${CMAKE_CURRENT_BINARY_DIR}/synth_session)
-  add_test(NAME synth_session
+  # End to end: fake game -> Lua profile -> camera samples + synthetic capture logs -> odx-build -> odx-validate.
+  # The last two need capture-cs built first; a Debug build is preferred over Release (CI builds Release only).
+  set(ODX_SYNTH_DIR ${CMAKE_CURRENT_BINARY_DIR}/synth_capture)
+  add_test(NAME synth_capture
     COMMAND odx_synth ${CMAKE_CURRENT_SOURCE_DIR}/profiles/synthetic.lua ${ODX_SYNTH_DIR} 300)
-  find_program(CLIENT_VALIDATE odx-validate
-    HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../capture-cs/src/Odx.Validate/bin/Release/net8.0
-          ${CMAKE_CURRENT_SOURCE_DIR}/../capture-cs/src/Odx.Validate/bin/Debug/net8.0)
-  if(CLIENT_VALIDATE)
-    add_test(NAME synth_session_validates COMMAND ${CLIENT_VALIDATE} --no-video ${ODX_SYNTH_DIR})
-    set_tests_properties(synth_session_validates PROPERTIES DEPENDS synth_session)
+  set(ODX_CS_BIN ${CMAKE_CURRENT_SOURCE_DIR}/../capture-cs/src)
+  find_program(ODX_BUILD odx-build HINTS ${ODX_CS_BIN}/Odx.Build/bin/Debug/net8.0 ${ODX_CS_BIN}/Odx.Build/bin/Release/net8.0)
+  find_program(ODX_VALIDATE odx-validate
+    HINTS ${ODX_CS_BIN}/Odx.Validate/bin/Debug/net8.0 ${ODX_CS_BIN}/Odx.Validate/bin/Release/net8.0)
+  if(ODX_BUILD AND ODX_VALIDATE)
+    add_test(NAME synth_capture_builds
+      COMMAND ${ODX_BUILD} ${ODX_SYNTH_DIR} --profile ${CMAKE_CURRENT_SOURCE_DIR}/tests/synthetic-game.json)
+    set_tests_properties(synth_capture_builds PROPERTIES DEPENDS synth_capture)
+    add_test(NAME synth_capture_validates COMMAND ${ODX_VALIDATE} --no-video ${ODX_SYNTH_DIR})
+    set_tests_properties(synth_capture_validates PROPERTIES DEPENDS synth_capture_builds)
   endif()
 endif()

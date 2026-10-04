@@ -30,11 +30,7 @@ std::optional<Config> load_config(const std::string& path, std::string& error) {
         };
         c.profile = resolve(get_string(L, "profile", ""));
         c.out_dir = resolve(get_string(L, "out_dir", "odx_capture"));
-        c.vendor_name = get_string(L, "vendor_name", c.vendor_name);
         c.toggle_key = get_string(L, "toggle_key", c.toggle_key);
-        lua_getfield(L, -1, "fps");
-        if (lua_isnumber(L, -1)) c.fps = lua_tonumber(L, -1);
-        lua_pop(L, 1);
         if (c.profile.empty()) {
             error = path + ": 'profile' is required";
         } else {

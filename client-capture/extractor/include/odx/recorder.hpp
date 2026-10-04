@@ -1,27 +1,28 @@
-// Records one session: per-frame camera + input rows to frames.csv (writer thread), session.json on stop.
+// Records the camera for one capture: one camera_samples.csv row per presented frame (written on a separate thread so
+// the game's render thread never waits on disk) and extractor.json with the profile's axis fields on stop.
+// `odx build` (capture-cs) merges them with the odx-input / odx-record logs of the same capture.
 #pragma once
 
-#include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
-#include <map>
+#include <fstream>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <thread>
 
-#include "odx/input.hpp"
-#include "odx/output.hpp"
 #include "odx/profile.hpp"
 
 namespace odx {
 
+// camera_samples.csv header; the row format is pinned by tests/fixtures/camera_samples.csv.
+extern const char* const kCameraSamplesHeader;
+
+// Shortest round-trip representation, always with a decimal point or exponent ("0.0", "1.5", "1e-05").
+std::string format_double(double v);
+
 struct RecorderConfig {
-    std::string session_dir;  // created if missing
-    std::string vendor_name = "odx";
-    std::string session_id;
-    double fps = 60;
-    int screen_width_px = 0, screen_height_px = 0;
+    std::string dir;  // created if missing
     ProfileInfo profile;
 };
 
@@ -31,40 +32,24 @@ public:
     ~Recorder();
 
     bool start(std::string& error);
-    // Called once per presented frame. `t_ms` is a monotonic clock shared with the input callbacks.
-    void on_frame(double t_ms, int width, int height, const std::optional<CameraSample>& camera);
-    // Writes session.json and closes frames.csv. Returns the number of frames written.
+    // `t_ms` is QueryPerformanceCounter in milliseconds, the clock of odx-input and odx-record.
+    void on_frame(double t_ms, const CameraSample& sample);
+    // Writes extractor.json and closes camera_samples.csv. Returns the number of samples written.
     int64_t stop();
-
-    // Input callbacks (any thread). Profile bindings turn keys/buttons into semantic actions.
-    void on_key(const std::string& key, bool down, double t_ms);
-    void on_mouse_button(const std::string& button, bool down, double t_ms);
-    void on_mouse_move(double dx, double dy, double t_ms);
-
     bool recording() const { return recording_; }
 
 private:
     void writer_loop();
 
     RecorderConfig cfg_;
-    InputAggregator input_;
-    FramesCsvWriter writer_;
+    std::ofstream out_;
     std::thread writer_thread_;
     std::mutex mu_;
     std::condition_variable cv_;
-    std::deque<FrameRow> queue_;
-    std::atomic<bool> recording_ = false;
+    std::deque<std::string> queue_;
+    bool recording_ = false;
     bool stopping_ = false;
-
-    int64_t frame_count_ = 0;
-    double t0_ms_ = 0;
-    int64_t last_ts_ms_ = 0;
-    int width_ = 0, height_ = 0;
-    std::string created_at_utc_;
-    double created_epoch_s_ = 0;
+    int64_t count_ = 0;
 };
-
-// ISO 8601 UTC with milliseconds, e.g. "2026-10-04T10:00:00.123Z".
-std::string iso_utc(double epoch_seconds);
 
 }  // namespace odx

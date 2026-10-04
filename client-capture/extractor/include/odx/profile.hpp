@@ -2,14 +2,14 @@
 //
 // A profile is a Lua file returning a table:
 //   game, engine            strings
-//   convention              "rfu" | "unity" | "unreal" | "quake"
+//   convention              "rfu" | "unity" | "unreal" | "quake"   (engine world axes)
 //   units_to_world          number (default 1.0), e.g. 0.01 for Unreal centimetres
 //   fov_axis                "vertical" | "horizontal"
 //   camera_model            default "PINHOLE"
-//   mouse_convention        { maps_to, dx_positive, dx_negative, dy_positive, dy_negative }
-//   bindings                { [key or mouse button name] = action name }
 //   init()                  optional; called once to resolve signatures
 //   sample()                returns { position, forward, right, up, fov } (vectors as {x, y, z} in engine axes)
+// Samples stay in engine axes and units; `odx build` (capture-cs) converts them to the canonical C2W using the axis
+// fields above. Key bindings and session.json fields live in the game profile JSON (client-capture/games/).
 //
 // Global `mem` API available to profiles (all addresses are Lua integers):
 //   mem.module(name) -> base, size | nil      mem.scan(module, "48 8B 05 ?? ...") -> addr | nil
@@ -18,32 +18,32 @@
 //   mem.read_vec3(addr) -> {x, y, z} from three float32
 #pragma once
 
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
 
-#include "odx/math.hpp"
 #include "odx/memory.hpp"
-#include "odx/output.hpp"
 
 struct lua_State;
 
 namespace odx {
 
-struct ProfileInfo {
-    std::string game, engine;
-    Convention convention = Convention::RFU;
-    double units_to_world = 1.0;
-    bool fov_vertical = true;
-    std::string camera_model = "PINHOLE";
-    MouseConvention mouse;
-    std::map<std::string, std::string> bindings;
+struct Vec3 {
+    double x = 0, y = 0, z = 0;
 };
 
+struct ProfileInfo {
+    std::string game, engine;
+    std::string convention = "rfu";
+    double units_to_world = 1.0;
+    std::string fov_axis = "vertical";
+    std::string camera_model = "PINHOLE";
+};
+
+// One sample() result, in engine axes and units.
 struct CameraSample {
-    Mat4 c2w;
-    Intrinsics intrinsics;
+    Vec3 position, forward, right, up;
+    double fov_deg = 0;
 };
 
 class Profile {
@@ -56,8 +56,7 @@ public:
     const ProfileInfo& info() const { return info_; }
     // Runs init() if present; returns false and sets last_error() on failure (retry later, e.g. game still loading).
     bool init();
-    // Calls sample() and converts to canonical C2W + intrinsics for the output resolution.
-    std::optional<CameraSample> sample(int width, int height);
+    std::optional<CameraSample> sample();
     const std::string& last_error() const { return last_error_; }
 
 private:

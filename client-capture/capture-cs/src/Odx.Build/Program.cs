@@ -1,31 +1,34 @@
-// odx-build <capture_dir> --profile <game.json> [--vendor <name>]
+// odx-build <capture_dir> --profile <game.json> [--vendor <name>] [--camera <dir>]
 // Turns an odx-input + odx-record capture folder into a spec v2 session (frames.csv + session.json next to video.mp4),
-// ready for odx-validate. Exit code 1 if the folder cannot be built.
+// ready for odx-validate. --camera: folder with the extractor DLL's camera_samples.csv + extractor.json (default: the
+// capture folder; without them the camera columns are null). Exit code 1 if the folder cannot be built.
 using System.Text;
 using Odx.Session;
 
 Console.OutputEncoding = new UTF8Encoding(false);
-string? dir = null, profilePath = null, vendor = "odx";
+string? dir = null, profilePath = null, vendor = "odx", cameraDir = null;
 for (int i = 0; i < args.Length; i++)
 {
     switch (args[i])
     {
         case "--profile" when i + 1 < args.Length: profilePath = args[++i]; break;
         case "--vendor" when i + 1 < args.Length: vendor = args[++i]; break;
+        case "--camera" when i + 1 < args.Length: cameraDir = args[++i]; break;
         case var a when !a.StartsWith("--", StringComparison.Ordinal) && dir is null: dir = a; break;
         default: dir = null; i = args.Length; break;
     }
 }
 if (dir is null || profilePath is null)
 {
-    Console.Error.WriteLine("usage: odx-build <capture_dir> --profile <game.json> [--vendor <name>]");
+    Console.Error.WriteLine("usage: odx-build <capture_dir> --profile <game.json> [--vendor <name>] [--camera <dir>]");
     return 2;
 }
 
 try
 {
-    var report = SessionBuilder.Build(dir, GameProfile.Load(profilePath), vendor);
-    Console.WriteLine($"built {report.SessionId}: {report.FrameCount} frames, {report.DurationMs / 1000:F1} s");
+    var report = SessionBuilder.Build(dir, GameProfile.Load(profilePath), vendor, cameraDir);
+    Console.WriteLine($"built {report.SessionId}: {report.FrameCount} frames, {report.DurationMs / 1000:F1} s, " +
+                      $"camera on {report.CameraFrames} frames");
     if (report.UnboundKeys.Count > 0)
         Console.WriteLine("unbound keys left out of input_keys: " +
                           string.Join(", ", report.UnboundKeys.Select(kv => $"{kv.Key} ×{kv.Value}")));

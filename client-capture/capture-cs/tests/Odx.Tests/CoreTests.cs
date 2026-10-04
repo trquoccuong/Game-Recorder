@@ -123,25 +123,3 @@ public class RawInputParserTests
         Assert.Empty(RawInputParser.Parse(raw, Ptr, 0));
     }
 }
-
-public class InputMsgTests
-{
-    [Fact]
-    public void Encodes_the_packed_layout_read_by_the_cpp_dll()
-    {
-        var b = InputMsg.Encode(new InputEvent(1234.5, InputKind.MouseMove, "", 3, -1));
-        Assert.Equal(49, b.Length);
-        Assert.Equal(4, b[0]);  // MsgKind::MouseMove
-        Assert.Equal(1234.5, BinaryPrimitives.ReadDoubleLittleEndian(b.AsSpan(1)));
-        Assert.Equal(3f, BinaryPrimitives.ReadSingleLittleEndian(b.AsSpan(9)));
-        Assert.Equal(-1f, BinaryPrimitives.ReadSingleLittleEndian(b.AsSpan(13)));
-    }
-
-    [Fact]
-    public void Value_is_truncated_and_nul_terminated()
-    {
-        var b = InputMsg.Encode(new InputEvent(0, InputKind.KeyDown, new string('A', 40)));
-        Assert.Equal(new string('A', 31), Encoding.UTF8.GetString(b, 17, 31));
-        Assert.Equal(0, b[48]);
-    }
-}

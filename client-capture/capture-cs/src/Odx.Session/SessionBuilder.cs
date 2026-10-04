@@ -7,15 +7,21 @@ namespace Odx.Session;
 
 /// <param name="UnboundKeys">Keys pressed but not in the profile's bindings, with press counts. Spec v2 §1.5 requires
 /// every active key to map to an action, so they are left out of input_keys.</param>
-public sealed record BuildReport(string SessionId, int FrameCount, double DurationMs, IReadOnlyDictionary<string, int> UnboundKeys);
+/// <param name="CameraFrames">Frames with camera columns; 0 for an action-only capture (no camera samples).</param>
+public sealed record BuildReport(string SessionId, int FrameCount, double DurationMs, IReadOnlyDictionary<string, int> UnboundKeys,
+    int CameraFrames);
 
 /// <summary>
 /// Turns a capture folder (odx-input + odx-record logs) into a spec v2 session: writes frames.csv and session.json next
-/// to video.mp4. Frame clock: video_frames.csv grid times. Camera columns are null (action-only capture).
+/// to video.mp4. Frame clock: video_frames.csv grid times. Camera columns come from the extractor DLL's
+/// camera_samples.csv + extractor.json when present (in the capture folder or <c>cameraDir</c>), else they are null.
 /// </summary>
 public static class SessionBuilder
 {
-    public static BuildReport Build(string captureDir, GameProfile profile, string vendorName = "odx")
+    /// <summary>A frame gets no camera if the newest sample before it is older than this (game hitch, profile failure).</summary>
+    public const double MaxCameraAgeMs = 100;
+
+    public static BuildReport Build(string captureDir, GameProfile profile, string vendorName = "odx", string? cameraDir = null)
     {
         var frames = VideoFrameLogReader.Read(Path.Combine(captureDir, "video_frames.csv"));
         if (frames.Count == 0) throw new InvalidDataException("video_frames.csv has no frames");
@@ -27,8 +33,11 @@ public static class SessionBuilder
         var times = frames.Select(f => f.TGridMs).ToList();
         var (mapped, unbound) = MapInputs(events, profile.Bindings, times[0] - 1000.0 / fps);
         var inputs = Frames.AggregateInputs(times, mapped);
-        Frames.WriteCsv(Path.Combine(captureDir, "frames.csv"), frames.Select((f, i) =>
-            new FrameRow(i, (long)Math.Round(f.TGridMs - times[0]), null, null, null, inputs[i])));
+        int width = Required<int>(recording, "width"), height = Required<int>(recording, "height");
+        var cameras = CameraPerFrame(cameraDir ?? captureDir, frames, width, height);
+        Frames.WriteCsv(Path.Combine(captureDir, "frames.csv"), frames.Select((f, i) => new FrameRow(i,
+            (long)Math.Round(f.TGridMs - times[0]), cameras?[i]?.C2w, cameras?[i] is null ? null : cameras.Model,
+            cameras?[i]?.Intrinsics, inputs[i])));
 
         // Duration covers the last frame's display interval, so timestamp_ms[-1] + 1 frame ≈ duration_ms.
         double durationMs = frames.Count * 1000.0 / fps;
@@ -45,8 +54,8 @@ public static class SessionBuilder
             ["duration_seconds"] = durationMs / 1000,
             ["fps"] = fps,
             ["frame_count"] = frames.Count,
-            ["record_width_px"] = Required<int>(recording, "width"),
-            ["record_height_px"] = Required<int>(recording, "height"),
+            ["record_width_px"] = width,
+            ["record_height_px"] = height,
             ["screen_width_px"] = Required<int>(recording, "screen_width"),
             ["screen_height_px"] = Required<int>(recording, "screen_height"),
             ["localization"] = profile.Localization,
@@ -61,7 +70,34 @@ public static class SessionBuilder
                 WriteIndented = true,
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
             }));
-        return new BuildReport(sessionId, frames.Count, durationMs, unbound);
+        return new BuildReport(sessionId, frames.Count, durationMs, unbound, cameras?.Count(c => c is not null) ?? 0);
+    }
+
+    private sealed class FrameCameras(string model, int count) : List<(double[,] C2w, Intrinsics Intrinsics)?>(count)
+    {
+        public string Model { get; } = model;
+    }
+
+    /// <summary>
+    /// For each video frame, the newest camera sample taken at or before the frame was captured (t_source): the Present
+    /// that produced the image comes just before Windows.Graphics.Capture delivers it. Null when there are no samples.
+    /// </summary>
+    private static FrameCameras? CameraPerFrame(string dir, List<GridTick> frames, int width, int height)
+    {
+        string samplesPath = Path.Combine(dir, "camera_samples.csv"), infoPath = Path.Combine(dir, "extractor.json");
+        if (!File.Exists(samplesPath) || !File.Exists(infoPath)) return null;
+        var info = ExtractorInfo.Load(infoPath);
+        var samples = CameraSampleReader.Read(samplesPath).OrderBy(s => s.TQpcMs).ToList();
+        var result = new FrameCameras(info.CameraModel, frames.Count);
+        int j = -1;
+        foreach (var f in frames)
+        {
+            while (j + 1 < samples.Count && samples[j + 1].TQpcMs <= f.TSourceMs) j++;
+            result.Add(j >= 0 && f.TSourceMs - samples[j].TQpcMs <= MaxCameraAgeMs
+                ? info.ToCanonical(samples[j], width, height)
+                : null);
+        }
+        return result;
     }
 
     /// <summary>

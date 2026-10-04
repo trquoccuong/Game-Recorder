@@ -1,11 +1,10 @@
-// odx-input --out <dir> [--pid <game_pid>] [--forward] [--stop-event <name>]
+// odx-input --out <dir> [--pid <game_pid>] [--stop-event <name>]
 //
 // Captures keyboard/mouse with the Raw Input API in its own process (RIDEV_INPUTSINK: keeps receiving while the game
 // has focus) and never touches the game. Writes, QPC-stamped:
 //   <dir>/input_events.csv   raw events (t_qpc_ms,kind,value,dx,dy)
 //   <dir>/clock_samples.csv  QPC <-> UTC once per second, to align with server events / demo ticks
-// --pid: stop when that process exits. --forward: also send each event to the C++ extractor DLL in that process
-// (mailslot), for the in-process capture path. --stop-event: stop when that named event is set (Odx.App).
+// --pid: stop when that process exits. --stop-event: stop when that named event is set (Odx.App).
 // Stop with Ctrl+C.
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -17,25 +16,13 @@ using static Odx.Input.Win32;
 var opts = ParseArgs(args);
 if (opts is null)
 {
-    Console.Error.WriteLine("usage: odx-input --out <dir> [--pid <game_pid>] [--forward] [--stop-event <name>]");
+    Console.Error.WriteLine("usage: odx-input --out <dir> [--pid <game_pid>] [--stop-event <name>]");
     return 2;
 }
 
 Directory.CreateDirectory(opts.Value.OutDir);
 using var events = new InputLogWriter(new StreamWriter(Path.Combine(opts.Value.OutDir, "input_events.csv")));
 using var clock = new ClockSampleWriter(new StreamWriter(Path.Combine(opts.Value.OutDir, "clock_samples.csv")));
-
-IntPtr mailslot = IntPtr.Zero;
-if (opts.Value.Forward)
-{
-    mailslot = CreateFileW(InputMsg.MailslotName(opts.Value.Pid!.Value), GENERIC_WRITE, FILE_SHARE_READ, IntPtr.Zero,
-        OPEN_EXISTING, 0, IntPtr.Zero);
-    if (mailslot == INVALID_HANDLE_VALUE)
-    {
-        Console.Error.WriteLine($"extractor mailslot not found for pid {opts.Value.Pid} (is the DLL loaded?)");
-        return 1;
-    }
-}
 
 // Message-only window using the built-in STATIC class; WM_INPUT is handled in the message loop below.
 IntPtr hwnd = CreateWindowExW(0, "STATIC", "odx-input", 0, 0, 0, 0, 0, HWND_MESSAGE, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
@@ -82,10 +69,7 @@ while (GetMessageW(out var msg, IntPtr.Zero, 0, 0) > 0)
         {
             if (GetRawInputData(msg.LParam, RID_INPUT, handle.AddrOfPinnedObject(), ref size, (uint)headerSize) == size)
                 foreach (var e in RawInputParser.Parse(buffer.AsSpan(0, (int)size), IntPtr.Size, t))
-                {
                     events.Write(e);
-                    if (mailslot != IntPtr.Zero) WriteFile(mailslot, InputMsg.Encode(e), InputMsg.Size, out _, IntPtr.Zero);
-                }
         }
         finally
         {
@@ -111,11 +95,10 @@ void WriteClockSample()
     events.Flush();
 }
 
-static (string OutDir, int? Pid, bool Forward, string? StopEvent)? ParseArgs(string[] args)
+static (string OutDir, int? Pid, string? StopEvent)? ParseArgs(string[] args)
 {
     string? outDir = null;
     int? pid = null;
-    bool forward = false;
     string? stopEvent = null;
     for (int i = 0; i < args.Length; i++)
     {
@@ -123,11 +106,10 @@ static (string OutDir, int? Pid, bool Forward, string? StopEvent)? ParseArgs(str
         {
             case "--out" when i + 1 < args.Length: outDir = args[++i]; break;
             case "--pid" when i + 1 < args.Length && int.TryParse(args[i + 1], out var p): pid = p; i++; break;
-            case "--forward": forward = true; break;
             case "--stop-event" when i + 1 < args.Length: stopEvent = args[++i]; break;
             default: return null;
         }
     }
-    if (outDir is null || (forward && pid is null)) return null;
-    return (outDir, pid, forward, stopEvent);
+    if (outDir is null) return null;
+    return (outDir, pid, stopEvent);
 }
