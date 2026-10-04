@@ -103,7 +103,7 @@ dotnet build && dotnet test
 cmake -B build && cmake --build build --config Debug
 ctest --test-dir build -C Debug
 
-# Self-contained package with ffmpeg (from client-capture/capture-cs/) -> dist/odx-capture-<ver>-win-x64.zip
+# Self-contained package with ffmpeg (from client-capture/capture-cs/; builds ffmpeg in MSYS2 once) -> dist/odx-capture-<ver>-win-x64.zip
 powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0
 ```
 

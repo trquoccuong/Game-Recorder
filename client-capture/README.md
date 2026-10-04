@@ -45,7 +45,7 @@ Language split: plan §6.5.
 dotnet run --project src/Odx.Cli -f net8.0-windows10.0.22621.0 -- record --out C:/odx_capture/session1 --window Game.exe [--fps 60] [--encoder x264|nvenc] [--seconds 120]
 ```
 
-Run `odx input` and `odx record` into the same `--out` folder. Grid times (`t_grid_qpc_ms`) are the per-frame clock for `Frames.AggregateInputs`. Requires Windows 10 2004+ and ffmpeg on PATH (or `--ffmpeg`). `--encoder nvenc` with ffmpeg 9 needs NVIDIA driver 610+; older drivers fail at startup, so x264 is the default. Both commands also accept `--stop-event <name>`: they stop when that named Win32 event is set.
+Run `odx input` and `odx record` into the same `--out` folder. Grid times (`t_grid_qpc_ms`) are the per-frame clock for `Frames.AggregateInputs`. Requires Windows 10 2004+ and ffmpeg (the packaged `ffmpeg/ffmpeg.exe`, else PATH, or `--ffmpeg`). x264 is the default; `--encoder nvenc` needs an NVIDIA GPU with driver 471.41+ (the packaged ffmpeg is built with NVENC 11.1 headers; ffmpeg builds with the newest headers need 610+). Both commands also accept `--stop-event <name>`: they stop when that named Win32 event is set.
 
 `odx-app` (WPF, `src/Odx.App`) is the desktop front end. It runs `odx input` and `odx record` as child processes into `<output folder>/<yyyyMMdd-HHmmss>/` and stops both through `--stop-event`.
 - English / Vietnamese UI (all texts in `src/Odx.App/Strings.cs`; defaults to the Windows display language, switchable at any time). Validator issue messages stay in English.
@@ -65,19 +65,21 @@ cd capture-cs
 powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0
 ```
 
-Produces `capture-cs/dist/odx-capture-<version>-win-x64.zip` (~210 MB, 7 files). The first launch after unzipping takes 10–20 s (Windows Defender scans the new executables, WPF extracts its native libraries); later launches take ~1.6 s for the app and ~0.1 s for odx. Unzip it on any Windows 10 2004+ x64 machine and run `odx-app.exe`; no .NET or ffmpeg install is needed.
+Produces `capture-cs/dist/odx-capture-<version>-win-x64.zip` (~140 MB, 7 files). The first run builds ffmpeg from source (below) and needs MSYS2. The first launch after unzipping takes 10–20 s (Windows Defender scans the new executables, WPF extracts its native libraries); later launches take ~1.6 s for the app and ~0.1 s for odx. Unzip it on any Windows 10 2004+ x64 machine and run `odx-app.exe`; no .NET or ffmpeg install is needed.
 
 ```
 odx-capture-<version>-win-x64/
   odx-app.exe                 desktop front end
   odx.exe                     command-line tool (input, record, build, validate)
-  ffmpeg/                     ffmpeg.exe, LICENSE (pinned gyan.dev 9.0.2 essentials build, SHA-256 checked)
+  ffmpeg/                     ffmpeg.exe (6 MB, built by ffmpeg/build-ffmpeg.sh), LICENSE.txt, SOURCES.txt
   games/                      game profiles
 ```
 
 Both executables are self-contained single files: each embeds its own .NET runtime (WPF's native libraries are extracted to a temp folder on first run), so they never share or overwrite each other's files. They are not compressed: decompressing on every start made each launch 0.7–1.3 s slower, and the zip is compressed anyway.
 
-odx record uses `ffmpeg/ffmpeg.exe` from the package when present, otherwise `ffmpeg` on PATH; nothing needs ffprobe. The ffmpeg build is GPLv3: its LICENSE ships alongside, and our tools only run it as a separate process (not linked).
+odx record uses `ffmpeg/ffmpeg.exe` from the package when present, otherwise `ffmpeg` on PATH; nothing needs ffprobe.
+
+**ffmpeg build.** `capture-cs/ffmpeg/build-ffmpeg.sh` builds a static ffmpeg with only what `odx record` uses — rawvideo from stdin, crop/scale/format, libx264 and h264_nvenc, MP4 to a file — from pinned, SHA-256-checked sources (FFmpeg 9.0.2, x264 stable, nv-codec-headers 11.1.5.4): 6 MB instead of ~100 MB for a general build. `publish.ps1` runs it once in MSYS2 (`C:\msys64` or `MSYS2_ROOT`; `pacman -S make diffutils mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf`), ~10–15 min, and caches it in `.cache/ffmpeg-<script hash>/` so changing the script rebuilds it. The result is GPLv2 (FFmpeg `--enable-gpl` with x264); `LICENSE.txt` and `SOURCES.txt` (exact sources and configure line, for the GPL source offer) ship next to it. Our tools only run it as a separate process (not linked).
 
 ## Versions and CI
 
