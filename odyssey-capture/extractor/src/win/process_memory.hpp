@@ -1,4 +1,3 @@
-// MemoryReader over the current (game) process.
 #pragma once
 
 #include "odx/memory.hpp"

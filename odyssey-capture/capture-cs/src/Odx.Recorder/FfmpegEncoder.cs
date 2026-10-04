@@ -30,7 +30,6 @@ internal sealed class FfmpegEncoder : IDisposable
 
     public void Write(byte[] bgraFrame) => _stdin.Write(bgraFrame, 0, bgraFrame.Length);
 
-    /// <summary>Closes the pipe and waits for ffmpeg; returns its exit code.</summary>
     public int Finish()
     {
         _stdin.Close();

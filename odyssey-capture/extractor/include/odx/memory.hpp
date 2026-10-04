@@ -1,4 +1,3 @@
-// Memory access used by Lua profiles: reads, module lookup, AOB signature scan, RIP-relative resolution.
 #pragma once
 
 #include <cstddef>

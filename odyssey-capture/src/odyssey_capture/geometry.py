@@ -27,7 +27,6 @@ def to_rfu(v, convention: str) -> np.ndarray:
 
 
 def c2w_from_axes(right, up, backward, position) -> np.ndarray:
-    """Assemble a C2W matrix from canonical (RFU) axis vectors and position."""
     m = np.eye(4)
     m[:3, 0] = right
     m[:3, 1] = up
