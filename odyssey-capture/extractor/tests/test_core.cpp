@@ -1,99 +1,27 @@
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
-#include <cmath>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <random>
 #include <sstream>
 
 #include "odx/config.hpp"
 #include "odx/fake_game.hpp"
-#include "odx/input.hpp"
 #include "odx/memory.hpp"
-#include "odx/output.hpp"
 #include "odx/profile.hpp"
 #include "odx/recorder.hpp"
 
 using namespace odx;
 
 namespace {
-void check_vec(Vec3 a, Vec3 b, double eps = 1e-12) {
-    CHECK(a.x == doctest::Approx(b.x).epsilon(eps));
-    CHECK(a.y == doctest::Approx(b.y).epsilon(eps));
-    CHECK(a.z == doctest::Approx(b.z).epsilon(eps));
-}
-Vec3 col(const Mat4& m, int c) { return {m[0][c], m[1][c], m[2][c]}; }
 std::string profile_path() { return std::string(ODX_PROFILES_DIR) + "/synthetic.lua"; }
+
+std::string read_file(const std::filesystem::path& p) {
+    std::stringstream s;
+    s << std::ifstream(p, std::ios::binary).rdbuf();
+    return s.str();
+}
 }  // namespace
-
-TEST_CASE("engine camera facing forward maps to north") {
-    struct Case {
-        Convention c;
-        Vec3 right, up, forward;
-    };
-    for (auto [c, r, u, f] : {Case{Convention::RFU, {1, 0, 0}, {0, 0, 1}, {0, 1, 0}},
-                              Case{Convention::Unity, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}},
-                              Case{Convention::Unreal, {0, 1, 0}, {0, 0, 1}, {1, 0, 0}},
-                              Case{Convention::Quake, {0, -1, 0}, {0, 0, 1}, {1, 0, 0}}}) {
-        Mat4 m = c2w_from_engine(r, u, f, {0, 0, 0}, c);
-        check_vec(col(m, 0), {1, 0, 0});
-        check_vec(col(m, 1), {0, 0, 1});
-        check_vec(col(m, 2), {0, -1, 0});
-        CHECK(rotation_errors(m).det < 1e-12);
-    }
-}
-
-TEST_CASE("roll-free cameras are proper rotations with level right axis") {
-    std::mt19937 rng(42);
-    std::uniform_real_distribution<double> heading(-180, 180), pitch(-89, 89);
-    for (int i = 0; i < 1000; ++i) {
-        Mat4 m = c2w_from_forward(forward_from_heading_pitch(heading(rng), pitch(rng)), {1, 2, 3});
-        auto e = rotation_errors(m);
-        CHECK(e.det < 1e-9);
-        CHECK(e.ortho < 1e-9);
-        CHECK(std::abs(m[2][0]) < 1e-9);
-        CHECK(m[2][1] > 0);
-    }
-}
-
-TEST_CASE("intrinsics") {
-    auto k = intrinsics_from_vfov(90, 1920, 1080);
-    CHECK(k.fy == doctest::Approx(540));
-    CHECK(k.fx == k.fy);
-    CHECK(k.cx == 960);
-    CHECK(k.cy == 540);
-    auto h = intrinsics_from_hfov(90, 1920, 1080);
-    CHECK(h.fx == doctest::Approx(960));
-}
-
-TEST_CASE("input aggregation matches Odx.Core.Frames semantics") {
-    InputAggregator agg;
-    agg.push({10, InputKind::KeyDown, "W"});
-    agg.push({20, InputKind::KeyDown, "Space"});
-    agg.push({25, InputKind::KeyUp, "Space"});  // tap inside one frame
-    agg.push({45, InputKind::KeyUp, "W"});
-    for (double t : {18.0, 20.0, 30.0, 33.0}) agg.push({t, InputKind::MouseMove, {}, 1.5, -0.5});
-    std::vector<FrameInput> rows;
-    for (double t : {0.0, 17.0, 33.0, 50.0, 67.0}) rows.push_back(agg.close_frame(t));
-    CHECK(rows[0].keys == "");
-    CHECK(rows[1].keys == "W");
-    CHECK(rows[2].keys == "W|Space");
-    CHECK(rows[3].keys == "W");
-    CHECK(rows[4].keys == "");
-    CHECK(rows[2].dx == 6.0);
-    CHECK(rows[2].dy == -2.0);
-    CHECK(rows[3].dx == 0.0);
-}
-
-TEST_CASE("format_double keeps full precision and a decimal point") {
-    CHECK(format_double(0.0) == "0.0");
-    CHECK(format_double(3.0) == "3.0");
-    CHECK(format_double(-1.5) == "-1.5");
-    CHECK(std::stod(format_double(0.1 + 0.2)) == 0.1 + 0.2);
-    CHECK(frame_columns().size() == 2 + 16 + 5 + 8 + 5);
-}
 
 TEST_CASE("pattern parsing, scan and RIP resolution") {
     CHECK_FALSE(parse_pattern("48 8B zz").has_value());
@@ -111,21 +39,26 @@ TEST_CASE("pattern parsing, scan and RIP resolution") {
     CHECK_FALSE(scan(game.memory(), *span, *parse_pattern("DE AD BE EF")).has_value());
 }
 
-TEST_CASE("Lua profile reads the fake game and reproduces the canonical pose") {
+TEST_CASE("Lua profile finds the fake game's camera by signature and reads it") {
     FakeGame game;
     std::string error;
     auto profile = Profile::load(profile_path(), game.memory(), error);
     REQUIRE_MESSAGE(profile, error);
     REQUIRE_MESSAGE(profile->init(), profile->last_error());
-    CHECK(profile->info().bindings.at("W") == "Forward");
+    CHECK(profile->info().convention == "unreal");
+    CHECK(profile->info().units_to_world == 0.01);
+    CHECK(profile->info().fov_axis == "horizontal");
 
-    Mat4 expected = c2w_from_forward(forward_from_heading_pitch(37, -12), {4.5, -2.0, 1.7});
-    game.set_camera(expected, 90);
-    auto cam = profile->sample(1920, 1080);
-    REQUIRE_MESSAGE(cam, profile->last_error());
-    for (int r = 0; r < 4; ++r)
-        for (int c = 0; c < 4; ++c) CHECK(cam->c2w[r][c] == doctest::Approx(expected[r][c]).epsilon(1e-5));
-    CHECK(cam->intrinsics.fx == doctest::Approx(960).epsilon(1e-5));  // 90° horizontal at 1920 px
+    CameraSample written{{450, -200, 170}, {0.6, 0.8, 0}, {-0.8, 0.6, 0}, {0, 0, 1}, 90};
+    game.set_camera(written);
+    auto read = profile->sample();
+    REQUIRE_MESSAGE(read, profile->last_error());
+    CHECK(read->position.x == 450);
+    CHECK(read->position.y == -200);
+    CHECK(read->forward.x == doctest::Approx(0.6));  // stored as float32
+    CHECK(read->right.x == doctest::Approx(-0.8));
+    CHECK(read->up.z == 1);
+    CHECK(read->fov_deg == 90);
 }
 
 TEST_CASE("profile errors are reported, not thrown") {
@@ -141,41 +74,39 @@ TEST_CASE("profile errors are reported, not thrown") {
 TEST_CASE("config resolves relative paths against its directory") {
     auto dir = std::filesystem::temp_directory_path() / "odx_config_test";
     std::filesystem::create_directories(dir);
-    std::ofstream(dir / "odx_config.lua") << "return { profile = 'profiles/x.lua', fps = 30 }";
+    std::ofstream(dir / "odx_config.lua") << "return { profile = 'profiles/x.lua' }";
     std::string error;
     auto cfg = load_config((dir / "odx_config.lua").string(), error);
     REQUIRE_MESSAGE(cfg, error);
     CHECK(cfg->profile == (dir / "profiles/x.lua").string());
-    CHECK(cfg->fps == 30);
     CHECK(cfg->toggle_key == "F9");
 }
 
-TEST_CASE("recorder writes one CSV row per frame and a consistent session.json") {
+TEST_CASE("recorder output matches the camera_samples.csv fixture read by capture-cs") {
     auto dir = std::filesystem::temp_directory_path() / "odx_recorder_test";
     std::filesystem::remove_all(dir);
-    RecorderConfig cfg;
-    cfg.session_dir = dir.string();
-    cfg.session_id = "t";
-    cfg.profile.game = "Test";
-    cfg.profile.bindings = {{"W", "Forward"}};
-    Recorder rec(cfg);
+    ProfileInfo info;
+    info.game = "Test";
+    info.convention = "unreal";
+    info.units_to_world = 0.01;
+    info.fov_axis = "horizontal";
+    Recorder rec({dir.string(), info});
     std::string error;
     REQUIRE(rec.start(error));
-    rec.on_key("W", true, 1000);
-    for (int i = 0; i < 10; ++i) rec.on_frame(1000 + i * 1000.0 / 60, 640, 360, std::nullopt);
-    CHECK(rec.stop() == 10);
+    rec.on_frame(1000.5, {{100, -50.25, 170}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, 90});
+    rec.on_frame(1017.25, {{101.5, -50.25, 170}, {0.6, 0.8, 0}, {-0.8, 0.6, 0}, {0, 0, 1}, 90});
+    CHECK(rec.stop() == 2);
 
-    std::ifstream csv(dir / "frames.csv");
-    std::string line;
-    int n = -1;
-    std::string first;
-    while (std::getline(csv, line)) {
-        if (n == 0) first = line;
-        ++n;
-    }
-    CHECK(n == 10);
-    CHECK(first.find(",W,Forward,,0.0,0.0") != std::string::npos);
-    std::stringstream session;
-    session << std::ifstream(dir / "session.json").rdbuf();
-    CHECK(session.str().find("\"frame_count\": 10") != std::string::npos);
+    CHECK(read_file(dir / "camera_samples.csv") == read_file(std::string(ODX_FIXTURES_DIR) + "/camera_samples.csv"));
+    std::string meta = read_file(dir / "extractor.json");
+    CHECK(meta.find("\"convention\": \"unreal\"") != std::string::npos);
+    CHECK(meta.find("\"units_to_world\": 0.01") != std::string::npos);
+    CHECK(meta.find("\"fov_axis\": \"horizontal\"") != std::string::npos);
+}
+
+TEST_CASE("format_double keeps full precision and a decimal point") {
+    CHECK(format_double(0.0) == "0.0");
+    CHECK(format_double(3.0) == "3.0");
+    CHECK(format_double(-1.5) == "-1.5");
+    CHECK(std::stod(format_double(0.1 + 0.2)) == 0.1 + 0.2);
 }

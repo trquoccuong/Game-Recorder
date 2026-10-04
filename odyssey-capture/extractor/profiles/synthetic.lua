@@ -10,12 +10,6 @@ return {
   units_to_world = 0.01,   -- centimetres -> metres
   fov_axis = "horizontal",
   camera_model = "PINHOLE",
-  mouse_convention = {
-    maps_to = "camera_look_velocity",
-    dx_positive = "right", dx_negative = "left",
-    dy_positive = "down", dy_negative = "up",
-  },
-  bindings = { W = "Forward", A = "Left", S = "Backward", D = "Right", Space = "Jump", Left = "Fire" },
 
   init = function()
     -- mov rax,[rip+disp32]; test rax,rax; jz short

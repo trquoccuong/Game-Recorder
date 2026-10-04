@@ -113,44 +113,21 @@ std::unique_ptr<Profile> Profile::load(const std::string& path, MemoryReader& me
     auto& info = p->info_;
     info.game = field_string(L, t, "game", "");
     info.engine = field_string(L, t, "engine", "");
-    auto conv = parse_convention(field_string(L, t, "convention", "rfu"));
-    if (!conv) {
-        error = path + ": unknown convention";
+    info.convention = field_string(L, t, "convention", info.convention);
+    if (info.convention != "rfu" && info.convention != "unity" && info.convention != "unreal" &&
+        info.convention != "quake") {
+        error = path + ": convention must be 'rfu', 'unity', 'unreal' or 'quake'";
         return nullptr;
     }
-    info.convention = *conv;
     lua_getfield(L, t, "units_to_world");
     info.units_to_world = lua_isnumber(L, -1) ? lua_tonumber(L, -1) : 1.0;
     lua_pop(L, 1);
-    std::string fov_axis = field_string(L, t, "fov_axis", "vertical");
-    if (fov_axis != "vertical" && fov_axis != "horizontal") {
+    info.fov_axis = field_string(L, t, "fov_axis", info.fov_axis);
+    if (info.fov_axis != "vertical" && info.fov_axis != "horizontal") {
         error = path + ": fov_axis must be 'vertical' or 'horizontal'";
         return nullptr;
     }
-    info.fov_vertical = fov_axis == "vertical";
-    info.camera_model = field_string(L, t, "camera_model", "PINHOLE");
-
-    lua_getfield(L, t, "mouse_convention");
-    if (lua_istable(L, -1)) {
-        int m = lua_gettop(L);
-        info.mouse.maps_to = field_string(L, m, "maps_to", info.mouse.maps_to);
-        info.mouse.dx_positive = field_string(L, m, "dx_positive", info.mouse.dx_positive);
-        info.mouse.dx_negative = field_string(L, m, "dx_negative", info.mouse.dx_negative);
-        info.mouse.dy_positive = field_string(L, m, "dy_positive", info.mouse.dy_positive);
-        info.mouse.dy_negative = field_string(L, m, "dy_negative", info.mouse.dy_negative);
-    }
-    lua_pop(L, 1);
-
-    lua_getfield(L, t, "bindings");
-    if (lua_istable(L, -1)) {
-        lua_pushnil(L);
-        while (lua_next(L, -2)) {
-            if (lua_type(L, -2) == LUA_TSTRING && lua_isstring(L, -1))
-                info.bindings[lua_tostring(L, -2)] = lua_tostring(L, -1);
-            lua_pop(L, 1);
-        }
-    }
-    lua_pop(L, 1);
+    info.camera_model = field_string(L, t, "camera_model", info.camera_model);
 
     lua_getfield(L, t, "sample");
     bool has_sample = lua_isfunction(L, -1);
@@ -183,7 +160,7 @@ bool Profile::init() {
     return ok;
 }
 
-std::optional<CameraSample> Profile::sample(int width, int height) {
+std::optional<CameraSample> Profile::sample() {
     lua_rawgeti(L_, LUA_REGISTRYINDEX, table_ref_);
     lua_getfield(L_, -1, "sample");
     if (lua_pcall(L_, 0, 1, 0) != LUA_OK) {
@@ -193,17 +170,14 @@ std::optional<CameraSample> Profile::sample(int width, int height) {
     }
     std::optional<CameraSample> out;
     int r = lua_gettop(L_);
-    Vec3 pos, fwd, right, up;
+    CameraSample s;
     lua_getfield(L_, r, "fov");
     bool has_fov = lua_isnumber(L_, -1);
-    double fov = lua_tonumber(L_, -1);
+    s.fov_deg = lua_tonumber(L_, -1);
     lua_pop(L_, 1);
-    if (lua_istable(L_, r) && has_fov && field_vec3(L_, r, "position", pos) && field_vec3(L_, r, "forward", fwd) &&
-        field_vec3(L_, r, "right", right) && field_vec3(L_, r, "up", up)) {
-        out = CameraSample{
-            c2w_from_engine(right, up, fwd, pos, info_.convention, info_.units_to_world),
-            info_.fov_vertical ? intrinsics_from_vfov(fov, width, height) : intrinsics_from_hfov(fov, width, height),
-        };
+    if (lua_istable(L_, r) && has_fov && field_vec3(L_, r, "position", s.position) &&
+        field_vec3(L_, r, "forward", s.forward) && field_vec3(L_, r, "right", s.right) && field_vec3(L_, r, "up", s.up)) {
+        out = s;
     } else {
         last_error_ = "sample() must return {position, forward, right, up, fov}";
     }

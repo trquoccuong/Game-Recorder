@@ -35,6 +35,16 @@ public readonly record struct Intrinsics(double Fx, double Fy, double Cx, double
 /// </summary>
 public static class Geometry
 {
+    /// <summary>Lua profile / extractor.json names: "rfu", "unity", "unreal", "quake".</summary>
+    public static Convention ParseConvention(string name) => name switch
+    {
+        "rfu" => Convention.Rfu,
+        "unity" => Convention.Unity,
+        "unreal" => Convention.Unreal,
+        "quake" => Convention.Quake,
+        _ => throw new FormatException($"unknown convention \"{name}\""),
+    };
+
     public static Vec3 ToRfu(Vec3 v, Convention convention) => convention switch
     {
         Convention.Rfu => v,

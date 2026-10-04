@@ -61,15 +61,8 @@ public class SessionBuilderTests
         try
         {
             WriteCapture(dir);
-            string profile = Path.Combine(dir, "profile.json");
-            File.WriteAllText(profile, """
-                {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
-                 "input_mouse_convention": {"maps_to": "camera_look_velocity", "dx_positive": "right",
-                   "dx_negative": "left", "dy_positive": "down", "dy_negative": "up"},
-                 "bindings": {"W": "Forward", "Left": "Shoot"}}
-                """);
 
-            var report = SessionBuilder.Build(dir, GameProfile.Load(profile));
+            var report = SessionBuilder.Build(dir, GameProfile.Load(WriteProfile(dir)));
 
             Assert.Equal(SessionFixtures.NFrames, report.FrameCount);
             Assert.Equal(new Dictionary<string, int> { ["Ctrl"] = 1 }, report.UnboundKeys);
@@ -81,11 +74,89 @@ public class SessionBuilderTests
             Assert.Equal("W", rows[30]["input_keys"]);
             Assert.Equal("Forward", rows[30]["input_actions"]);
             Assert.DoesNotContain(rows, r => r["input_keys"].Contains("Ctrl"));
+            Assert.Equal(0, report.CameraFrames);
+            Assert.Equal("", rows[0]["c2w_m00"]);
         }
         finally
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Extractor_camera_samples_fill_the_camera_columns(bool gap)
+    {
+        string dir = Path.Combine(Path.GetTempPath(), $"odx-build-{Guid.NewGuid():N}");
+        try
+        {
+            WriteCapture(dir);
+            var expected = WriteUnrealCameraSamples(dir, skip: gap ? i => i is >= 50 and < 70 : _ => false);
+
+            var report = SessionBuilder.Build(dir, GameProfile.Load(WriteProfile(dir)));
+
+            var errors = SessionValidator.ValidateSession(dir, video: SessionFixtures.HasFfmpeg).Select(i => i.Rule).ToList();
+            var (_, rows) = Csv.ReadFile(Path.Combine(dir, "frames.csv"));
+            if (gap)
+            {
+                Assert.InRange(report.CameraFrames, 1, SessionFixtures.NFrames - 1);
+                Assert.Equal(["camera.sparse_nulls"], errors);
+                return;
+            }
+            Assert.Equal(SessionFixtures.NFrames, report.CameraFrames);
+            Assert.Empty(errors);
+            Assert.Equal("PINHOLE", rows[40]["camera_model"]);
+            for (int k = 0; k < 16; k++)
+                Assert.Equal(expected[40][k / 4, k % 4], Frames.ParseDouble(rows[40][Frames.C2wColumns[k]]), 1e-9);
+            var fov = Geometry.IntrinsicsFromHfov(90, 320, 180);
+            Assert.Equal(fov.Fx, Frames.ParseDouble(rows[40]["camera_fx"]), 1e-9);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    private static string WriteProfile(string dir)
+    {
+        string path = Path.Combine(dir, "profile.json");
+        File.WriteAllText(path, """
+            {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
+             "input_mouse_convention": {"maps_to": "camera_look_velocity", "dx_positive": "right",
+               "dx_negative": "left", "dy_positive": "down", "dy_negative": "up"},
+             "bindings": {"W": "Forward", "Left": "Shoot"}}
+            """);
+        return path;
+    }
+
+    /// <summary>
+    /// camera_samples.csv + extractor.json as the extractor DLL writes them for an Unreal game: a roll-free canonical pose
+    /// per frame, 2 ms before the frame is captured, stored in Unreal axes (X/Y swapped) and centimetres. Returns the
+    /// canonical C2W per frame.
+    /// </summary>
+    private static List<double[,]> WriteUnrealCameraSamples(string dir, Func<int, bool> skip)
+    {
+        static Vec3 ToUnreal(Vec3 v) => new(v.Y, v.X, v.Z);
+        var poses = new List<double[,]>();
+        var lines = new List<string> { "t_qpc_ms,pos_x,pos_y,pos_z,fwd_x,fwd_y,fwd_z,right_x,right_y,right_z,up_x,up_y,up_z,fov_deg" };
+        foreach (var f in VideoFrameLogReader.Read(Path.Combine(dir, "video_frames.csv")))
+        {
+            int i = (int)f.Index;
+            var c2w = Geometry.C2wFromForward(Geometry.ForwardFromHeadingPitch(i * 0.75, 5), new Vec3(i * 0.1, 0, 1.7));
+            poses.Add(c2w);
+            if (skip(i)) continue;
+            Vec3 Col(int c) => new(c2w[0, c], c2w[1, c], c2w[2, c]);
+            var values = new[] { ToUnreal(Col(3)) * 100, ToUnreal(-Col(2)), ToUnreal(Col(0)), ToUnreal(Col(1)) }
+                .SelectMany(v => new[] { v.X, v.Y, v.Z });
+            lines.Add(string.Join(",", new[] { f.TSourceMs - 2 }.Concat(values).Append(90.0).Select(Frames.FormatDouble)));
+        }
+        File.WriteAllLines(Path.Combine(dir, "camera_samples.csv"), lines);
+        File.WriteAllText(Path.Combine(dir, "extractor.json"), """
+            {"game": "Synthetic", "engine": "fake-unreal", "convention": "unreal", "units_to_world": 0.01,
+             "fov_axis": "horizontal", "camera_model": "PINHOLE"}
+            """);
+        return poses;
     }
 
     /// <summary>A capture folder as odx-input + odx-record would leave it: 120 frames at 60 fps on an irregular-free grid.</summary>

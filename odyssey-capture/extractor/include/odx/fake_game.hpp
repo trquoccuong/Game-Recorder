@@ -5,8 +5,8 @@
 // profiles/synthetic.lua finds the struct by signature, like a real profile would.
 #pragma once
 
-#include "odx/math.hpp"
 #include "odx/memory.hpp"
+#include "odx/profile.hpp"
 
 namespace odx {
 
@@ -14,8 +14,8 @@ class FakeGame {
 public:
     FakeGame();
     MemoryReader& memory() { return mem_; }
-    // Writes a camera pose given in canonical RFU (metres) into the struct, converted to Unreal axes (cm).
-    void set_camera(const Mat4& c2w_rfu, double hfov_deg);
+    // Writes a camera given in the struct's own layout (Unreal axes, centimetres, horizontal FOV).
+    void set_camera(const CameraSample& unreal);
 
 private:
     BufferMemory mem_;
