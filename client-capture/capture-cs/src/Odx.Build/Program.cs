@@ -1,0 +1,38 @@
+// odx-build <capture_dir> --profile <game.json> [--vendor <name>]
+// Turns an odx-input + odx-record capture folder into a spec v2 session (frames.csv + session.json next to video.mp4),
+// ready for odx-validate. Exit code 1 if the folder cannot be built.
+using System.Text;
+using Odx.Session;
+
+Console.OutputEncoding = new UTF8Encoding(false);
+string? dir = null, profilePath = null, vendor = "odx";
+for (int i = 0; i < args.Length; i++)
+{
+    switch (args[i])
+    {
+        case "--profile" when i + 1 < args.Length: profilePath = args[++i]; break;
+        case "--vendor" when i + 1 < args.Length: vendor = args[++i]; break;
+        case var a when !a.StartsWith("--", StringComparison.Ordinal) && dir is null: dir = a; break;
+        default: dir = null; i = args.Length; break;
+    }
+}
+if (dir is null || profilePath is null)
+{
+    Console.Error.WriteLine("usage: odx-build <capture_dir> --profile <game.json> [--vendor <name>]");
+    return 2;
+}
+
+try
+{
+    var report = SessionBuilder.Build(dir, GameProfile.Load(profilePath), vendor);
+    Console.WriteLine($"built {report.SessionId}: {report.FrameCount} frames, {report.DurationMs / 1000:F1} s");
+    if (report.UnboundKeys.Count > 0)
+        Console.WriteLine("unbound keys left out of input_keys: " +
+                          string.Join(", ", report.UnboundKeys.Select(kv => $"{kv.Key} ×{kv.Value}")));
+    return 0;
+}
+catch (Exception e) when (e is IOException or InvalidDataException or FormatException or System.Text.Json.JsonException)
+{
+    Console.Error.WriteLine($"cannot build {dir}: {e.Message}");
+    return 1;
+}

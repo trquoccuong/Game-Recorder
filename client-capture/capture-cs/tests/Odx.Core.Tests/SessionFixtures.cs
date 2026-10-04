@@ -66,7 +66,7 @@ public static class SessionFixtures
         events.AddRange(Enumerable.Range(50, 30).Select(i => new InputEvent(times[i] - 2, InputKind.MouseMove, "", 3, -1)));
         var inputs = Frames.AggregateInputs(times, events);
         var intrinsics = Geometry.IntrinsicsFromVfov(60, Width, Height);
-        Frames.WriteCsv(Path.Combine(dir, "frames.csv"), times.Select((t, i) => new FrameRow(i, t,
+        Frames.WriteCsv(Path.Combine(dir, "frames.csv"), times.Select((t, i) => new FrameRow(i, (long)t,
             Geometry.C2wFromForward(Geometry.ForwardFromHeadingPitch(i * 0.75, 5), new Vec3(i * 0.1, 0, 1.7)),
             "PINHOLE", intrinsics, inputs[i])));
         if (video) MakeVideo(Path.Combine(dir, "video.mp4"));
@@ -119,9 +119,9 @@ public static class SessionFixtures
         ["frames.row_count"] = d => EditSession(d, s => s["frame_count"] = NFrames - 1),
         ["frames.frame_id_sequence"] = d => EditRows(d, rows => rows[5]["frame_id"] = "7"),
         ["frames.timestamp_monotonic"] = d => EditRows(d, rows => rows[50]["timestamp_ms"] = rows[49]["timestamp_ms"]),
-        ["frames.timestamp_start"] = d => EditRows(d, rows => rows.ForEach(r => r["timestamp_ms"] = Repr(Num(r["timestamp_ms"]) + 100))),
+        ["frames.timestamp_start"] = d => EditRows(d, rows => rows.ForEach(r => r["timestamp_ms"] = (long.Parse(r["timestamp_ms"]) + 100).ToString())),
         ["frames.timestamp_end"] = d => EditSession(d, s => { s["duration_ms"] = 1900.0; s["duration_seconds"] = 1.9; }),
-        ["frames.frame_interval"] = d => EditRows(d, rows => rows[60]["timestamp_ms"] = Repr(Num(rows[60]["timestamp_ms"]) + 8)),
+        ["frames.frame_interval"] = d => EditRows(d, rows => rows[60]["timestamp_ms"] = (long.Parse(rows[60]["timestamp_ms"]) + 8).ToString()),
         ["camera.sparse_nulls"] = d => EditRows(d, rows => { foreach (var c in Frames.C2wColumns) rows[30][c] = ""; }),
         ["camera.model"] = d => EditRows(d, rows => rows[0]["camera_model"] = "PERSPECTIVE"),
         ["camera.principal_point"] = d => EditRows(d, rows => rows[0]["camera_cx"] = Repr(Num(rows[0]["camera_cx"]) + 20)),

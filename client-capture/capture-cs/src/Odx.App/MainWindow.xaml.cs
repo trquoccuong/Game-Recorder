@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
@@ -7,11 +8,14 @@ using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Odx.Core;
+using Odx.Session;
 using Forms = System.Windows.Forms;
 
 namespace Odx.App;
 
 public sealed record SourceItem(string Label, string? Process);
+
+public sealed record GameItem(string Label, string? Path);
 
 public partial class MainWindow : Window
 {
@@ -40,6 +44,7 @@ public partial class MainWindow : Window
         OutputBox.Text = _settings.OutputRoot;
         HotkeyBox.Text = _settings.Hotkey.ToString();
         LoadSources();
+        LoadGames();
         _clock.Tick += (_, _) => ShowRecordingStatus();
 
         _trayStartStop.Click += (_, _) => Toggle();
@@ -124,9 +129,33 @@ public partial class MainWindow : Window
         SourceBox.SelectedItem = items.First(i => i.Process == _settings.WindowProcess);
     }
 
+    /// <summary>Game profiles shipped in games/ next to the app, plus a previously chosen file elsewhere.</summary>
+    private void LoadGames()
+    {
+        var items = new List<GameItem> { new("None (keep raw capture only)", null) };
+        string dir = Path.Combine(AppContext.BaseDirectory, "games");
+        if (Directory.Exists(dir))
+            foreach (string file in Directory.GetFiles(dir, "*.json").Order())
+            {
+                try
+                {
+                    items.Add(new GameItem(GameProfile.Load(file).GameTitle, file));
+                }
+                catch (Exception e) when (e is IOException or FormatException or System.Text.Json.JsonException)
+                {
+                    StatusText.Text = $"Skipped game profile {Path.GetFileName(file)}: {e.Message}";
+                }
+            }
+        if (_settings.GameProfile is string saved && File.Exists(saved) && !items.Any(i => i.Path == saved))
+            items.Add(new GameItem(Path.GetFileNameWithoutExtension(saved), saved));
+        GameBox.ItemsSource = items;
+        GameBox.SelectedItem = items.FirstOrDefault(i => i.Path == _settings.GameProfile) ?? items[0];
+    }
+
     private void SaveSettings()
     {
         _settings.WindowProcess = (SourceBox.SelectedItem as SourceItem)?.Process;
+        _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
         _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
         _settings.OutputRoot = OutputBox.Text.Trim();
         _settings.Save();
@@ -145,6 +174,8 @@ public partial class MainWindow : Window
         }
         else
         {
+            _clock.Stop();
+            StatusText.Text = "Stopping, then building and validating the session…";
             _run.Stop();
         }
         UpdateRunningState();
@@ -237,7 +268,7 @@ public partial class MainWindow : Window
             : idle ? "Start recording" : $"Stop recording ({_settings.Hotkey})";
         StartStopButton.IsEnabled = !stopping;
         _trayStartStop.Text = counting ? "Cancel" : idle ? "Start recording" : "Stop recording";
-        SourceBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
+        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
         RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
         if (idle) _tray.Text = "Client Capture";
     }

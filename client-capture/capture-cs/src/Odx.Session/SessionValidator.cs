@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 using Json.Schema;
 using Odx.Core;
 
-namespace Odx.Validate;
+namespace Odx.Session;
 
 public sealed record Issue(string Rule, string Severity, string Message)
 {

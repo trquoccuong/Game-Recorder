@@ -1,5 +1,5 @@
-# Builds a self-contained Windows x64 package: odx-app, odx-input, odx-record, odx-validate, the .NET runtime and
-# ffmpeg/ffprobe. Unzip it on any Windows 10 2004+ x64 machine and run odx-app.exe (or tools\odx-validate\odx-validate.exe);
+# Builds a self-contained Windows x64 package: odx-app, odx-input, odx-record, odx-build, odx-validate, the .NET runtime,
+# ffmpeg/ffprobe and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run odx-app.exe (or tools\odx-validate\odx-validate.exe);
 # nothing else needs installing.
 #
 #   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0]
@@ -31,6 +31,7 @@ $projects = [ordered]@{
     'Odx.App'      = $out
     'Odx.Input'    = Join-Path $out 'tools/odx-input'
     'Odx.Recorder' = Join-Path $out 'tools/odx-record'
+    'Odx.Build'    = Join-Path $out 'tools/odx-build'
     'Odx.Validate' = Join-Path $out 'tools/odx-validate'
 }
 foreach ($project in $projects.Keys) {

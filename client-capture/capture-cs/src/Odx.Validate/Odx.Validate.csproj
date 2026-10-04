@@ -5,12 +5,6 @@
     <RootNamespace>Odx.Validate</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="../../../schemas/session_schema.json" LogicalName="session_schema.json" />
+    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
   </ItemGroup>
 </Project>

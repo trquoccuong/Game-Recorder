@@ -14,6 +14,8 @@ public sealed class AppSettings
     /// <summary>Process name passed to odx-record --window; null records the primary monitor.</summary>
     public string? WindowProcess { get; set; }
     public int Fps { get; set; } = 60;
+    /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>
+    public string? GameProfile { get; set; }
     public Hotkey Hotkey { get; set; } = Hotkey.Default;
 
     public static AppSettings Load()

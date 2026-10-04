@@ -6,7 +6,8 @@ namespace Odx.Core;
 /// <summary>Per-frame input columns. Null multi-value fields mean "nothing active".</summary>
 public readonly record struct FrameInput(string? Keys, string? Actions, string? MouseButtons, double MouseDx, double MouseDy);
 
-public sealed record FrameRow(long FrameId, double TimestampMs, double[,]? C2w, string? CameraModel, Intrinsics? Intrinsics,
+/// <summary>One frames.csv row. <c>TimestampMs</c> is an integer per spec v2 §1.1.3.</summary>
+public sealed record FrameRow(long FrameId, long TimestampMs, double[,]? C2w, string? CameraModel, Intrinsics? Intrinsics,
     FrameInput Input);
 
 /// <summary>frames.csv schema, per-frame input aggregation and writing (Capture Spec v2 §1.1.2.6, §1.1.3).</summary>
@@ -85,7 +86,7 @@ public static class Frames
     private static IEnumerable<string> Fields(FrameRow r)
     {
         yield return r.FrameId.ToString(CultureInfo.InvariantCulture);
-        yield return FormatDouble(r.TimestampMs);
+        yield return r.TimestampMs.ToString(CultureInfo.InvariantCulture);
         for (int i = 0; i < 16; i++) yield return r.C2w is { } m ? FormatDouble(m[i / 4, i % 4]) : Null;
         yield return r.CameraModel ?? Null;
         var k = r.Intrinsics;
