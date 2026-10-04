@@ -1,4 +1,4 @@
-# Odx Platform
+# Client Game Data Capture
 
 Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
@@ -60,39 +60,54 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-AI Data Marketplace — connects Clients with Experts through Partner Orgs, with Odx orchestrating everything.
+Odx is the vendor building game-data capture software for Client (client).
 
 ## Directory structure
 
 ```
-core/
-  Odx_SA_v1.5.md          # Main SA (source of truth)
-  Odx_SA_v1.4_presentation.md  # Stakeholder presentation
-  ADR/                        # 53 ADRs — every architecture decision
-  specs/                      # 8 spec files (data model, API, workflow...)
-  requirement/                # Structured requirements (REQ-NNN-slug.md)
-  diagrams/                   # Mermaid diagrams
-  ideal/                      # Open ideas, not yet decided
-  reference/                  # Reference material
-  reference/Odx_BRD_v2.0.md           # Business Requirements
-  .claude/skills/             # Claude skills (create-requirement, create-adr)
+document/                         # Specs and plans (Markdown, source of truth for requirements)
+  README.md                       # Index + reading order
+  sow-round-4-multiplayer.md      # Signed SOW
+  videogame-data-capture-spec-v2.md   # Canonical per-session format + validation checks (§1.5)
+  multiplayer-data-capture-spec-v3.md # Multiplayer extension of v2
+  software-plan.md                # Architecture, modules, testing strategy (§7.10), roadmap
+  games/                          # Per-game analyses + compliance ground rules
+  reviews/                        # Reviews of sample/vendor data
+  raw/                            # Original PDFs (do not edit)
+client-capture/
+  src/client_capture/            # Python: geometry, frames.csv, client-validate CLI
+  schemas/                        # session.json JSON Schema
+  tests/                          # pytest + fixtures shared with C#
+  tools/analyze_pose.py           # Reference pose audit
+  capture-cs/                     # C# .NET 8: odx-input (Raw Input), odx-record (WGC + ffmpeg)
+  extractor/                      # C++20 + Lua 5.4: extractor DLL, odx_synth, profiles
+```
+
+## Build & test
+
+Toolchain: Python ≥ 3.11, .NET 8 SDK, CMake ≥ 3.24 + MSVC (C++20), ffmpeg/ffprobe on PATH.
+
+```bash
+# Python (from client-capture/)
+python -m venv .venv && .venv/Scripts/pip install -e . pytest hypothesis
+.venv/Scripts/pytest
+
+# C# (from client-capture/capture-cs/)
+dotnet test
+
+# C++ (from client-capture/extractor/)
+cmake -B build && cmake --build build --config Debug
+ctest --test-dir build -C Debug   # synth_session_validates runs only if client-validate is in ../.venv
 ```
 
 ## Working rules
 
-1. **The SA must be clean** — no ambiguity, no "maybe", no "should". Every sentence is a clear decision.
-2. **Every architecture change → create/update an ADR** — format: `ADR-XX-short-name.md`. Never change the SA without an ADR.
-3. **Raw requirement → `core/requirement/`** — format: `REQ-NNN-slug.md`. Analyse raw input into a structured requirement before creating an ADR / updating the SA.
-4. **Open ideas → `core/ideal/`** — if not yet decided, keep it out of the SA. Park it in `ideal/` for later discussion.
-5. **Specs must stay in sync with the SA** — when updating the SA, update the corresponding spec. Keep the spec → SA back-link on the correct version.
-6. **Presentation stays in sync with the SA** — `Odx_SA_v1.4_presentation.md` must match the SA after every update.
-
-## Skills (`.claude/skills/`)
-
-| Skill | Description | Trigger |
-|-------|-------------|---------|
-| `create-requirement` | Raw input → structured requirement (REQ-NNN) | User provides raw requirements to analyse |
-| `create-adr` | Create an ADR with options considered, decision, impact analysis | User wants to make a new architecture decision |
+1. **Specs in `document/` drive the code** — cite the spec section (e.g. `v2 §1.5`, `plan §7.10`) when implementing or changing behavior.
+2. **Don't edit `document/raw/`** — the PDFs are originals; Markdown versions are the working copies.
+3. **Cross-language formats are pinned by fixtures** — `tests/fixtures/*.csv` are checked from both C# and Python; change both sides together.
+4. **Unresolved spec questions go to the README** — list them under "Decisions pending with Client" in `client-capture/README.md`; don't silently pick an interpretation.
+5. **Compliance** — follow `document/games/README.md` ground rules: no anti-cheat bypass, no public matchmaking, no client memory reading on anti-cheat-protected titles.
+6. **Code is the source of truth; comment only when necessary** — names and structure carry the "what". Write a comment only for what the code cannot say: why a choice was made, a non-obvious constraint (ABI layout, threading, loader lock), a magic number, a cross-language contract, or a spec reference. No comments that restate the function/class name, no section banners, no commented-out code. Delete a comment that has gone stale instead of leaving it wrong.
 
 ## Language
 

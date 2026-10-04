@@ -74,8 +74,6 @@ def make_valid_session(session_dir: Path, video: bool = True) -> Path:
     return session_dir
 
 
-# --- mutation helpers ---
-
 def _edit_session(d: Path, **changes) -> None:
     s = json.loads((d / "session.json").read_text())
     for k, v in changes.items():

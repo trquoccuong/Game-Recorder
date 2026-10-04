@@ -77,7 +77,6 @@ std::string field_string(lua_State* L, int t, const char* key, const std::string
     return v;
 }
 
-// Reads a {x, y, z} array at t[key]; returns false if missing or malformed.
 bool field_vec3(lua_State* L, int t, const char* key, Vec3& out) {
     lua_getfield(L, t, key);
     bool ok = lua_istable(L, -1);

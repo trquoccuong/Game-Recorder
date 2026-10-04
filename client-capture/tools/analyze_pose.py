@@ -137,7 +137,6 @@ def audit(sdir):
         cos = np.sum(fh * vn, axis=1)[mov]
         fwd[name] = round(float(np.nanmean(cos > 0.7)), 2)
     res["fwd_agree"] = fwd  # fraction of moving frames where axis points along motion
-    # intrinsics
     if "camera_fy" in rows[0]:
         fy = np.array([num(r["camera_fy"]) for r in rows])
         fx = np.array([num(r["camera_fx"]) for r in rows])
@@ -146,7 +145,6 @@ def audit(sdir):
     elif "fov_deg" in rows[0]:
         fov = np.array([num(r["fov_deg"]) for r in rows])
         res["fov"] = (float(np.nanmin(fov)), float(np.nanmax(fov)), rows[0].get("fov_axis"))
-    # inputs
     kcol = "input_keys" if "input_keys" in rows[0] else "keyboard_input"
     keys = Counter(t for r in rows for t in r[kcol].split("|"))
     res["key_tokens"] = sorted(keys)[:14]
