@@ -76,17 +76,17 @@ document/                         # Specs and plans (Markdown, source of truth f
   raw/                            # Original PDFs (do not edit)
 client-capture/
   capture-cs/                     # C# .NET 8 — everything outside the game process
-    src/Odx.Core/                 #   portable: geometry, frames.csv, input aggregation, log formats, CSV
-    src/Odx.Session/              #   session builder (capture folder -> frames.csv + session.json) and validator
+    src/Odx.Core/                 #   portable: Input/ (logs, IPC, keys), Video/ (grid, status), Formats/ (frames.csv, CSV), Geometry/
+    src/Odx.Session/              #   capture host (runs odx-input + odx-record), session builder, validator
     src/Odx.Build/                #   odx-build CLI
     src/Odx.Validate/             #   odx-validate CLI (spec v2 §1.5)
     src/Odx.Input/                #   odx-input (Raw Input)
     src/Odx.Recorder/             #   odx-record (WGC + ffmpeg)
-    src/Odx.App/                  #   odx-app (WPF front end, runs odx-input + odx-record)
-    tests/Odx.Core.Tests/         #   xUnit, incl. synthetic session + one mutator per validation rule
+    src/Odx.App/                  #   odx-app (WPF front end over Odx.Session)
+    tests/Odx.Tests/              #   xUnit, incl. synthetic session + one mutator per validation rule
   games/                          # game profiles (session.json fields + key/button -> action bindings)
   extractor/                      # C++20 + Lua 5.4: in-game extractor DLL, odx_synth, profiles
-  schemas/                        # session.json JSON Schema (embedded in odx-validate)
+  schemas/                        # session.json JSON Schema (embedded in Odx.Session)
   tests/fixtures/                 # pinned log formats (input_events.csv, video_frames.csv)
 research/
   analyze-pose/                   # Standalone Python pose audit (numpy), not part of the product

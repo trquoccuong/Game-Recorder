@@ -29,12 +29,16 @@ public partial class MainWindow : Window
     private readonly Forms.NotifyIcon _tray = new();
     private readonly Forms.ToolStripMenuItem _trayStartStop = new();
     private IntPtr _hwnd;
+    private RunState _state = RunState.Idle;
     private CaptureRun? _run;
     private DispatcherTimer? _countdown;
     private CountdownOverlay? _overlay;
     private int _countdownLeft;
     private DateTime _runStarted;
-    private bool _closeAfterStop;
+    private bool _closeWhenIdle;
+
+    /// <summary>Idle → Countdown → Starting (odx-record warming up) → Recording → Stopping (incl. build + validate) → Idle.</summary>
+    private enum RunState { Idle, Countdown, Starting, Recording, Stopping }
 
     public MainWindow()
     {
@@ -55,7 +59,7 @@ public partial class MainWindow : Window
         _tray.ContextMenuStrip.Items.Add("Exit", null, (_, _) => Close());
         _tray.DoubleClick += (_, _) => RestoreFromTray();
         _tray.Visible = true;
-        UpdateRunningState();
+        SetState(RunState.Idle);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -74,12 +78,12 @@ public partial class MainWindow : Window
 
     protected override void OnClosing(CancelEventArgs e)
     {
-        EndCountdown();
+        if (_state == RunState.Countdown) CancelCountdown();
         if (_run is not null)
         {
             e.Cancel = true;
-            _closeAfterStop = true;
-            _run.Stop();
+            _closeWhenIdle = true;
+            if (_state != RunState.Stopping) StopRecording();
             return;
         }
         SaveSettings();
@@ -163,22 +167,38 @@ public partial class MainWindow : Window
 
     private void Toggle()
     {
-        if (_countdown is not null)
+        switch (_state)
         {
-            EndCountdown();
-            StatusText.Text = "Cancelled";
+            case RunState.Idle: BeginCountdown(); break;
+            case RunState.Countdown: CancelCountdown(); break;
+            case RunState.Starting or RunState.Recording: StopRecording(); break;
         }
-        else if (_run is null)
+    }
+
+    private void SetState(RunState state, string? status = null)
+    {
+        _state = state;
+        if (status is not null) StatusText.Text = status;
+        if (state != RunState.Recording) _clock.Stop();
+        bool idle = state == RunState.Idle;
+        StartStopButton.Content = state switch
         {
-            BeginCountdown();
-        }
-        else
+            RunState.Idle => "Start recording",
+            RunState.Countdown => $"Cancel ({_settings.Hotkey})",
+            RunState.Stopping => "Stopping…",
+            _ => $"Stop recording ({_settings.Hotkey})",
+        };
+        StartStopButton.IsEnabled = _trayStartStop.Enabled = state != RunState.Stopping;
+        _trayStartStop.Text = state switch
         {
-            _clock.Stop();
-            StatusText.Text = "Stopping, then building and validating the session…";
-            _run.Stop();
-        }
-        UpdateRunningState();
+            RunState.Idle => "Start recording",
+            RunState.Countdown => "Cancel",
+            RunState.Stopping => "Stopping…",
+            _ => "Stop recording",
+        };
+        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
+        RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
+        _tray.Text = idle ? "Client Capture" : $"Client Capture: {state.ToString().ToLowerInvariant()}";
     }
 
     private void BeginCountdown()
@@ -186,7 +206,6 @@ public partial class MainWindow : Window
         _countdownLeft = CountdownSeconds;
         _overlay = new CountdownOverlay();
         _overlay.Show();
-        ShowCountdown();
         _countdown = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _countdown.Tick += (_, _) =>
         {
@@ -198,15 +217,22 @@ public partial class MainWindow : Window
             // The overlay is closed before odx-record starts, so it never appears in the video.
             EndCountdown();
             StartRecording();
-            UpdateRunningState();
         };
         _countdown.Start();
+        SetState(RunState.Countdown);
+        ShowCountdown();
     }
 
     private void ShowCountdown()
     {
         _overlay!.Seconds = _countdownLeft;
         StatusText.Text = $"Recording starts in {_countdownLeft}…";
+    }
+
+    private void CancelCountdown()
+    {
+        EndCountdown();
+        SetState(RunState.Idle, "Cancelled");
     }
 
     private void EndCountdown()
@@ -220,57 +246,50 @@ public partial class MainWindow : Window
     private void StartRecording()
     {
         SaveSettings();
+        CaptureRun run;
         try
         {
-            _run = CaptureRun.Start(_settings);
+            run = CaptureRun.Start(_settings.ToCaptureOptions());
         }
         catch (Exception ex)
         {
-            StatusText.Text = $"Could not start: {ex.Message}";
+            SetState(RunState.Idle, $"Could not start: {ex.Message}");
             return;
         }
-        StatusText.Text = "Starting capture…";
-        var run = _run;
+        _run = run;
+        SetState(RunState.Starting, "Starting capture…");
         run.Started.ContinueWith(_ => Dispatcher.Invoke(() =>
         {
-            if (_run != run) return;
+            if (_run != run || _state != RunState.Starting) return;
             _runStarted = DateTime.Now;
+            SetState(RunState.Recording);
             _clock.Start();
             ShowRecordingStatus();
         }), TaskContinuationOptions.OnlyOnRanToCompletion);
-        _run.Completion.ContinueWith(t => Dispatcher.Invoke(() => OnRunCompleted(t.Result)),
+        run.Completion.ContinueWith(t => Dispatcher.Invoke(() => OnRunCompleted(t.Result)),
             TaskContinuationOptions.OnlyOnRanToCompletion);
+    }
+
+    private void StopRecording()
+    {
+        SetState(RunState.Stopping, "Stopping, then building and validating the session…");
+        _run!.Stop();
     }
 
     private void OnRunCompleted(RunResult result)
     {
         _run = null;
-        _clock.Stop();
-        StatusText.Text = $"{(result.Ok ? "Saved" : "Stopped with errors")}: {result.SessionDir}\n{result.Summary}";
-        UpdateRunningState();
-        if (_closeAfterStop) Close();
+        SetState(RunState.Idle, $"{(result.Ok ? "Saved" : "Stopped with errors")}: {result.SessionDir}\n{result.Summary}");
+        if (_closeWhenIdle) Close();
     }
 
     private void ShowRecordingStatus()
     {
-        if (_run is null) return;
+        if (_run is null || _state != RunState.Recording) return;
         var elapsed = DateTime.Now - _runStarted;
-        StatusText.Text = $"Recording {elapsed:hh\\:mm\\:ss} → {_run.SessionDir}";
+        string counters = _run.LastStatus is { } s ? $" · {s.Frames} frames, {s.Dropped} dropped" : "";
+        StatusText.Text = $"Recording {elapsed:hh\\:mm\\:ss}{counters}\n→ {_run.SessionDir}";
         _tray.Text = $"Client Capture: recording {elapsed:hh\\:mm\\:ss}";
-    }
-
-    private void UpdateRunningState()
-    {
-        bool counting = _countdown is not null;
-        bool idle = _run is null && !counting;
-        bool stopping = _run?.Completion.IsCompleted == false && _closeAfterStop;
-        StartStopButton.Content = counting ? $"Cancel ({_settings.Hotkey})"
-            : idle ? "Start recording" : $"Stop recording ({_settings.Hotkey})";
-        StartStopButton.IsEnabled = !stopping;
-        _trayStartStop.Text = counting ? "Cancel" : idle ? "Start recording" : "Stop recording";
-        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
-        RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
-        if (idle) _tray.Text = "Client Capture";
     }
 
     private void StartStop_Click(object sender, RoutedEventArgs e) => Toggle();

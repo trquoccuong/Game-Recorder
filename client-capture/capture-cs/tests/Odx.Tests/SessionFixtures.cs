@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text.Json.Nodes;
 using Odx.Core;
 
-namespace Odx.Core.Tests;
+namespace Odx.Tests;
 
 /// <summary>One valid reference session plus mutators that each break one v2 §1.5 rule.</summary>
 public static class SessionFixtures

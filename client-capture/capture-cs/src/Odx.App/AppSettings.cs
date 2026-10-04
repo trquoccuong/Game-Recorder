@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using Odx.Core;
+using Odx.Session;
 
 namespace Odx.App;
 
@@ -17,6 +18,8 @@ public sealed class AppSettings
     /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>
     public string? GameProfile { get; set; }
     public Hotkey Hotkey { get; set; } = Hotkey.Default;
+
+    public CaptureOptions ToCaptureOptions() => new(OutputRoot, WindowProcess, Fps, GameProfile);
 
     public static AppSettings Load()
     {

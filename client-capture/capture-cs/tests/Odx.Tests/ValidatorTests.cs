@@ -3,7 +3,7 @@ using Odx.Core;
 using Odx.Session;
 using Xunit;
 
-namespace Odx.Core.Tests;
+namespace Odx.Tests;
 
 /// <summary>Needs ffmpeg and ffprobe on PATH (video checks).</summary>
 public sealed class ValidSession : IDisposable

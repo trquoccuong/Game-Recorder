@@ -12,7 +12,7 @@ Tooling for the Client canonical game-data format. See [`../document/software-pl
 | `games/*.json` | Game profiles: `game_title`, `platform`, `localization`, `input_mouse_convention`, `bindings` (key/button → action) | v2 §1.1.2.1, §1.1.2.6 |
 | `Odx.Validate` | `odx-validate` CLI: every vendor check in v2 §1.5 (session.json, frames structure, C2W, intrinsics, input, video via ffprobe) | v2 §1.5 |
 | `schemas/session_schema.json` | JSON Schema for `session.json`, extracted from the spec; embedded in `odx-validate` | v2 §1.1.2.1 |
-| `Odx.Core.Tests/SessionFixtures.cs` | Synthetic valid session + one mutator per validation rule | plan §7.10.2 |
+| `tests/Odx.Tests/SessionFixtures.cs` | Synthetic valid session + one mutator per validation rule | plan §7.10.2 |
 
 Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 8) in `capture-cs/`. The Python pose audit lives outside the product in [`../research/analyze-pose/`](../research/analyze-pose/).
 

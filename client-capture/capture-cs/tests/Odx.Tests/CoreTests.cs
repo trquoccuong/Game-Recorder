@@ -3,7 +3,7 @@ using System.Text;
 using Odx.Core;
 using Xunit;
 
-namespace Odx.Core.Tests;
+namespace Odx.Tests;
 
 public class InputLogTests
 {

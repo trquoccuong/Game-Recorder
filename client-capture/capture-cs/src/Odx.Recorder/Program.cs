@@ -1,5 +1,5 @@
 // odx-record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder x264|nvenc] [--ffmpeg <path>]
-//            [--cursor] [--seconds N] [--stop-event <name>]
+//            [--cursor] [--seconds N] [--stop-event <name>] [--json-status]
 //
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
 // capture time (SystemRelativeTime), the same clock as odx-input. Frames are resampled onto a constant-rate grid
@@ -9,6 +9,7 @@
 //   <dir>/recording.json    capture id, capture and screen size, fps, encoder, start time (UTC + QPC),
 //                           counts of duplicated/dropped frames
 // Stop with Ctrl+C, --seconds, --stop-event (a named event set by Odx.App), or by closing the captured window.
+// --json-status: stdout carries only RecorderStatus JSON lines (started, progress every second, stopped).
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -23,7 +24,7 @@ var opts = Options.Parse(args);
 if (opts is null)
 {
     Console.Error.WriteLine("usage: odx-record --out <dir> (--window <process name> | --monitor) [--fps 60] " +
-                            "[--encoder x264|nvenc] [--ffmpeg <path>] [--cursor] [--seconds N] [--stop-event <name>]");
+                            "[--encoder x264|nvenc] [--ffmpeg <path>] [--cursor] [--seconds N] [--stop-event <name>] [--json-status]");
     return 2;
 }
 if (!GraphicsCaptureSession.IsSupported())
@@ -156,8 +157,19 @@ if (opts.StopEvent is string stopEventName)
 }
 
 session.StartCapture();
-Console.WriteLine($"recording {width}x{height} @ {opts.Fps} fps to {opts.OutDir} (Ctrl+C to stop)");
-if (opts.Seconds is double seconds) stop.Wait(TimeSpan.FromSeconds(seconds)); else stop.Wait();
+if (opts.JsonStatus)
+    Console.WriteLine(new RecorderStatus(RecorderStatus.Started, Width: width, Height: height, Fps: opts.Fps).ToJson());
+else
+    Console.WriteLine($"recording {width}x{height} @ {opts.Fps} fps to {opts.OutDir} (Ctrl+C to stop)");
+using (var progress = opts.JsonStatus ? new Timer(_ =>
+       {
+           RecorderStatus s;
+           lock (gate) s = new(RecorderStatus.Progress, framesWritten, resampler.Duplicates, resampler.DroppedSourceFrames);
+           Console.WriteLine(s.ToJson());
+       }, null, 1000, 1000) : null)
+{
+    if (opts.Seconds is double seconds) stop.Wait(TimeSpan.FromSeconds(seconds)); else stop.Wait();
+}
 
 double stopQpcMs = QpcClock.NowMs();
 lock (gate)
@@ -198,18 +210,27 @@ var meta = new Dictionary<string, object?>
 File.WriteAllText(Path.Combine(opts.OutDir, "recording.json"),
     JsonSerializer.Serialize(meta, new JsonSerializerOptions { WriteIndented = true }));
 
-Console.WriteLine($"stopped: {meta["frames"]} frames, {resampler.Duplicates} duplicated, " +
-                  $"{resampler.DroppedSourceFrames} dropped, ffmpeg exit {ffmpegExit}");
+if (error is null && ffmpegExit != 0) error = $"ffmpeg exited with code {ffmpegExit}";
+if (opts.JsonStatus)
+{
+    Console.WriteLine(new RecorderStatus(RecorderStatus.Stopped, framesWritten, resampler.Duplicates,
+        resampler.DroppedSourceFrames, width, height, opts.Fps, error).ToJson());
+}
+else
+{
+    Console.WriteLine($"stopped: {meta["frames"]} frames, {resampler.Duplicates} duplicated, " +
+                      $"{resampler.DroppedSourceFrames} dropped, ffmpeg exit {ffmpegExit}");
+}
 if (error is not null) Console.Error.WriteLine(error);
 return error is null && ffmpegExit == 0 ? 0 : 1;
 
 internal sealed record Options(string OutDir, string? Window, double Fps, string Encoder, string Ffmpeg, bool Cursor,
-    double? Seconds, string? StopEvent)
+    double? Seconds, string? StopEvent, bool JsonStatus)
 {
     public static Options? Parse(string[] args)
     {
         string? outDir = null, window = null, encoder = "x264", ffmpeg = ExternalTools.Ffmpeg("ffmpeg"), stopEvent = null;
-        bool monitor = false, cursor = false;
+        bool monitor = false, cursor = false, jsonStatus = false;
         double fps = 60;
         double? seconds = null;
         var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -227,10 +248,11 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
                 case "--cursor": cursor = true; break;
                 case "--seconds" when double.TryParse(Next(), System.Globalization.NumberStyles.Float, inv, out var s): seconds = s; break;
                 case "--stop-event": stopEvent = Next(); break;
+                case "--json-status": jsonStatus = true; break;
                 default: return null;
             }
         }
         if (outDir is null || encoder is null || ffmpeg is null || (window is null) == !monitor || fps <= 0) return null;
-        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, seconds, stopEvent);
+        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, seconds, stopEvent, jsonStatus);
     }
 }
