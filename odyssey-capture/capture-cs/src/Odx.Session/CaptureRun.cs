@@ -1,12 +1,14 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.IO;
 using System.Text;
 using System.Text.Json;
 using Odx.Core;
-using Odx.Session;
 
-namespace Odx.App;
+namespace Odx.Session;
+
+/// <param name="WindowProcess">Process name passed to odx-record --window; null records the primary monitor.</param>
+/// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>
+public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile);
 
 public sealed record RunResult(string SessionDir, bool Ok, string Summary);
 
@@ -23,30 +25,35 @@ public sealed class CaptureRun
     private readonly StringBuilder _stderr = new();
     private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly string? _gameProfile;
+    private RecorderStatus? _lastStatus;
 
     public string SessionDir { get; }
     /// <summary>Completes when odx-record reports that capture is running; odx-record can take seconds on a cold start.</summary>
     public Task Started => _started.Task;
+    /// <summary>Latest odx-record status (frame counters update every second); null before capture starts.</summary>
+    public RecorderStatus? LastStatus => Volatile.Read(ref _lastStatus);
     public Task<RunResult> Completion { get; }
 
-    private CaptureRun(AppSettings settings)
+    private CaptureRun(CaptureOptions options)
     {
-        SessionDir = Path.Combine(settings.OutputRoot, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
-        _gameProfile = settings.GameProfile;
+        SessionDir = Path.Combine(options.OutputRoot, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+        _gameProfile = options.GameProfile;
         Directory.CreateDirectory(SessionDir);
         string stopName = $@"Local\odx-stop-{Guid.NewGuid():N}";
         _stop = new EventWaitHandle(false, EventResetMode.ManualReset, stopName);
 
         var input = Launch("odx-input", ["--out", SessionDir, "--stop-event", stopName]);
-        var recordArgs = new List<string> { "--out", SessionDir, "--fps", settings.Fps.ToString(CultureInfo.InvariantCulture),
-            "--stop-event", stopName };
-        recordArgs.AddRange(settings.WindowProcess is string p ? ["--window", p] : ["--monitor"]);
+        var recordArgs = new List<string> { "--out", SessionDir, "--fps", options.Fps.ToString(CultureInfo.InvariantCulture),
+            "--stop-event", stopName, "--json-status" };
+        recordArgs.AddRange(options.WindowProcess is string p ? ["--window", p] : ["--monitor"]);
         Process record;
         try
         {
             record = Launch("odx-record", recordArgs, line =>
             {
-                if (line.StartsWith("recording ", StringComparison.Ordinal)) _started.TrySetResult();
+                if (RecorderStatus.TryParse(line) is not { } status) return;
+                Volatile.Write(ref _lastStatus, status);
+                if (status.Event == RecorderStatus.Started) _started.TrySetResult();
             });
         }
         catch
@@ -57,7 +64,7 @@ public sealed class CaptureRun
         Completion = Task.Run(() => WaitAsync(input, record));
     }
 
-    public static CaptureRun Start(AppSettings settings) => new(settings);
+    public static CaptureRun Start(CaptureOptions options) => new(options);
 
     public void Stop() => _stop.Set();
 

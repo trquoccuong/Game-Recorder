@@ -3,7 +3,7 @@ using Odx.Core;
 using Odx.Session;
 using Xunit;
 
-namespace Odx.Core.Tests;
+namespace Odx.Tests;
 
 public class SessionBuilderTests
 {
