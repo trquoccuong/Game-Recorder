@@ -120,7 +120,7 @@ internal static class Rules
                     d.Rows[i][c] is var v && v != Frames.Null && (v.Contains(',') || v.Split('|').Any(t => t.Trim().Length == 0))),
                 "multi-value fields must be pipe-delimited with no empty tokens")),
 
-        // §1.5.6 video.mp4 (missing / unreadable video is reported before these run)
+        // §1.5.6 video.mp4, read with Odx.Core.Mp4Reader (missing / unreadable video is reported before these run)
         Err("video.resolution", "v2 §1.5.6", Needs.Video, d =>
             If(d.Video!.Width != d.RecordWidth || d.Video.Height != d.RecordHeight,
                 () => $"video {d.Video.Width}x{d.Video.Height} vs session {d.Raw("record_width_px")}x{d.Raw("record_height_px")}")),

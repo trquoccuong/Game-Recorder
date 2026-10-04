@@ -241,7 +241,7 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
 {
     public static Options? Parse(string[] args)
     {
-        string? outDir = null, window = null, encoder = "x264", ffmpeg = ExternalTools.Ffmpeg("ffmpeg"), stopEvent = null;
+        string? outDir = null, window = null, encoder = "x264", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null;
         bool monitor = false, cursor = false, jsonStatus = false;
         double fps = 60;
         double? seconds = null;

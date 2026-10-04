@@ -1,6 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Json.Schema;
@@ -53,47 +50,20 @@ public static class SessionValidator
             .SelectMany(r => r.Check(data).Select(message => new Issue(r.Id, r.Severity, message)))
             .ToList();
 
-    /// <summary>Probes video.mp4 into <paramref name="data"/>; returns the issue that stops the video checks, if any.</summary>
+    /// <summary>Reads video.mp4 into <paramref name="data"/>; returns the issue that stops the video checks, if any.</summary>
     private static Issue? VideoIssue(SessionData data, string videoPath)
     {
         if (!File.Exists(videoPath)) return Issue.Error("video.missing", $"{Path.GetFileName(videoPath)} not found");
         try
         {
-            data.Video = ProbeVideo(videoPath);
+            var mp4 = Mp4Reader.Read(videoPath);
+            data.Video = new VideoInfo(mp4.Width, mp4.Height, mp4.Frames, mp4.DurationSeconds);
             return null;
         }
-        catch (Win32Exception)
+        catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
         {
-            return Issue.Warning("video.ffprobe_unavailable", "ffprobe not installed; video checks skipped");
+            return Issue.Error("video.unreadable", $"cannot read {Path.GetFileName(videoPath)}: {e.Message}");
         }
-        catch (Exception e) when (e is InvalidOperationException or JsonException or FormatException or KeyNotFoundException
-                                       or NullReferenceException)
-        {
-            return Issue.Error("video.unreadable", $"ffprobe failed: {e.Message}");
-        }
-    }
-
-    private static VideoInfo ProbeVideo(string path)
-    {
-        var psi = new ProcessStartInfo(ExternalTools.Ffmpeg("ffprobe"))
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        foreach (var a in new[] { "-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries",
-                     "stream=width,height,nb_read_packets:format=duration", "-of", "json", path })
-            psi.ArgumentList.Add(a);
-        using var proc = Process.Start(psi)!;
-        string stdout = proc.StandardOutput.ReadToEnd();
-        string stderr = proc.StandardError.ReadToEnd();
-        proc.WaitForExit();
-        if (proc.ExitCode != 0) throw new InvalidOperationException(stderr.Trim());
-        var json = JsonNode.Parse(stdout)!;
-        var stream = json["streams"]![0]!;
-        return new VideoInfo(stream["width"]!.GetValue<int>(), stream["height"]!.GetValue<int>(),
-            long.Parse(stream["nb_read_packets"]!.GetValue<string>(), CultureInfo.InvariantCulture),
-            Frames.ParseDouble(json["format"]!["duration"]!.GetValue<string>()));
     }
 }
 
