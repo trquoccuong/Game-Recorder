@@ -33,10 +33,10 @@ public static class SessionFixtures
         }
     }
 
-    public static void MakeVideo(string path, int nFrames = NFrames, int width = Width, int height = Height)
+    public static void MakeVideo(string path, int nFrames = NFrames, int width = Width, int height = Height, int fps = Fps)
     {
         var psi = new ProcessStartInfo("ffmpeg") { UseShellExecute = false, RedirectStandardError = true };
-        foreach (var a in new[] { "-v", "error", "-y", "-f", "lavfi", "-i", $"testsrc=size={width}x{height}:rate={Fps}",
+        foreach (var a in new[] { "-v", "error", "-y", "-f", "lavfi", "-i", $"testsrc=size={width}x{height}:rate={fps}",
                      "-frames:v", nFrames.ToString(CultureInfo.InvariantCulture), "-c:v", "libx264", "-bf", "0",
                      "-pix_fmt", "yuv420p", path })
             psi.ArgumentList.Add(a);
@@ -162,5 +162,6 @@ public static class SessionFixtures
         ["video.missing"] = d => File.Delete(Path.Combine(d, "video.mp4")),
         ["video.frame_count"] = d => MakeVideo(Path.Combine(d, "video.mp4"), nFrames: NFrames - 10),
         ["video.resolution"] = d => MakeVideo(Path.Combine(d, "video.mp4"), width: 640, height: 360),
+        ["video.duration"] = d => MakeVideo(Path.Combine(d, "video.mp4"), fps: Fps / 2),  // same frames, twice as long
     };
 }

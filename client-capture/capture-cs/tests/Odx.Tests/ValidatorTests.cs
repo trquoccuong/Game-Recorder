@@ -39,6 +39,13 @@ public class ValidatorTests(ValidSession valid) : IClassFixture<ValidSession>
     }
 
     [Fact]
+    public void Every_error_rule_has_a_mutator()
+    {
+        var errorRules = Odx.Session.Rules.All.Where(r => r.Severity == Issue.ErrorSeverity).Select(r => r.Id);
+        Assert.Empty(errorRules.Except(SessionFixtures.Mutations.Keys));
+    }
+
+    [Fact]
     public void Cli_exit_codes()
     {
         string videoFlag = Video ? "--json" : "--no-video";

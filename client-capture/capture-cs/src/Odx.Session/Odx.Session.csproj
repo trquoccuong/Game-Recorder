@@ -2,6 +2,9 @@
   <!-- Session-level operations shared by odx-build, odx-validate, odx-app and the tests: build a spec v2 session from a
        capture folder and validate it (spec v2 §1.5). -->
   <ItemGroup>
+    <InternalsVisibleTo Include="Odx.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
   </ItemGroup>
   <ItemGroup>
