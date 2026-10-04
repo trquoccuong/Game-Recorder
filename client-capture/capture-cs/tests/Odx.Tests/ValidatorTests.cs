@@ -70,11 +70,12 @@ public class ValidatorTests(ValidSession valid) : IClassFixture<ValidSession>
 
     private static int RunCli(params string[] args)
     {
-        var psi = new ProcessStartInfo(Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "odx-validate.exe" : "odx-validate"))
+        var psi = new ProcessStartInfo(ExternalTools.Odx())
         {
             UseShellExecute = false,
             RedirectStandardOutput = true,
         };
+        psi.ArgumentList.Add("validate");
         foreach (var a in args) psi.ArgumentList.Add(a);
         using var p = Process.Start(psi)!;
         p.StandardOutput.ReadToEnd();

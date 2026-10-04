@@ -1,4 +1,4 @@
-// QPC clock shared with odx-input and odx-record (capture-cs): QueryPerformanceCounter is system-wide, so camera
+// QPC clock shared with odx input and odx record (capture-cs): QueryPerformanceCounter is system-wide, so camera
 // samples taken in the game process line up with input and video captured by those separate processes.
 #pragma once
 

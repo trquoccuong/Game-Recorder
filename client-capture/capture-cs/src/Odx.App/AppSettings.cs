@@ -12,7 +12,7 @@ public sealed class AppSettings
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Client", "odx-app.json");
 
     public string OutputRoot { get; set; } = @"C:\odx_capture";
-    /// <summary>Process name passed to odx-record --window; null records the primary monitor.</summary>
+    /// <summary>Process name passed to odx record --window; null records the primary monitor.</summary>
     public string? WindowProcess { get; set; }
     public int Fps { get; set; } = 60;
     /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>

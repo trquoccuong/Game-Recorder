@@ -4,7 +4,7 @@ using System.Globalization;
 namespace Odx.Core;
 
 /// <summary>
-/// Input event kinds; <see cref="InputLogWriter.KindName"/> gives their input_events.csv names. odx-input only produces
+/// Input event kinds; <see cref="InputLogWriter.KindName"/> gives their input_events.csv names. odx input only produces
 /// the raw kinds (KeyDown..MouseMove); actions come from the game profile's bindings at build time.
 /// </summary>
 public enum InputKind { KeyDown, KeyUp, ButtonDown, ButtonUp, MouseMove, ActionStart, ActionEnd }

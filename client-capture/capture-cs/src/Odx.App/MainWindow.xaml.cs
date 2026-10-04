@@ -37,7 +37,7 @@ public partial class MainWindow : Window
     private DateTime _runStarted;
     private bool _closeWhenIdle;
 
-    /// <summary>Idle → Countdown → Starting (odx-record warming up) → Recording → Stopping (incl. build + validate) → Idle.</summary>
+    /// <summary>Idle → Countdown → Starting (odx record warming up) → Recording → Stopping (incl. build + validate) → Idle.</summary>
     private enum RunState { Idle, Countdown, Starting, Recording, Stopping }
 
     public MainWindow()
@@ -214,7 +214,7 @@ public partial class MainWindow : Window
                 ShowCountdown();
                 return;
             }
-            // The overlay is closed before odx-record starts, so it never appears in the video.
+            // The overlay is closed before odx record starts, so it never appears in the video.
             EndCountdown();
             StartRecording();
         };

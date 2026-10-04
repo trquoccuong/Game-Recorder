@@ -1,6 +1,6 @@
 // Records the camera for one capture: one camera_samples.csv row per presented frame (written on a separate thread so
 // the game's render thread never waits on disk) and extractor.json with the profile's axis fields on stop.
-// `odx build` (capture-cs) merges them with the odx-input / odx-record logs of the same capture.
+// `odx build` (capture-cs) merges them with the odx input / odx record logs of the same capture.
 #pragma once
 
 #include <condition_variable>
@@ -32,7 +32,7 @@ public:
     ~Recorder();
 
     bool start(std::string& error);
-    // `t_ms` is QueryPerformanceCounter in milliseconds, the clock of odx-input and odx-record.
+    // `t_ms` is QueryPerformanceCounter in milliseconds, the clock of odx input and odx record.
     void on_frame(double t_ms, const CameraSample& sample);
     // Writes extractor.json and closes camera_samples.csv. Returns the number of samples written.
     int64_t stop();

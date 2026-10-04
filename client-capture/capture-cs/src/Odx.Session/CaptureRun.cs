@@ -6,14 +6,14 @@ using Odx.Core;
 
 namespace Odx.Session;
 
-/// <param name="WindowProcess">Process name passed to odx-record --window; null records the primary monitor.</param>
+/// <param name="WindowProcess">Process name passed to odx record --window; null records the primary monitor.</param>
 /// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>
 public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile);
 
 public sealed record RunResult(string SessionDir, bool Ok, string Summary);
 
 /// <summary>
-/// One recording: odx-input and odx-record run as child processes into the same session folder, both stopped through
+/// One recording: `odx input` and `odx record` run as child processes into the same session folder, both stopped through
 /// a shared named event. If either child exits on its own (error, captured window closed), the other is stopped too.
 /// After a clean stop the folder is built into a spec v2 session with the chosen game profile and validated.
 /// </summary>
@@ -28,9 +28,9 @@ public sealed class CaptureRun
     private RecorderStatus? _lastStatus;
 
     public string SessionDir { get; }
-    /// <summary>Completes when odx-record reports that capture is running; odx-record can take seconds on a cold start.</summary>
+    /// <summary>Completes when odx record reports that capture is running; it can take seconds on a cold start.</summary>
     public Task Started => _started.Task;
-    /// <summary>Latest odx-record status (frame counters update every second); null before capture starts.</summary>
+    /// <summary>Latest odx record status (frame counters update every second); null before capture starts.</summary>
     public RecorderStatus? LastStatus => Volatile.Read(ref _lastStatus);
     public Task<RunResult> Completion { get; }
 
@@ -42,14 +42,14 @@ public sealed class CaptureRun
         string stopName = $@"Local\odx-stop-{Guid.NewGuid():N}";
         _stop = new EventWaitHandle(false, EventResetMode.ManualReset, stopName);
 
-        var input = Launch("odx-input", ["--out", SessionDir, "--stop-event", stopName]);
+        var input = Launch("input", ["--out", SessionDir, "--stop-event", stopName]);
         var recordArgs = new List<string> { "--out", SessionDir, "--fps", options.Fps.ToString(CultureInfo.InvariantCulture),
             "--stop-event", stopName, "--json-status" };
         recordArgs.AddRange(options.WindowProcess is string p ? ["--window", p] : ["--monitor"]);
         Process record;
         try
         {
-            record = Launch("odx-record", recordArgs, line =>
+            record = Launch("record", recordArgs, line =>
             {
                 if (RecorderStatus.TryParse(line) is not { } status) return;
                 Volatile.Write(ref _lastStatus, status);
@@ -68,21 +68,22 @@ public sealed class CaptureRun
 
     public void Stop() => _stop.Set();
 
-    private Process Launch(string tool, IEnumerable<string> args, Action<string>? onStdout = null)
+    private Process Launch(string command, IEnumerable<string> args, Action<string>? onStdout = null)
     {
-        var psi = new ProcessStartInfo(ExternalTools.CaptureTool(tool))
+        var psi = new ProcessStartInfo(ExternalTools.Odx())
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardError = true,
             RedirectStandardOutput = onStdout is not null,
         };
+        psi.ArgumentList.Add(command);
         foreach (var a in args) psi.ArgumentList.Add(a);
         var proc = Process.Start(psi)!;
         proc.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is null) return;
-            lock (_stderr) _stderr.AppendLine($"{tool}: {e.Data}");
+            lock (_stderr) _stderr.AppendLine($"odx {command}: {e.Data}");
         };
         proc.BeginErrorReadLine();
         if (onStdout is not null)
@@ -121,7 +122,7 @@ public sealed class CaptureRun
     {
         if (_gameProfile is null)
         {
-            summary.AppendLine("No game profile selected: session not built (run odx-build later).");
+            summary.AppendLine("No game profile selected: session not built (run odx build later).");
             return true;
         }
         try

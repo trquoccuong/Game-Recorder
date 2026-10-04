@@ -159,7 +159,7 @@ public class SessionBuilderTests
         return poses;
     }
 
-    /// <summary>A capture folder as odx-input + odx-record would leave it: 120 frames at 60 fps on an irregular-free grid.</summary>
+    /// <summary>A capture folder as odx input + odx record would leave it: 120 frames at 60 fps on an irregular-free grid.</summary>
     private static void WriteCapture(string dir)
     {
         Directory.CreateDirectory(dir);

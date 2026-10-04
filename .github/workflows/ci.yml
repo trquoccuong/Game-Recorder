@@ -25,7 +25,7 @@ jobs:
           dotnet build OdxCapture.sln -c Release
           dotnet test OdxCapture.sln -c Release --no-build
 
-      # Built after capture-cs so ctest can run odx-validate on the synthetic session.
+      # Built after capture-cs so ctest can run `odx build` + `odx validate` on the synthetic capture.
       - name: extractor build and test
         working-directory: client-capture/extractor
         run: |

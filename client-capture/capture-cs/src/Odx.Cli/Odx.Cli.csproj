@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>odx</AssemblyName>
+    <RootNamespace>Odx.Cli</RootNamespace>
+    <!-- Windows: every command. net8.0: build + validate only, for Linux servers. -->
+    <TargetFramework />
+    <TargetFrameworks>net8.0-windows10.0.22621.0;net8.0</TargetFrameworks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows10.0.22621.0'">
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows10.0.22621.0'">
+    <ProjectReference Include="../Odx.Input/Odx.Input.csproj" />
+    <ProjectReference Include="../Odx.Recorder/Odx.Recorder.csproj" />
+  </ItemGroup>
+</Project>

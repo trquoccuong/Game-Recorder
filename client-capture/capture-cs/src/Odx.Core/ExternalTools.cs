@@ -4,7 +4,7 @@ public static class ExternalTools
 {
     /// <summary>
     /// Path of an ffmpeg tool ("ffmpeg", "ffprobe"). The package built by publish.ps1 ships them in <c>ffmpeg/</c> at
-    /// its root, two levels above <c>tools/&lt;name&gt;/</c>; the search walks up that far. Otherwise the bare name is
+    /// its root, two levels above <c>tools/odx/</c>; the search walks up that far. Otherwise the bare name is
     /// returned so it is looked up on PATH (development machines).
     /// </summary>
     public static string Ffmpeg(string tool)
@@ -20,13 +20,13 @@ public static class ExternalTools
     }
 
     /// <summary>
-    /// Path of a sibling capture tool (odx-input, odx-record): <c>tools/&lt;name&gt;/</c> in a published package,
-    /// otherwise next to the caller, where a development build copies referenced executables.
+    /// Path of the <c>odx</c> command-line tool: <c>tools/odx/</c> in a published package, otherwise next to the caller,
+    /// where a development build copies it.
     /// </summary>
-    public static string CaptureTool(string name)
+    public static string Odx()
     {
-        string exe = OperatingSystem.IsWindows() ? name + ".exe" : name;
-        string packaged = Path.Combine(AppContext.BaseDirectory, "tools", name, exe);
+        string exe = OperatingSystem.IsWindows() ? "odx.exe" : "odx";
+        string packaged = Path.Combine(AppContext.BaseDirectory, "tools", "odx", exe);
         return File.Exists(packaged) ? packaged : Path.Combine(AppContext.BaseDirectory, exe);
     }
 }
