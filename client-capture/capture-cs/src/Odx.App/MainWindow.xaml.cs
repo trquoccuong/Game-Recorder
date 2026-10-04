@@ -45,6 +45,9 @@ public partial class MainWindow : Window
     private int _countdownLeft;
     private DateTime _runStarted;
     private bool _closeWhenIdle;
+    /// <summary>Windows that can be recorded, listed off the UI thread (~200 ms) once the window is up and on Refresh.</summary>
+    private List<SourceItem> _windows = [];
+    private bool _windowsListed;
 
     /// <summary>Idle → Countdown → Starting (odx record warming up) → Recording → Stopping (incl. build + validate) → Idle.</summary>
     private enum RunState { Idle, Countdown, Starting, Recording, Stopping }
@@ -60,8 +63,7 @@ public partial class MainWindow : Window
         FpsBox.SelectedItem = _settings.Fps;
         OutputBox.Text = _settings.OutputRoot;
         HotkeyBox.Text = _settings.Hotkey.ToString();
-        LoadSources();
-        LoadGames();
+        Loaded += async (_, _) => await RefreshWindowsAsync();
         _clock.Tick += (_, _) => ShowRecordingStatus();
 
         _trayStartStop.Click += (_, _) => Toggle();
@@ -171,18 +173,9 @@ public partial class MainWindow : Window
     private void LoadSources()
     {
         var items = new List<SourceItem> { new(_t.PrimaryMonitor, null) };
-        int self = Environment.ProcessId;
-        foreach (var p in Process.GetProcesses())
-        {
-            using (p)
-            {
-                if (p.Id == self || p.MainWindowHandle == IntPtr.Zero || string.IsNullOrWhiteSpace(p.MainWindowTitle))
-                    continue;
-                items.Add(new SourceItem($"{p.MainWindowTitle} ({p.ProcessName}.exe)", p.ProcessName));
-            }
-        }
+        items.AddRange(_windows);
         if (_settings.WindowProcess is string saved && !items.Any(i => i.Process == saved))
-            items.Add(new SourceItem(_t.NotRunning($"{saved}.exe"), saved));
+            items.Add(new SourceItem(_windowsListed ? _t.NotRunning($"{saved}.exe") : $"{saved}.exe", saved));
         SourceBox.ItemsSource = items;
         SourceBox.SelectedItem = items.First(i => i.Process == _settings.WindowProcess);
     }
@@ -354,9 +347,27 @@ public partial class MainWindow : Window
 
     private void StartStop_Click(object sender, RoutedEventArgs e) => Toggle();
 
-    private void Refresh_Click(object sender, RoutedEventArgs e)
+    private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshWindowsAsync();
+
+    private async Task RefreshWindowsAsync()
     {
-        _settings.WindowProcess = (SourceBox.SelectedItem as SourceItem)?.Process;
+        int self = Environment.ProcessId;
+        _windows = await Task.Run(() =>
+        {
+            var windows = new List<SourceItem>();
+            foreach (var p in Process.GetProcesses())
+            {
+                using (p)
+                {
+                    if (p.Id == self || p.MainWindowHandle == IntPtr.Zero || string.IsNullOrWhiteSpace(p.MainWindowTitle))
+                        continue;
+                    windows.Add(new SourceItem($"{p.MainWindowTitle} ({p.ProcessName}.exe)", p.ProcessName));
+                }
+            }
+            return windows;
+        });
+        _windowsListed = true;
+        if (SourceBox.SelectedItem is SourceItem selected) _settings.WindowProcess = selected.Process;
         LoadSources();
     }
 
