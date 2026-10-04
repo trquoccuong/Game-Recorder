@@ -22,7 +22,7 @@ Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 8) in `c
 
 ```bash
 cd capture-cs
-dotnet test                                   # .NET 8 SDK; needs ffmpeg/ffprobe on PATH for the video checks
+dotnet test                                   # .NET 8 SDK; video tests are skipped without ffmpeg/ffprobe on PATH
 dotnet run --project src/Odx.Input -- --out C:/odx_capture/session1 [--pid <game_pid>] [--forward]
 ```
 

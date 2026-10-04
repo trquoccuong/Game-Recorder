@@ -73,7 +73,7 @@ public class SessionBuilderTests
 
             Assert.Equal(SessionFixtures.NFrames, report.FrameCount);
             Assert.Equal(new Dictionary<string, int> { ["Ctrl"] = 1 }, report.UnboundKeys);
-            Assert.Empty(SessionValidator.ValidateSession(dir));
+            Assert.Empty(SessionValidator.ValidateSession(dir, video: SessionFixtures.HasFfmpeg));
             var session = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "session.json")))!;
             Assert.Equal("cap-0001", session["session_id"]!.GetValue<string>());
             Assert.Equal("2026-10-04T10:00:00.000Z", session["created_at_utc"]!.GetValue<string>());
@@ -112,6 +112,6 @@ public class SessionBuilderTests
         File.WriteAllText(Path.Combine(dir, "recording.json"), """
             {"capture_id": "cap-0001", "width": 320, "height": 180, "screen_width": 1920, "screen_height": 1080, "fps": 60}
             """);
-        SessionFixtures.MakeVideo(Path.Combine(dir, "video.mp4"));
+        if (SessionFixtures.HasFfmpeg) SessionFixtures.MakeVideo(Path.Combine(dir, "video.mp4"));
     }
 }
