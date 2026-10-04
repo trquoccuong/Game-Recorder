@@ -1,0 +1,11 @@
+# OS
+.DS_Store
+Thumbs.db
+# IDE / editor
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+# Personal Claude Code settings (shared settings in .claude/settings.json stay tracked)
+.claude/settings.local.json
