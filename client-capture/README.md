@@ -41,7 +41,7 @@ Run `odx-input` and `odx-record` into the same `--out` folder. Grid times (`t_gr
 
 `odx-app` (WPF, `src/Odx.App`) is the desktop front end. It runs `odx-input` and `odx-record` as child processes into `<output folder>/<yyyyMMdd-HHmmss>/` and stops both through `--stop-event`.
 - Source (primary monitor or a window), FPS and output folder; settings saved in `%APPDATA%\Client\odx-app.json`.
-- Global start/stop hotkey, default `Ctrl+Shift+R`; click the hotkey box and press a new combination to change it. The hotkey keys are recorded in `input_events.csv` like any other input.
+- Global start/stop hotkey, default `F10`; click the hotkey box and press a new combination to change it. While the app runs, other programs (and the game) do not receive that key. It is still recorded in `input_events.csv`; `odx-build` leaves it out of `input_keys` as long as the game profile does not bind it.
 - Start shows a 3-second countdown overlay (click-through, never takes focus); capture begins after it closes, so it is not in the video. Start/hotkey again during the countdown cancels.
 - Minimizing hides it to the tray; the hotkey keeps working.
 
