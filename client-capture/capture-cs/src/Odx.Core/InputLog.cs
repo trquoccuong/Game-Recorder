@@ -3,8 +3,11 @@ using System.Globalization;
 
 namespace Odx.Core;
 
-/// <summary>Raw input event kinds. Names match client_capture.frames.InputEvent.kind.</summary>
-public enum InputKind { KeyDown, KeyUp, ButtonDown, ButtonUp, MouseMove }
+/// <summary>
+/// Input event kinds; <see cref="InputLogWriter.KindName"/> gives their input_events.csv names. odx-input only produces
+/// the raw kinds (KeyDown..MouseMove, same order as odx::win::MsgKind); actions come from profile bindings.
+/// </summary>
+public enum InputKind { KeyDown, KeyUp, ButtonDown, ButtonUp, MouseMove, ActionStart, ActionEnd }
 
 /// <summary>One raw input event. <c>TQpcMs</c> is QPC in milliseconds, shared by every process on the machine.</summary>
 public readonly record struct InputEvent(double TQpcMs, InputKind Kind, string Value = "", double Dx = 0, double Dy = 0);
@@ -16,8 +19,8 @@ public static class QpcClock
 }
 
 /// <summary>
-/// Writes input_events.csv: <c>t_qpc_ms,kind,value,dx,dy</c>. Read back by client_capture.frames.read_input_events,
-/// which turns it into per-frame input columns. The contract is pinned by tests/fixtures/input_events.csv.
+/// Writes input_events.csv: <c>t_qpc_ms,kind,value,dx,dy</c>. Read back by <see cref="InputLogReader"/>, then folded
+/// into per-frame input columns by <see cref="InputAggregator"/>. The format is pinned by tests/fixtures/input_events.csv.
 /// </summary>
 public sealed class InputLogWriter(TextWriter writer) : IDisposable
 {
@@ -44,6 +47,8 @@ public sealed class InputLogWriter(TextWriter writer) : IDisposable
         InputKind.ButtonDown => "button_down",
         InputKind.ButtonUp => "button_up",
         InputKind.MouseMove => "mouse_move",
+        InputKind.ActionStart => "action_start",
+        InputKind.ActionEnd => "action_end",
         _ => throw new ArgumentOutOfRangeException(nameof(kind)),
     };
 
@@ -71,4 +76,21 @@ public sealed class ClockSampleWriter(TextWriter writer) : IDisposable
 
     public void Flush() => writer.Flush();
     public void Dispose() => writer.Dispose();
+}
+
+public static class InputLogReader
+{
+    public static List<InputEvent> Read(string path)
+    {
+        var (_, rows) = Csv.ReadFile(path);
+        return rows.Select(r => new InputEvent(Frames.ParseDouble(r["t_qpc_ms"]), ParseKind(r["kind"]), r["value"],
+            Frames.ParseDouble(r["dx"]), Frames.ParseDouble(r["dy"]))).ToList();
+    }
+
+    public static InputKind ParseKind(string name)
+    {
+        foreach (var kind in Enum.GetValues<InputKind>())
+            if (InputLogWriter.KindName(kind) == name) return kind;
+        throw new FormatException($"unknown input event kind: {name}");
+    }
 }

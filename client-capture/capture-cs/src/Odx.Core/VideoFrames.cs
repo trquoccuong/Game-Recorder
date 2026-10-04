@@ -62,7 +62,7 @@ public sealed class GridResampler(double fps)
 
 /// <summary>
 /// Writes video_frames.csv: <c>frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate</c>, one row per video frame.
-/// Read by client_capture.frames.read_video_frames; pinned by tests/fixtures/video_frames.csv.
+/// Read by <see cref="VideoFrameLogReader"/>; pinned by tests/fixtures/video_frames.csv.
 /// </summary>
 public sealed class VideoFrameLogWriter(TextWriter writer) : IDisposable
 {
@@ -82,4 +82,14 @@ public sealed class VideoFrameLogWriter(TextWriter writer) : IDisposable
 
     public void Flush() => writer.Flush();
     public void Dispose() => writer.Dispose();
+}
+
+public static class VideoFrameLogReader
+{
+    public static List<GridTick> Read(string path)
+    {
+        var (_, rows) = Csv.ReadFile(path);
+        return rows.Select(r => new GridTick(long.Parse(r["frame_index"], CultureInfo.InvariantCulture),
+            Frames.ParseDouble(r["t_grid_qpc_ms"]), Frames.ParseDouble(r["t_source_qpc_ms"]), r["duplicate"] == "1")).ToList();
+    }
 }

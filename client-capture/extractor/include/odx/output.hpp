@@ -1,5 +1,5 @@
 // Canonical output files: frames.csv (spec v2 §1.1.3) and session.json (spec v2 §1.1.2.1).
-// Column order and null encoding must match client_capture/frames.py.
+// Column order and null encoding must match Odx.Core.Frames (capture-cs).
 #pragma once
 
 #include <cstdint>

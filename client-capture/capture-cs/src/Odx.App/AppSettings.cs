@@ -1,0 +1,38 @@
+using System.IO;
+using System.Text.Json;
+using Odx.Core;
+
+namespace Odx.App;
+
+/// <summary>Persisted in %APPDATA%\Client\odx-app.json.</summary>
+public sealed class AppSettings
+{
+    private static readonly string FilePath =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Client", "odx-app.json");
+
+    public string OutputRoot { get; set; } = @"C:\odx_capture";
+    /// <summary>Process name passed to odx-record --window; null records the primary monitor.</summary>
+    public string? WindowProcess { get; set; }
+    public int Fps { get; set; } = 60;
+    public Hotkey Hotkey { get; set; } = Hotkey.Default;
+
+    public static AppSettings Load()
+    {
+        try
+        {
+            return File.Exists(FilePath)
+                ? JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings()
+                : new AppSettings();
+        }
+        catch (JsonException)
+        {
+            return new AppSettings();
+        }
+    }
+
+    public void Save()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        File.WriteAllText(FilePath, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
+    }
+}

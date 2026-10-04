@@ -9,9 +9,10 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Odx.Core/Odx.Core.csproj" />
+    <ProjectReference Include="../../src/Odx.Validate/Odx.Validate.csproj" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Shared contract with the Python reader (client_capture.frames readers). -->
+    <!-- Pinned log formats: the C# writers must reproduce them byte for byte. -->
     <None Include="../../../tests/fixtures/*.csv" Link="fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

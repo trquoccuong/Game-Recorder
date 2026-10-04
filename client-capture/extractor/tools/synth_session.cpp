@@ -1,6 +1,6 @@
 // odx_synth <profile.lua> <session_dir> [frames]
 // Drives the full capture path against the fake game: Lua profile (signature scan + memory reads) -> Recorder
-// -> frames.csv + session.json. The output must pass `client-validate --no-video`.
+// -> frames.csv + session.json. The output must pass `odx-validate --no-video`.
 #include <cstdio>
 #include <cstdlib>
 #include <string>

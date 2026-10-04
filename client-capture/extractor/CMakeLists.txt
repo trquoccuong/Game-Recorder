@@ -72,12 +72,13 @@ if(ODX_BUILD_TESTS)
   target_compile_definitions(odx_tests PRIVATE ODX_PROFILES_DIR="${CMAKE_CURRENT_SOURCE_DIR}/profiles")
   add_test(NAME core COMMAND odx_tests)
 
-  # End to end: fake game -> Lua profile -> recorder -> Python validator (if available).
+  # End to end: fake game -> Lua profile -> recorder -> odx-validate (capture-cs, if built).
   set(ODX_SYNTH_DIR ${CMAKE_CURRENT_BINARY_DIR}/synth_session)
   add_test(NAME synth_session
     COMMAND odx_synth ${CMAKE_CURRENT_SOURCE_DIR}/profiles/synthetic.lua ${ODX_SYNTH_DIR} 300)
-  find_program(CLIENT_VALIDATE client-validate
-    HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../.venv/bin ${CMAKE_CURRENT_SOURCE_DIR}/../.venv/Scripts)
+  find_program(CLIENT_VALIDATE odx-validate
+    HINTS ${CMAKE_CURRENT_SOURCE_DIR}/../capture-cs/src/Odx.Validate/bin/Release/net8.0
+          ${CMAKE_CURRENT_SOURCE_DIR}/../capture-cs/src/Odx.Validate/bin/Debug/net8.0)
   if(CLIENT_VALIDATE)
     add_test(NAME synth_session_validates COMMAND ${CLIENT_VALIDATE} --no-video ${ODX_SYNTH_DIR})
     set_tests_properties(synth_session_validates PROPERTIES DEPENDS synth_session)

@@ -68,7 +68,7 @@ TEST_CASE("intrinsics") {
     CHECK(h.fx == doctest::Approx(960));
 }
 
-TEST_CASE("input aggregation matches frames.py semantics") {
+TEST_CASE("input aggregation matches Odx.Core.Frames semantics") {
     InputAggregator agg;
     agg.push({10, InputKind::KeyDown, "W"});
     agg.push({20, InputKind::KeyDown, "Space"});

@@ -1,11 +1,12 @@
-// odx-input --out <dir> [--pid <game_pid>] [--forward]
+// odx-input --out <dir> [--pid <game_pid>] [--forward] [--stop-event <name>]
 //
 // Captures keyboard/mouse with the Raw Input API in its own process (RIDEV_INPUTSINK: keeps receiving while the game
 // has focus) and never touches the game. Writes, QPC-stamped:
 //   <dir>/input_events.csv   raw events (t_qpc_ms,kind,value,dx,dy)
 //   <dir>/clock_samples.csv  QPC <-> UTC once per second, to align with server events / demo ticks
 // --pid: stop when that process exits. --forward: also send each event to the C++ extractor DLL in that process
-// (mailslot), for the in-process capture path. Stop with Ctrl+C.
+// (mailslot), for the in-process capture path. --stop-event: stop when that named event is set (Odx.App).
+// Stop with Ctrl+C.
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using Odx.Core;
@@ -16,7 +17,7 @@ using static Odx.Input.Win32;
 var opts = ParseArgs(args);
 if (opts is null)
 {
-    Console.Error.WriteLine("usage: odx-input --out <dir> [--pid <game_pid>] [--forward]");
+    Console.Error.WriteLine("usage: odx-input --out <dir> [--pid <game_pid>] [--forward] [--stop-event <name>]");
     return 2;
 }
 
@@ -55,6 +56,11 @@ if (opts.Value.Pid is int pid)
 {
     var game = System.Diagnostics.Process.GetProcessById(pid);
     _ = Task.Run(() => { game.WaitForExit(); PostThreadMessageW(loopThread, WM_QUIT, UIntPtr.Zero, IntPtr.Zero); });
+}
+if (opts.Value.StopEvent is string stopEventName)
+{
+    var stopEvent = EventWaitHandle.OpenExisting(stopEventName);
+    _ = Task.Run(() => { stopEvent.WaitOne(); PostThreadMessageW(loopThread, WM_QUIT, UIntPtr.Zero, IntPtr.Zero); });
 }
 
 SetTimer(hwnd, 1, 1000, IntPtr.Zero);
@@ -105,11 +111,12 @@ void WriteClockSample()
     events.Flush();
 }
 
-static (string OutDir, int? Pid, bool Forward)? ParseArgs(string[] args)
+static (string OutDir, int? Pid, bool Forward, string? StopEvent)? ParseArgs(string[] args)
 {
     string? outDir = null;
     int? pid = null;
     bool forward = false;
+    string? stopEvent = null;
     for (int i = 0; i < args.Length; i++)
     {
         switch (args[i])
@@ -117,9 +124,10 @@ static (string OutDir, int? Pid, bool Forward)? ParseArgs(string[] args)
             case "--out" when i + 1 < args.Length: outDir = args[++i]; break;
             case "--pid" when i + 1 < args.Length && int.TryParse(args[i + 1], out var p): pid = p; i++; break;
             case "--forward": forward = true; break;
+            case "--stop-event" when i + 1 < args.Length: stopEvent = args[++i]; break;
             default: return null;
         }
     }
     if (outDir is null || (forward && pid is null)) return null;
-    return (outDir, pid, forward);
+    return (outDir, pid, forward, stopEvent);
 }

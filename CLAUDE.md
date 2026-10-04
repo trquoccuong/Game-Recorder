@@ -75,36 +75,41 @@ document/                         # Specs and plans (Markdown, source of truth f
   reviews/                        # Reviews of sample/vendor data
   raw/                            # Original PDFs (do not edit)
 client-capture/
-  src/client_capture/            # Python: geometry, frames.csv, client-validate CLI
-  schemas/                        # session.json JSON Schema
-  tests/                          # pytest + fixtures shared with C#
-  tools/analyze_pose.py           # Reference pose audit
-  capture-cs/                     # C# .NET 8: odx-input (Raw Input), odx-record (WGC + ffmpeg)
-  extractor/                      # C++20 + Lua 5.4: extractor DLL, odx_synth, profiles
+  capture-cs/                     # C# .NET 8 — everything outside the game process
+    src/Odx.Core/                 #   portable: geometry, frames.csv, input aggregation, log formats, CSV
+    src/Odx.Validate/             #   odx-validate CLI (spec v2 §1.5)
+    src/Odx.Input/                #   odx-input (Raw Input)
+    src/Odx.Recorder/             #   odx-record (WGC + ffmpeg)
+    src/Odx.App/                  #   odx-app (WPF front end, runs odx-input + odx-record)
+    tests/Odx.Core.Tests/         #   xUnit, incl. synthetic session + one mutator per validation rule
+  extractor/                      # C++20 + Lua 5.4: in-game extractor DLL, odx_synth, profiles
+  schemas/                        # session.json JSON Schema (embedded in odx-validate)
+  tests/fixtures/                 # pinned log formats (input_events.csv, video_frames.csv)
+research/
+  analyze-pose/                   # Standalone Python pose audit (numpy), not part of the product
 ```
 
 ## Build & test
 
-Toolchain: Python ≥ 3.11, .NET 8 SDK, CMake ≥ 3.24 + MSVC (C++20), ffmpeg/ffprobe on PATH.
+Toolchain: .NET 8 SDK, CMake ≥ 3.24 + MSVC (C++20), ffmpeg/ffprobe on PATH.
 
 ```bash
-# Python (from client-capture/)
-python -m venv .venv && .venv/Scripts/pip install -e . pytest hypothesis
-.venv/Scripts/pytest
-
 # C# (from client-capture/capture-cs/)
-dotnet test
+dotnet build && dotnet test
 
-# C++ (from client-capture/extractor/)
+# C++ (from client-capture/extractor/; build capture-cs first so ctest can run odx-validate on the synthetic session)
 cmake -B build && cmake --build build --config Debug
-ctest --test-dir build -C Debug   # synth_session_validates runs only if client-validate is in ../.venv
+ctest --test-dir build -C Debug
+
+# Self-contained package with ffmpeg (from client-capture/capture-cs/) -> dist/odx-capture-<ver>-win-x64.zip
+powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0
 ```
 
 ## Working rules
 
 1. **Specs in `document/` drive the code** — cite the spec section (e.g. `v2 §1.5`, `plan §7.10`) when implementing or changing behavior.
 2. **Don't edit `document/raw/`** — the PDFs are originals; Markdown versions are the working copies.
-3. **Cross-language formats are pinned by fixtures** — `tests/fixtures/*.csv` are checked from both C# and Python; change both sides together.
+3. **One implementation per format** — `frames.csv`, the validator and geometry live in `Odx.Core` / `Odx.Validate`. Log formats are pinned by `tests/fixtures/*.csv`; the C++ extractor's copies (`input.cpp`, `output.cpp`, `math.cpp`) must stay in step with `Odx.Core`, checked by ctest `synth_session_validates`.
 4. **Unresolved spec questions go to the README** — list them under "Decisions pending with Client" in `client-capture/README.md`; don't silently pick an interpretation.
 5. **Compliance** — follow `document/games/README.md` ground rules: no anti-cheat bypass, no public matchmaking, no client memory reading on anti-cheat-protected titles.
 6. **Code is the source of truth; comment only when necessary** — names and structure carry the "what". Write a comment only for what the code cannot say: why a choice was made, a non-obvious constraint (ABI layout, threading, loader lock), a magic number, a cross-language contract, or a spec reference. No comments that restate the function/class name, no section banners, no commented-out code. Delete a comment that has gone stale instead of leaving it wrong.

@@ -1,5 +1,5 @@
 // Camera geometry for the canonical format (Capture Spec v2 §1.1.2.3–1.1.2.5).
-// Mirrors client_capture/geometry.py.
+// Mirrors Odx.Core.Geometry (capture-cs).
 //
 // Canonical world: RFU — X right/east, Y forward/north, Z up, right-handed.
 // Canonical camera: C2W 4x4, row-major, columns = Right | Up | Backward | Translation (RUB).

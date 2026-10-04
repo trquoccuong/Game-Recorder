@@ -1,4 +1,4 @@
-// Per-frame input aggregation (Capture Spec v2 §1.1.2.6). Mirrors aggregate_inputs() in frames.py.
+// Per-frame input aggregation (Capture Spec v2 §1.1.2.6). Mirrors Odx.Core.Frames.AggregateInputs (capture-cs).
 #pragma once
 
 #include <mutex>
