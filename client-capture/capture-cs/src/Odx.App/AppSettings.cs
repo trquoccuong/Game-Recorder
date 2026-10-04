@@ -15,11 +15,15 @@ public sealed class AppSettings
     /// <summary>Process name passed to odx record --window; null records the primary monitor.</summary>
     public string? WindowProcess { get; set; }
     public int Fps { get; set; } = 60;
+    /// <summary>"en" or "vi"; null follows the Windows display language.</summary>
+    public string? Language { get; set; }
+    /// <summary>Measured against during recording (odx input --ntp); empty uses the Windows clock only.</summary>
+    public string NtpServer { get; set; } = "time.windows.com";
     /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>
     public string? GameProfile { get; set; }
     public Hotkey Hotkey { get; set; } = Hotkey.Default;
 
-    public CaptureOptions ToCaptureOptions() => new(OutputRoot, WindowProcess, Fps, GameProfile);
+    public CaptureOptions ToCaptureOptions() => new(OutputRoot, WindowProcess, Fps, GameProfile, NtpServer);
 
     public static AppSettings Load()
     {

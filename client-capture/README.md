@@ -48,7 +48,8 @@ dotnet run --project src/Odx.Cli -f net8.0-windows10.0.22621.0 -- record --out C
 Run `odx input` and `odx record` into the same `--out` folder. Grid times (`t_grid_qpc_ms`) are the per-frame clock for `Frames.AggregateInputs`. Requires Windows 10 2004+ and ffmpeg on PATH (or `--ffmpeg`). `--encoder nvenc` with ffmpeg 9 needs NVIDIA driver 610+; older drivers fail at startup, so x264 is the default. Both commands also accept `--stop-event <name>`: they stop when that named Win32 event is set.
 
 `odx-app` (WPF, `src/Odx.App`) is the desktop front end. It runs `odx input` and `odx record` as child processes into `<output folder>/<yyyyMMdd-HHmmss>/` and stops both through `--stop-event`.
-- Source (primary monitor or a window), FPS and output folder; settings saved in `%APPDATA%\Client\odx-app.json`.
+- English / Vietnamese UI (all texts in `src/Odx.App/Strings.cs`; defaults to the Windows display language, switchable at any time). Validator issue messages stay in English.
+- Source (primary monitor or a window), FPS, output folder and NTP server (default `time.windows.com`, passed to `odx input --ntp`; the result shows the measured RTT and Windows clock offset and warns above 1 s); settings saved in `%APPDATA%\Client\odx-app.json`.
 - Global start/stop hotkey, default `F10`; click the hotkey box and press a new combination to change it. While the app runs, other programs (and the game) do not receive that key. It is still recorded in `input_events.csv`; `odx build` leaves it out of `input_keys` as long as the game profile does not bind it.
 - Start shows a 3-second countdown overlay (click-through, never takes focus); capture begins after it closes, so it is not in the video. Start/hotkey again during the countdown cancels.
 - Minimizing hides it to the tray; the hotkey keeps working.

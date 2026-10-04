@@ -13,9 +13,15 @@ using Forms = System.Windows.Forms;
 
 namespace Odx.App;
 
-public sealed record SourceItem(string Label, string? Process);
+public sealed record SourceItem(string Label, string? Process)
+{
+    public override string ToString() => Label;  // what screen readers announce
+}
 
-public sealed record GameItem(string Label, string? Path);
+public sealed record GameItem(string Label, string? Path)
+{
+    public override string ToString() => Label;
+}
 
 public partial class MainWindow : Window
 {
@@ -27,7 +33,10 @@ public partial class MainWindow : Window
     private readonly AppSettings _settings = AppSettings.Load();
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly Forms.NotifyIcon _tray = new();
-    private readonly Forms.ToolStripMenuItem _trayStartStop = new();
+    private readonly Forms.ToolStripMenuItem _trayStartStop = new(), _trayShow = new(), _trayExit = new();
+    private Strings _t = Strings.En;
+    /// <summary>Renders the status line; kept so a language switch re-renders it.</summary>
+    private Func<Strings, string> _status = t => t.Ready;
     private IntPtr _hwnd;
     private RunState _state = RunState.Idle;
     private CaptureRun? _run;
@@ -43,6 +52,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _t = Strings.For(_settings.Language ?? Strings.DefaultLanguage);
+        LanguageBox.ItemsSource = Strings.Languages;
+        LanguageBox.SelectedItem = Strings.Languages.First(l => l.Code == (_settings.Language ?? Strings.DefaultLanguage));
+        NtpBox.Text = _settings.NtpServer;
         FpsBox.ItemsSource = new[] { 30, 60 };
         FpsBox.SelectedItem = _settings.Fps;
         OutputBox.Text = _settings.OutputRoot;
@@ -55,12 +68,52 @@ public partial class MainWindow : Window
         using (var icon = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/odx.ico")).Stream)
             _tray.Icon = new System.Drawing.Icon(icon, Forms.SystemInformation.SmallIconSize);
         _tray.ContextMenuStrip = new Forms.ContextMenuStrip();
-        _tray.ContextMenuStrip.Items.Add(_trayStartStop);
-        _tray.ContextMenuStrip.Items.Add("Show", null, (_, _) => RestoreFromTray());
-        _tray.ContextMenuStrip.Items.Add("Exit", null, (_, _) => Close());
+        _trayShow.Click += (_, _) => RestoreFromTray();
+        _trayExit.Click += (_, _) => Close();
+        _tray.ContextMenuStrip.Items.AddRange([_trayStartStop, _trayShow, _trayExit]);
         _tray.DoubleClick += (_, _) => RestoreFromTray();
         _tray.Visible = true;
-        SetState(RunState.Idle);
+        ApplyLanguage();
+    }
+
+    private void ApplyLanguage()
+    {
+        LanguageLabel.Content = _t.Language;
+        SourceLabel.Content = _t.Source;
+        GameLabel.Content = _t.GameProfile;
+        FpsLabel.Content = _t.Fps;
+        OutputLabel.Content = _t.OutputFolder;
+        NtpLabel.Content = _t.NtpServer;
+        HotkeyLabel.Content = _t.Hotkey;
+        RefreshButton.Content = _t.Refresh;
+        BrowseButton.Content = _t.Browse;
+        GameBox.ToolTip = _t.GameTooltip;
+        NtpBox.ToolTip = _t.NtpTooltip;
+        HotkeyBox.ToolTip = _t.HotkeyTooltip;
+        _trayShow.Text = _t.TrayShow;
+        _trayExit.Text = _t.TrayExit;
+        // Rebuild the pickers in the new language, keeping what is selected.
+        if (SourceBox.SelectedItem is SourceItem source) _settings.WindowProcess = source.Process;
+        if (GameBox.SelectedItem is GameItem game) _settings.GameProfile = game.Path;
+        LoadSources();
+        LoadGames();
+        SetState(_state);
+        SetStatus(_status);
+    }
+
+    private void Language_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        // Also fires while the constructor fills the box; the constructor applies the language itself.
+        if (!IsLoaded || LanguageBox.SelectedItem is not Strings.LanguageOption option) return;
+        _settings.Language = option.Code;
+        _t = Strings.For(option.Code);
+        ApplyLanguage();
+    }
+
+    private void SetStatus(Func<Strings, string> status)
+    {
+        _status = status;
+        StatusText.Text = status(_t);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -117,7 +170,7 @@ public partial class MainWindow : Window
 
     private void LoadSources()
     {
-        var items = new List<SourceItem> { new("Primary monitor", null) };
+        var items = new List<SourceItem> { new(_t.PrimaryMonitor, null) };
         int self = Environment.ProcessId;
         foreach (var p in Process.GetProcesses())
         {
@@ -129,7 +182,7 @@ public partial class MainWindow : Window
             }
         }
         if (_settings.WindowProcess is string saved && !items.Any(i => i.Process == saved))
-            items.Add(new SourceItem($"{saved}.exe (not running)", saved));
+            items.Add(new SourceItem(_t.NotRunning($"{saved}.exe"), saved));
         SourceBox.ItemsSource = items;
         SourceBox.SelectedItem = items.First(i => i.Process == _settings.WindowProcess);
     }
@@ -137,7 +190,7 @@ public partial class MainWindow : Window
     /// <summary>Game profiles shipped in games/ next to the app, plus a previously chosen file elsewhere.</summary>
     private void LoadGames()
     {
-        var items = new List<GameItem> { new("None (keep raw capture only)", null) };
+        var items = new List<GameItem> { new(_t.NoGameProfile, null) };
         string dir = Path.Combine(AppContext.BaseDirectory, "games");
         if (Directory.Exists(dir))
             foreach (string file in Directory.GetFiles(dir, "*.json").Order())
@@ -148,7 +201,8 @@ public partial class MainWindow : Window
                 }
                 catch (Exception e) when (e is IOException or FormatException or System.Text.Json.JsonException)
                 {
-                    StatusText.Text = $"Skipped game profile {Path.GetFileName(file)}: {e.Message}";
+                    string name = Path.GetFileName(file), error = e.Message;
+                    SetStatus(t => t.SkippedProfile(name, error));
                 }
             }
         if (_settings.GameProfile is string saved && File.Exists(saved) && !items.Any(i => i.Path == saved))
@@ -163,6 +217,7 @@ public partial class MainWindow : Window
         _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
         _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
         _settings.OutputRoot = OutputBox.Text.Trim();
+        _settings.NtpServer = NtpBox.Text.Trim();
         _settings.Save();
     }
 
@@ -176,30 +231,31 @@ public partial class MainWindow : Window
         }
     }
 
-    private void SetState(RunState state, string? status = null)
+    private void SetState(RunState state, Func<Strings, string>? status = null)
     {
         _state = state;
-        if (status is not null) StatusText.Text = status;
+        if (status is not null) SetStatus(status);
         if (state != RunState.Recording) _clock.Stop();
         bool idle = state == RunState.Idle;
         StartStopButton.Content = state switch
         {
-            RunState.Idle => "Start recording",
-            RunState.Countdown => $"Cancel ({_settings.Hotkey})",
-            RunState.Stopping => "Stopping…",
-            _ => $"Stop recording ({_settings.Hotkey})",
+            RunState.Idle => _t.Start,
+            RunState.Countdown => _t.Cancel(_settings.Hotkey.ToString()),
+            RunState.Stopping => _t.Stopping,
+            _ => _t.Stop(_settings.Hotkey.ToString()),
         };
         StartStopButton.IsEnabled = _trayStartStop.Enabled = state != RunState.Stopping;
         _trayStartStop.Text = state switch
         {
-            RunState.Idle => "Start recording",
-            RunState.Countdown => "Cancel",
-            RunState.Stopping => "Stopping…",
-            _ => "Stop recording",
+            RunState.Idle => _t.Start,
+            RunState.Countdown => _t.TrayCancel,
+            RunState.Stopping => _t.Stopping,
+            _ => _t.TrayStop,
         };
         SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
+        NtpBox.IsEnabled = LanguageBox.IsEnabled = idle;
         RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
-        _tray.Text = idle ? "Client Capture" : $"Client Capture: {state.ToString().ToLowerInvariant()}";
+        _tray.Text = idle ? "Client Capture" : _t.TrayTooltip(_trayStartStop.Text);
     }
 
     private void BeginCountdown()
@@ -227,13 +283,14 @@ public partial class MainWindow : Window
     private void ShowCountdown()
     {
         _overlay!.Seconds = _countdownLeft;
-        StatusText.Text = $"Recording starts in {_countdownLeft}…";
+        int left = _countdownLeft;
+        SetStatus(t => t.CountdownStatus(left));
     }
 
     private void CancelCountdown()
     {
         EndCountdown();
-        SetState(RunState.Idle, "Cancelled");
+        SetState(RunState.Idle, t => t.Cancelled);
     }
 
     private void EndCountdown()
@@ -254,11 +311,12 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            SetState(RunState.Idle, $"Could not start: {ex.Message}");
+            string error = ex.Message;
+            SetState(RunState.Idle, t => t.CouldNotStart(error));
             return;
         }
         _run = run;
-        SetState(RunState.Starting, "Starting capture…");
+        SetState(RunState.Starting, t => t.StartingCapture);
         run.Started.ContinueWith(_ => Dispatcher.Invoke(() =>
         {
             if (_run != run || _state != RunState.Starting) return;
@@ -273,14 +331,14 @@ public partial class MainWindow : Window
 
     private void StopRecording()
     {
-        SetState(RunState.Stopping, "Stopping, then building and validating the session…");
+        SetState(RunState.Stopping, t => t.StoppingStatus);
         _run!.Stop();
     }
 
     private void OnRunCompleted(RunResult result)
     {
         _run = null;
-        SetState(RunState.Idle, $"{(result.Ok ? "Saved" : "Stopped with errors")}: {result.SessionDir}\n{result.Summary}");
+        SetState(RunState.Idle, t => t.Describe(result));
         if (_closeWhenIdle) Close();
     }
 
@@ -288,9 +346,10 @@ public partial class MainWindow : Window
     {
         if (_run is null || _state != RunState.Recording) return;
         var elapsed = DateTime.Now - _runStarted;
-        string counters = _run.LastStatus is { } s ? $" · {s.Frames} frames, {s.Dropped} dropped" : "";
-        StatusText.Text = $"Recording {elapsed:hh\\:mm\\:ss}{counters}\n→ {_run.SessionDir}";
-        _tray.Text = $"Client Capture: recording {elapsed:hh\\:mm\\:ss}";
+        var status = _run.LastStatus;
+        string dir = _run.SessionDir;
+        SetStatus(t => t.RecordingStatus(elapsed, status, dir));
+        _tray.Text = _t.TrayTooltip($"{elapsed:hh\\:mm\\:ss}");
     }
 
     private void StartStop_Click(object sender, RoutedEventArgs e) => Toggle();
@@ -312,7 +371,7 @@ public partial class MainWindow : Window
     private void Hotkey_GotFocus(object sender, KeyboardFocusChangedEventArgs e)
     {
         UnregisterHotKey(_hwnd, HotkeyId);
-        HotkeyBox.Text = "Press a key combination…";
+        HotkeyBox.Text = _t.PressKeys;
     }
 
     private void Hotkey_LostFocus(object sender, KeyboardFocusChangedEventArgs e)
@@ -338,7 +397,7 @@ public partial class MainWindow : Window
     {
         var hk = _settings.Hotkey;
         if (!RegisterHotKey(_hwnd, HotkeyId, (uint)hk.Modifiers | MOD_NOREPEAT, (uint)hk.VirtualKey))
-            StatusText.Text = $"Hotkey {hk} is already used by another application; choose another one.";
+            SetStatus(t => t.HotkeyInUse(hk.ToString()));
     }
 
     [DllImport("user32.dll", SetLastError = true)]

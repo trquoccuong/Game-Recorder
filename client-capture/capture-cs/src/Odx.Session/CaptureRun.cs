@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Text;
 using System.Text.Json;
 using Odx.Core;
 
@@ -8,9 +7,20 @@ namespace Odx.Session;
 
 /// <param name="WindowProcess">Process name passed to odx record --window; null records the primary monitor.</param>
 /// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>
-public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile);
+/// <param name="NtpServer">Passed to odx input --ntp; null or empty measures nothing (Windows clock only).</param>
+public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer);
 
-public sealed record RunResult(string SessionDir, bool Ok, string Summary);
+/// <param name="Recording">odx record's final status (frame counts); null if it never reported one.</param>
+/// <param name="ToolErrors">stderr lines of the capture tools (warnings such as an unreachable NTP server included).</param>
+/// <param name="Build">Null when no game profile was selected.</param>
+public sealed record RunResult(string SessionDir, bool CaptureOk, RecorderStatus? Recording, int InputEvents,
+    IReadOnlyList<string> ToolErrors, BuildResult? Build)
+{
+    public bool Ok => CaptureOk && (Build is null || (Build.Error is null && Build.Issues.All(i => i.Severity != Issue.ErrorSeverity)));
+}
+
+/// <param name="Error">Why the session could not be built; null when it was built and validated.</param>
+public sealed record BuildResult(BuildReport? Report, IReadOnlyList<Issue> Issues, string? Error);
 
 /// <summary>
 /// One recording: `odx input` and `odx record` run as child processes into the same session folder, both stopped through
@@ -22,7 +32,7 @@ public sealed class CaptureRun
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(60);  // ffmpeg may still be draining frames
 
     private readonly EventWaitHandle _stop;
-    private readonly StringBuilder _stderr = new();
+    private readonly List<string> _stderr = [];
     private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly string? _gameProfile;
     private RecorderStatus? _lastStatus;
@@ -42,7 +52,9 @@ public sealed class CaptureRun
         string stopName = $@"Local\odx-stop-{Guid.NewGuid():N}";
         _stop = new EventWaitHandle(false, EventResetMode.ManualReset, stopName);
 
-        var input = Launch("input", ["--out", SessionDir, "--stop-event", stopName]);
+        var inputArgs = new List<string> { "--out", SessionDir, "--stop-event", stopName };
+        if (!string.IsNullOrWhiteSpace(options.NtpServer)) inputArgs.AddRange(["--ntp", options.NtpServer.Trim()]);
+        var input = Launch("input", inputArgs);
         var recordArgs = new List<string> { "--out", SessionDir, "--fps", options.Fps.ToString(CultureInfo.InvariantCulture),
             "--stop-event", stopName, "--json-status" };
         recordArgs.AddRange(options.WindowProcess is string p ? ["--window", p] : ["--monitor"]);
@@ -83,7 +95,7 @@ public sealed class CaptureRun
         proc.ErrorDataReceived += (_, e) =>
         {
             if (e.Data is null) return;
-            lock (_stderr) _stderr.AppendLine($"odx {command}: {e.Data}");
+            lock (_stderr) _stderr.Add($"odx {command}: {e.Data}");
         };
         proc.BeginErrorReadLine();
         if (onStdout is not null)
@@ -107,57 +119,30 @@ public sealed class CaptureRun
         {
             foreach (var p in new[] { input, record })
                 if (!p.HasExited) p.Kill();
-            lock (_stderr) _stderr.AppendLine("a capture tool did not stop in time and was killed");
+            lock (_stderr) _stderr.Add("a capture tool did not stop in time and was killed");
         }
         _stop.Dispose();
 
-        bool ok = input.ExitCode == 0 && record.ExitCode == 0;
-        var summary = new StringBuilder(Describe());
-        lock (_stderr) summary.Append(_stderr);
-        if (ok) ok = BuildSession(summary);
-        return new RunResult(SessionDir, ok, summary.ToString().TrimEnd());
+        bool captureOk = input.ExitCode == 0 && record.ExitCode == 0;
+        var status = LastStatus is { Event: RecorderStatus.Stopped } stopped ? stopped : null;
+        string inputCsv = Path.Combine(SessionDir, "input_events.csv");
+        int inputEvents = File.Exists(inputCsv) ? Math.Max(0, File.ReadLines(inputCsv).Count() - 1) : 0;
+        List<string> errors;
+        lock (_stderr) errors = [.. _stderr];
+        return new RunResult(SessionDir, captureOk, status, inputEvents, errors, captureOk ? BuildSession() : null);
     }
 
-    private bool BuildSession(StringBuilder summary)
+    private BuildResult? BuildSession()
     {
-        if (_gameProfile is null)
-        {
-            summary.AppendLine("No game profile selected: session not built (run odx build later).");
-            return true;
-        }
+        if (_gameProfile is null) return null;
         try
         {
             var report = SessionBuilder.Build(SessionDir, GameProfile.Load(_gameProfile));
-            var issues = SessionValidator.ValidateSession(SessionDir);
-            int errors = issues.Count(i => i.Severity == "error");
-            summary.AppendLine($"Validation {(errors == 0 ? "PASS" : "FAIL")}: {errors} errors, {issues.Count - errors} warnings");
-            foreach (var i in issues.Take(5)) summary.AppendLine($"  [{i.Severity}] {i.Rule}: {i.Message}");
-            if (report.UnboundKeys.Count > 0)
-                summary.AppendLine("Keys not bound in the game profile (left out): " + string.Join(", ", report.UnboundKeys.Keys));
-            return errors == 0;
+            return new BuildResult(report, SessionValidator.ValidateSession(SessionDir), null);
         }
         catch (Exception e) when (e is IOException or InvalidDataException or FormatException or JsonException)
         {
-            summary.AppendLine($"Could not build the session: {e.Message}");
-            return false;
+            return new BuildResult(null, [], e.Message);
         }
-    }
-
-    private string Describe()
-    {
-        var sb = new StringBuilder();
-        string recordingJson = Path.Combine(SessionDir, "recording.json");
-        if (File.Exists(recordingJson))
-        {
-            using var doc = JsonDocument.Parse(File.ReadAllText(recordingJson));
-            var r = doc.RootElement;
-            sb.AppendLine($"{r.GetProperty("frames")} frames ({r.GetProperty("width")}x{r.GetProperty("height")} @ " +
-                          $"{r.GetProperty("fps")} fps), {r.GetProperty("duplicate_frames")} duplicated, " +
-                          $"{r.GetProperty("dropped_source_frames")} dropped");
-        }
-        string inputCsv = Path.Combine(SessionDir, "input_events.csv");
-        if (File.Exists(inputCsv))
-            sb.AppendLine($"{Math.Max(0, File.ReadLines(inputCsv).Count() - 1)} input events");
-        return sb.ToString();
     }
 }
