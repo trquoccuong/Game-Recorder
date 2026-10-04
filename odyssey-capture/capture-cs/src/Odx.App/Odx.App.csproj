@@ -14,6 +14,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="odx.ico" />
+    <!-- Shown by WPF as soon as the runtime starts, before the main window is built; fades out when it appears. -->
+    <SplashScreen Include="splash.png" />
   </ItemGroup>
   <ItemGroup>
     <Using Remove="System.Windows.Forms" />
