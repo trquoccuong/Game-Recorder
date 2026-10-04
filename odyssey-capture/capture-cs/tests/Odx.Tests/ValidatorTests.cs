@@ -5,13 +5,13 @@ using Xunit;
 
 namespace Odx.Tests;
 
-/// <summary>Needs ffmpeg and ffprobe on PATH (video checks).</summary>
+/// <summary>Built with video.mp4 when ffmpeg is available; validated with or without video checks accordingly.</summary>
 public sealed class ValidSession : IDisposable
 {
     public string Root { get; } = Path.Combine(Path.GetTempPath(), $"odx-validate-{Guid.NewGuid():N}");
     public string Dir { get; }
 
-    public ValidSession() => Dir = SessionFixtures.MakeValidSession(Path.Combine(Root, "valid"));
+    public ValidSession() => Dir = SessionFixtures.MakeValidSession(Path.Combine(Root, "valid"), video: SessionFixtures.HasFfmpeg);
 
     public string Copy() => SessionFixtures.CopySession(Dir, Path.Combine(Root, Guid.NewGuid().ToString("N")));
 
@@ -22,26 +22,30 @@ public class ValidatorTests(ValidSession valid) : IClassFixture<ValidSession>
 {
     public static TheoryData<string> Rules => new(SessionFixtures.Mutations.Keys.Order());
 
-    [Fact]
-    public void Valid_session_has_no_issues() => Assert.Empty(SessionValidator.ValidateSession(valid.Dir));
+    private static readonly bool Video = SessionFixtures.HasFfmpeg;
 
-    [Theory]
+    [Fact]
+    public void Valid_session_has_no_issues() => Assert.Empty(SessionValidator.ValidateSession(valid.Dir, Video));
+
+    [SkippableTheory]
     [MemberData(nameof(Rules))]
     public void Each_violation_is_caught(string rule)
     {
+        Skip.If(rule.StartsWith("video.", StringComparison.Ordinal) && !Video, "ffmpeg/ffprobe not on PATH");
         string session = valid.Copy();
         SessionFixtures.Mutations[rule](session);
-        var fired = SessionValidator.ValidateSession(session).Where(i => i.Severity == "error").Select(i => i.Rule).ToHashSet();
+        var fired = SessionValidator.ValidateSession(session, Video).Where(i => i.Severity == "error").Select(i => i.Rule).ToHashSet();
         Assert.True(fired.Contains(rule), $"expected {rule}, got {string.Join(", ", fired.Order())}");
     }
 
     [Fact]
     public void Cli_exit_codes()
     {
-        Assert.Equal(0, RunCli(valid.Dir));
+        string videoFlag = Video ? "--json" : "--no-video";
+        Assert.Equal(0, RunCli(valid.Dir, videoFlag));
         string broken = valid.Copy();
         SessionFixtures.Mutations["c2w.det"](broken);
-        Assert.Equal(1, RunCli(broken, "--json"));
+        Assert.Equal(1, RunCli(broken, "--json", videoFlag));
     }
 
     [Fact]

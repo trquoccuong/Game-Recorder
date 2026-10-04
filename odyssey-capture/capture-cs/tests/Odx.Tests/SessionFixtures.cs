@@ -10,6 +10,29 @@ public static class SessionFixtures
 {
     public const int Fps = 60, NFrames = 120, Width = 320, Height = 180;
 
+    /// <summary>Video fixtures and video checks need ffmpeg + ffprobe on PATH; without them those tests are skipped.</summary>
+    public static readonly bool HasFfmpeg = Runs("ffmpeg") && Runs("ffprobe");
+
+    private static bool Runs(string tool)
+    {
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo(tool, "-version")
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            })!;
+            p.StandardOutput.ReadToEnd();
+            p.WaitForExit();
+            return p.ExitCode == 0;
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return false;
+        }
+    }
+
     public static void MakeVideo(string path, int nFrames = NFrames, int width = Width, int height = Height)
     {
         var psi = new ProcessStartInfo("ffmpeg") { UseShellExecute = false, RedirectStandardError = true };
