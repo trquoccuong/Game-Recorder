@@ -1,0 +1,6 @@
+t_qpc_ms,kind,value,dx,dy
+1000.5,key_down,W,0,0
+1001.25,mouse_move,,3,-1
+1010,button_down,Left,0,0
+1020,key_up,W,0,0
+1030,button_up,Left,0,0

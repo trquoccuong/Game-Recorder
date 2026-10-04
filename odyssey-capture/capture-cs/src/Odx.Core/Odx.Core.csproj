@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Portable logic shared by the capture tools; builds and tests on any OS. -->
+</Project>
