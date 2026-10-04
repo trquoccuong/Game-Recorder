@@ -15,7 +15,7 @@ jobs:
         with:
           global-json-file: client-capture/capture-cs/global.json
 
-      # The validator and its tests probe/encode video with ffmpeg + ffprobe.
+      # Video fixtures are encoded with ffmpeg; ffprobe cross-checks the MP4 reader.
       - name: Install ffmpeg
         run: choco install ffmpeg -y --no-progress
 

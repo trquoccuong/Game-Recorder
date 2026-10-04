@@ -3,13 +3,13 @@ namespace Odx.Core;
 public static class ExternalTools
 {
     /// <summary>
-    /// Path of an ffmpeg tool ("ffmpeg", "ffprobe"): the copy publish.ps1 ships in <c>ffmpeg/</c> next to the executable,
-    /// otherwise the bare name so it is looked up on PATH (development machines).
+    /// ffmpeg: the copy publish.ps1 ships in <c>ffmpeg/</c> next to the executable, otherwise the bare name so it is
+    /// looked up on PATH (development machines).
     /// </summary>
-    public static string Ffmpeg(string tool)
+    public static string Ffmpeg()
     {
-        string bundled = Path.Combine(AppContext.BaseDirectory, "ffmpeg", OperatingSystem.IsWindows() ? tool + ".exe" : tool);
-        return File.Exists(bundled) ? bundled : tool;
+        string bundled = Path.Combine(AppContext.BaseDirectory, "ffmpeg", OperatingSystem.IsWindows() ? "ffmpeg.exe" : "ffmpeg");
+        return File.Exists(bundled) ? bundled : "ffmpeg";
     }
 
     /// <summary>The <c>odx</c> command-line tool next to the caller (the package ships both side by side; a development

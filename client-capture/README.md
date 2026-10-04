@@ -10,7 +10,7 @@ Tooling for the Client canonical game-data format. See [`../document/software-pl
 | `Odx.Core.Frames` | `frames.csv` column list, per-frame input aggregation (held + tapped keys, summed mouse deltas), CSV writer | v2 §1.1.2.6, §1.1.3 |
 | `Odx.Session` / `odx build` | Builds a spec v2 session from a capture folder: `frames.csv` (grid-time frame clock, input aggregation, actions from the game profile's bindings; unbound keys left out) and `session.json` (UTC from `clock_samples.csv`, `capture_id` as `session_id`) | v2 §1.1.2, §1.1.3, §1.5 |
 | `games/*.json` | Game profiles: `game_title`, `platform`, `localization`, `input_mouse_convention`, `bindings` (key/button → action) | v2 §1.1.2.1, §1.1.2.6 |
-| `Odx.Session` / `odx validate` | Every vendor check in v2 §1.5 (session.json, frames structure, C2W, intrinsics, input, video via ffprobe) | v2 §1.5 |
+| `Odx.Session` / `odx validate` | Every vendor check in v2 §1.5 (session.json, frames structure, C2W, intrinsics, input, video read with `Odx.Core.Mp4Reader` — no ffprobe) | v2 §1.5 |
 | `schemas/session_schema.json` | JSON Schema for `session.json`, extracted from the spec; embedded in `Odx.Session` | v2 §1.1.2.1 |
 | `tests/Odx.Tests/SessionFixtures.cs` | Synthetic valid session + one mutator per validation rule | plan §7.10.2 |
 
@@ -24,7 +24,7 @@ One command-line tool, `odx` (`src/Odx.Cli`): `odx input`, `odx record`, `odx bu
 
 ```bash
 cd capture-cs
-dotnet test                                   # .NET 8 SDK; video tests are skipped without ffmpeg/ffprobe on PATH
+dotnet test                                   # .NET 8 SDK; video tests are skipped without ffmpeg/ffprobe on PATH (fixtures; ffprobe checks Mp4Reader)
 dotnet run --project src/Odx.Cli -f net8.0-windows10.0.22621.0 -- input --out C:/odx_capture/session1 [--pid <game_pid>] [--ntp time.windows.com]
 ```
 
@@ -71,13 +71,13 @@ Produces `capture-cs/dist/odx-capture-<version>-win-x64.zip` (~210 MB, 7 files).
 odx-capture-<version>-win-x64/
   odx-app.exe                 desktop front end
   odx.exe                     command-line tool (input, record, build, validate)
-  ffmpeg/                     ffmpeg.exe, ffprobe.exe, LICENSE (pinned gyan.dev 9.0.2 essentials build, SHA-256 checked)
+  ffmpeg/                     ffmpeg.exe, LICENSE (pinned gyan.dev 9.0.2 essentials build, SHA-256 checked)
   games/                      game profiles
 ```
 
 Both executables are self-contained single files: each embeds its own .NET runtime (WPF's native libraries are extracted to a temp folder on first run), so they never share or overwrite each other's files. They are not compressed: decompressing on every start made each launch 0.7–1.3 s slower, and the zip is compressed anyway.
 
-The tools use `ffmpeg/` from the package when present, otherwise `ffmpeg`/`ffprobe` on PATH. The ffmpeg build is GPLv3: its LICENSE ships alongside, and our tools only run it as a separate process (not linked).
+odx record uses `ffmpeg/ffmpeg.exe` from the package when present, otherwise `ffmpeg` on PATH; nothing needs ffprobe. The ffmpeg build is GPLv3: its LICENSE ships alongside, and our tools only run it as a separate process (not linked).
 
 ## Versions and CI
 

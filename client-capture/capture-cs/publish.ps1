@@ -1,5 +1,5 @@
 # Builds a self-contained Windows x64 package: odx-app, the odx command-line tool (input, record, build, validate), the
-# .NET runtime, ffmpeg/ffprobe and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
+# .NET runtime, ffmpeg and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
 # odx-app.exe (or odx.exe); nothing else needs installing.
 #
 #   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0]

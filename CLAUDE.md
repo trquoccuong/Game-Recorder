@@ -93,7 +93,7 @@ research/
 
 ## Build & test
 
-Toolchain: .NET 8 SDK, CMake ≥ 3.24 + MSVC (C++20), ffmpeg/ffprobe on PATH.
+Toolchain: .NET 8 SDK, CMake ≥ 3.24 + MSVC (C++20); ffmpeg/ffprobe on PATH for the video tests.
 
 ```bash
 # C# (from client-capture/capture-cs/)
