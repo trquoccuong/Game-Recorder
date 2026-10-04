@@ -52,9 +52,15 @@ public static class SessionBuilder
             ["localization"] = profile.Localization,
             ["platform"] = profile.Platform,
             ["input_mouse_convention"] = profile.InputMouseConvention.DeepClone(),
+            // Not in the spec (additionalProperties is allowed): which odx-build / odx-app build produced the session.
+            ["vendor_tool_version"] = BuildInfo.Version,
         };
         File.WriteAllText(Path.Combine(captureDir, "session.json"),
-            session.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+            session.ToJsonString(new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            }));
         return new BuildReport(sessionId, frames.Count, durationMs, unbound);
     }
 

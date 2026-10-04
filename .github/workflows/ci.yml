@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: client-capture/capture-cs/global.json
+
+      # The validator and its tests probe/encode video with ffmpeg + ffprobe.
+      - name: Install ffmpeg
+        run: choco install ffmpeg -y --no-progress
+
+      - name: capture-cs build and test
+        working-directory: client-capture/capture-cs
+        run: |
+          dotnet build OdxCapture.sln -c Release
+          dotnet test OdxCapture.sln -c Release --no-build
+
+      # Built after capture-cs so ctest can run odx-validate on the synthetic session.
+      - name: extractor build and test
+        working-directory: client-capture/extractor
+        run: |
+          cmake -B build
+          cmake --build build --config Release
+          ctest --test-dir build -C Release --output-on-failure
