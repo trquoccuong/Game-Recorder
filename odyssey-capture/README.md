@@ -65,16 +65,17 @@ cd capture-cs
 powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0
 ```
 
-Produces `capture-cs/dist/odx-capture-<version>-win-x64.zip` (~270 MB). Unzip it on any Windows 10 2004+ x64 machine and run `odx-app.exe`; no .NET or ffmpeg install is needed.
+Produces `capture-cs/dist/odx-capture-<version>-win-x64.zip` (~210 MB, 7 files). The first launch after unzipping takes 10–20 s (Windows Defender scans the new executables, WPF extracts its native libraries); later launches take ~1.6 s for the app and ~0.1 s for odx. Unzip it on any Windows 10 2004+ x64 machine and run `odx-app.exe`; no .NET or ffmpeg install is needed.
 
 ```
 odx-capture-<version>-win-x64/
-  odx-app.exe                 desktop front end (self-contained .NET runtime)
-  tools/odx/                  odx, self-contained in its own folder: its runtime differs from the app's (console vs
-                              WPF, System.Text.Json 9 via Vortice), so sharing one folder would break one of them
-  games/                      game profiles
+  odx-app.exe                 desktop front end
+  odx.exe                     command-line tool (input, record, build, validate)
   ffmpeg/                     ffmpeg.exe, ffprobe.exe, LICENSE (pinned gyan.dev 9.0.2 essentials build, SHA-256 checked)
+  games/                      game profiles
 ```
+
+Both executables are self-contained single files: each embeds its own .NET runtime (WPF's native libraries are extracted to a temp folder on first run), so they never share or overwrite each other's files. They are not compressed: decompressing on every start made each launch 0.7–1.3 s slower, and the zip is compressed anyway.
 
 The tools use `ffmpeg/` from the package when present, otherwise `ffmpeg`/`ffprobe` on PATH. The ffmpeg build is GPLv3: its LICENSE ships alongside, and our tools only run it as a separate process (not linked).
 
