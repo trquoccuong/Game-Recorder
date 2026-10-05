@@ -135,7 +135,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         var session = NextSession();
 
         await Post(new { type = "match_start", match_id = "m1", map = "de_dust2" });
-        await Post(new { type = "round_start" });
+        await Post(new { type = "round_start", countdown_ms = 1000 });
         await Task.WhenAll(started.Select(s => s.Task)).WaitAsync(TimeSpan.FromSeconds(10));
         await Post(new { type = "kill", attacker = "p1", victim = "p2", weapon = "ak47" });
         await Post(new { type = "player_death", player = "p2", permanent = true });
@@ -150,7 +150,11 @@ public sealed class OrchestratorTests : IAsyncLifetime
         var serverEvents = MultiplayerSession.ReadEvents(Path.Combine(dir, "server", "events.jsonl")).Select(GameEvents.Type);
         Assert.Equal(["round_start", "kill", "player_death", "round_end"], serverEvents);
         Assert.Equal("permanent_death", (string?)JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", "p2", "player.json")))!["stop_reason"]);
-        Assert.Equal("round_end", (string?)JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", "p1", "player.json")))!["stop_reason"]);
+        var p1 = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", "p1", "player.json")))!;
+        Assert.Equal("round_end", (string?)p1["stop_reason"]);
+        // The fake's 2 s of frames start when it is created, right after the round_start with a 1 s countdown.
+        Assert.InRange((int)p1["round_start_frame"]!, 40, 61);
+        Assert.InRange((double)p1["round_start_video_time_ms"]!, 600, 1000);
         foreach (string p in new[] { "p1", "p2" })
         {
             Assert.True(File.Exists(Path.Combine(dir, "players", p, "video.mp4")));
@@ -206,7 +210,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task StopDuringTheCountdownStartsNoCapture()
+    public async Task CaptureStartsWithTheCountdownAndStopsWhenTheRoundEndsDuringIt()
     {
         var started = ConnectAgents(null, "p1");
         await WaitForAgents(1);
@@ -216,11 +220,15 @@ public sealed class OrchestratorTests : IAsyncLifetime
 
         await _agents[0].ToggleRoundAsync(10_000, default);
         await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await started[0].Task.WaitAsync(TimeSpan.FromSeconds(5));
         await _agents[0].ToggleRoundAsync(10_000, default);
 
-        var (_, report) = await session;
-        Assert.Contains(report.Players[0].Issues, i => i.Message == "stopped during the countdown");
-        Assert.False(started[0].Task.IsCompleted);
+        var (dir, report) = await session;
+        Assert.Contains(report.Players[0].Issues, i => i.Message == "no game window");
+        var json = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "session.json")))!;
+        Assert.Equal("3.1", (string?)json["spec_version"]);
+        Assert.Equal(10_000, (int)json["countdown_ms"]!);
+        Assert.Equal("player_stop:p1", (string?)json["end_reason"]);
         await WaitForAgents(1);
     }
 

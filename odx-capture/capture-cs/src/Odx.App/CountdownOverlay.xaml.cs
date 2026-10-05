@@ -4,11 +4,15 @@ using System.Windows.Interop;
 
 namespace Odx.App;
 
-/// <summary>Click-through, never-focused badge over the game: the countdown before capture and "END" after it.</summary>
+/// <summary>
+/// Click-through, never-focused badge over the game: the countdown and "END". Excluded from screen capture, so it never
+/// shows in a recording, even of the whole monitor or while the capture already runs (multiplayer countdown).
+/// </summary>
 public partial class CountdownOverlay : Window
 {
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TRANSPARENT = 0x20, WS_EX_TOOLWINDOW = 0x80, WS_EX_NOACTIVATE = 0x08000000;
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x11;  // Windows 10 2004+
 
     public CountdownOverlay() => InitializeComponent();
 
@@ -32,7 +36,11 @@ public partial class CountdownOverlay : Window
         var hwnd = new WindowInteropHelper(this).Handle;
         SetWindowLongW(hwnd, GWL_EXSTYLE,
             GetWindowLongW(hwnd, GWL_EXSTYLE) | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+        SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
     }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLongW(IntPtr hWnd, int nIndex);

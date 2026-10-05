@@ -119,14 +119,14 @@ odx agent --orchestrator http://<host>:5180 --player p1 --out C:/odx_capture [--
 odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--rounds 2] [--round-s 20] [--match sim]
 ```
 
-In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine name) turns the main button into Connect/Disconnect. The orchestrator then starts and stops recordings, and the game profile and FPS come from the orchestrator. A player who ticks **Host** starts and ends rounds with the hotkey, in place of a game server plugin: `round_start` carries `countdown_ms` 3000, every player sees the 3-2-1 and starts capturing when it ends, and the next press ends the round for everyone. Other players' hotkeys do nothing in agent mode.
+In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine name) turns the main button into Connect/Disconnect. The orchestrator then starts and stops recordings, and the game profile and FPS come from the orchestrator. A player who ticks **Host** starts and ends rounds with the hotkey, in place of a game server plugin: `round_start` carries `countdown_ms` 3000; every player starts capturing at once and sees the 3-2-1 (excluded from screen capture, so never in the video), and the next press ends the round for everyone (`end_reason` `player_stop:<id>`). Other players' hotkeys do nothing in agent mode.
 
 `simulate-game` plays scripted rounds: each has a kill and a permanent death halfway through. It waits for uploads between rounds, prints each session's gate result and exits 1 if any session fails. Run on one machine (orchestrator + two agents recording the monitor + simulator), three 10 s rounds all pass; first frames arrive 0.75–0.93 s after `round_start`.
 
 - **Time service:** an SNTP responder on UDP `--time-port`. Every player's capture measures QPC against it (`ntp_samples.csv`), so all players share one clock.
 - **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, starts its capture on `start` and stops on `stop`. Then it uploads the built capture folder (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`.
 - **Game events:** the game server plugin posts JSON events to `POST /game/events` (`GameEvents`: `match_start`, `round_start`, `round_end`, `kill`, `player_death` with `permanent`, `player_connect`, `player_disconnect`, `match_end`). Events without `utc_ms` are stamped on arrival.
-  - `round_start` arms and starts every idle agent, after `countdown_ms` if given. Players' starts differ by their capture start-up; every frame is put on server time afterwards. A `stop` during the countdown cancels that player's capture.
+  - `round_start` arms and starts every idle agent at once; play starts after `countdown_ms` if given, so the video holds the start of play (`round_start_frame` in `player.json`). Players' starts differ by their capture start-up; every frame is put on server time afterwards.
   - A permanent `player_death` stops that player.
   - `round_end` stops the rest.
 - **Assembly:** once every player is done (or 15 min later), `MultiplayerSession.Assemble` writes:
@@ -137,7 +137,7 @@ In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine
     players/<pid>/ player.json frames.csv video.mp4 events.jsonl capture/
   ```
 
-  - `player.json` holds the ping (median NTP RTT), clock offset, first/last frame UTC, stop reason and validity.
+  - `player.json` holds the ping (median NTP RTT), clock offset, first/last frame UTC, `round_start_frame` / `round_start_video_time_ms`, stop reason and validity. `session.json` carries `spec_version` 3.1, `round_index`, `countdown_ms` and `end_reason`.
   - `events.jsonl` holds the server events inside the player's recording, each with the `frame_index` on screen at that moment.
   - `capture/` holds the v2 `session.json` and the raw logs.
 - **Gate** (`validation.json`):

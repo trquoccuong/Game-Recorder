@@ -454,7 +454,7 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>The same 3-2-1 as a solo recording; it closes as the capture starts, so it never shows in the video.</summary>
+    /// <summary>The same 3-2-1 as a solo recording, shown while the capture already runs (the overlay is excluded from it).</summary>
     private void ShowAgentCountdown(int countdownMs, CancellationToken cancelled)
     {
         int left = (int)Math.Ceiling(countdownMs / 1000.0);

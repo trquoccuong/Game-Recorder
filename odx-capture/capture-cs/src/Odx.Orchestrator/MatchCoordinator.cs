@@ -114,11 +114,11 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             switch (type)
             {
                 case GameEvents.MatchStart:
-                    if (_current is not null) ended = EndRound(utc, "abort", sends);
+                    if (_current is not null) ended = EndRound(utc, "abort", "abort", sends);
                     StartMatch(e);
                     break;
                 case GameEvents.RoundStart:
-                    if (_current is not null) ended = EndRound(utc, "abort", sends);
+                    if (_current is not null) ended = EndRound(utc, "abort", "abort", sends);
                     if (_matchId is null) StartMatch(e);
                     StartRound(e, utc, sends);
                     break;
@@ -128,7 +128,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                     break;
             }
             _current?.Events.Add(e);
-            if (type is GameEvents.RoundEnd or GameEvents.MatchEnd && _current is not null) ended = EndRound(utc, "round_end", sends);
+            if (type is GameEvents.RoundEnd or GameEvents.MatchEnd && _current is not null)
+                ended = EndRound(utc, "round_end", EndReason(e), sends);
             if (type == GameEvents.MatchEnd) _matchId = null;
         }
         foreach (var (link, message) in sends) await SendAsync(link, message);
@@ -191,7 +192,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             log.LogWarning("{Player} is {State}, left out of {Session}", busy.Hello.PlayerId, busy.State, sid);
         int countdownMs = e["countdown_ms"]?.GetValue<int>() ?? 0;
         var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, utc + countdownMs, null, timePort,
-            ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name)).ToList());
+            ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name)).ToList(), countdownMs);
         string staging = Path.Combine(options.OutRoot, ".staging", sid);
         Directory.CreateDirectory(staging);
         _current = new OpenRound(record, staging);
@@ -214,15 +215,21 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         log.LogInformation("stop {Player} in {Session}: {Reason}", playerId, round.Record.SessionId, reason);
     }
 
-    private OpenRound EndRound(double utc, string reason, List<(AgentLink, AgentMessage)> sends)
+    /// <param name="playerReason">Stop reason of every player still recording.</param>
+    /// <param name="endReason">Why the round ended, for session.json.</param>
+    private OpenRound EndRound(double utc, string playerReason, string endReason, List<(AgentLink, AgentMessage)> sends)
     {
         var round = _current!;
         _current = null;
         round.Ended = true;
-        round.Record = round.Record with { EndUtcMs = utc };
-        foreach (var p in round.Record.Players.ToList()) StopPlayer(round, p.PlayerId, utc, reason, sends);
+        round.Record = round.Record with { EndUtcMs = utc, EndReason = endReason };
+        foreach (var p in round.Record.Players.ToList()) StopPlayer(round, p.PlayerId, utc, playerReason, sends);
         return round;
     }
+
+    /// <summary>The game's own "reason", else "player_stop:&lt;id&gt;" when a host ended it, else the event type.</summary>
+    private static string EndReason(JsonObject e) =>
+        GameEvents.Text(e, "reason") ?? (GameEvents.Text(e, "by") is { } by ? $"player_stop:{by}" : GameEvents.Type(e));
 
     private void AfterRoundEnded(OpenRound round)
     {
