@@ -37,6 +37,8 @@ message FrameRecord {
 
 // One game message seen on this player's machine (packets.bin, spec v3 §2.3): a decoded protocol message (e.g. one
 // Warcraft III W3GS message out of a TCP stream), or one UDP/TCP payload for protocols kept raw (encrypted CS2).
+// In server/packets.bin (spec v3 §3.3) one net message the game server exchanged with a client, logged inside the server:
+// transport "netmessage", OUT = server to client, peer_id names the client, payload is empty (decoded_json holds it all).
 message PacketRecord {
   int64 server_time_us = 1;  // capture time on the orchestrator's clock (UTC microseconds)
   int64 local_time_us = 2;   // capture time on this machine's Windows clock
@@ -47,10 +49,57 @@ message PacketRecord {
   string message = 7;        // decoded message name; empty when kept raw
   bytes payload = 8;         // the message's bytes as sent on the wire (raw: the transport payload)
   string decoded_json = 9;   // the decoded fields, as in packets.txt; empty when kept raw
+  string peer_id = 10;       // server side: the client's SteamID64 ("0" until Steam authenticated it)
 
   enum Direction {
     DIRECTION_UNKNOWN = 0;
     IN = 1;
     OUT = 2;
   }
+}
+
+// The authoritative game state at one server tick (server/server_state.bin, spec v3 §3.1), from the server's own
+// recording of the match (CS2: a SourceTV demo).
+message ServerStateRecord {
+  int32 tick = 1;            // the game server's tick
+  int64 server_time_us = 2;  // the tick on the orchestrator's clock (UTC microseconds)
+  repeated PlayerState players = 3;
+  repeated WorldEntity entities = 4;
+  bool warmup = 5;
+  bool freeze_period = 6;    // round start freeze: players cannot move yet
+  int32 rounds_played = 7;
+}
+
+message Vec3 {
+  double x = 1;
+  double y = 2;
+  double z = 3;
+}
+
+// Game units and degrees, as the game networks them.
+message PlayerState {
+  uint64 steam_id = 1;  // 0 for bots
+  string name = 2;
+  int32 team = 3;       // CS2: 1 spectator, 2 terrorists, 3 counter-terrorists
+  bool alive = 4;
+  int32 health = 5;
+  int32 armor = 6;
+  Vec3 position = 7;    // feet
+  double pitch = 8;     // eye angles
+  double yaw = 9;
+  Vec3 velocity = 10;
+  string active_weapon = 11;  // the weapon's entity class, e.g. "CAK47"
+  bool ducking = 12;
+  bool scoped = 13;
+  bool walking = 14;
+  int32 slot = 15;      // player slot on the server
+}
+
+// Other entities that matter to play (CS2: grenades in flight, the bomb carried, dropped or planted).
+message WorldEntity {
+  int32 index = 1;
+  string class_name = 2;
+  Vec3 position = 3;
+  uint64 owner_steam_id = 4;  // who threw or carries it, 0 when none
+  string state = 5;           // e.g. a planted bomb's "site_a" / "defusing"
 }

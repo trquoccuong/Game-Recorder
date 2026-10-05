@@ -64,7 +64,10 @@ public abstract record AgentMessage
 
 /// <summary>Agent → orchestrator, first message.</summary>
 /// <param name="MachineId">Stable per machine but not the machine name (a hash of it).</param>
-public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null) : AgentMessage;
+/// <param name="SteamId">The Steam account signed in on the machine (SteamID64), to match the player in the game server's
+/// state; null without Steam.</param>
+public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null, string? SteamId = null)
+    : AgentMessage;
 
 /// <summary>
 /// Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder), and the game profile

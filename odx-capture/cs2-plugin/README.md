@@ -5,11 +5,14 @@ This Metamod:Source 2.0 plugin runs on our own dedicated server and logs every n
 each client, decoded by the engine itself.
 
 - Outgoing: `INetChannel::SendNetMessage` (slot 39 of the `CNetChan` vtable, found through its MSVC RTTI in
-  `networksystem.dll`). Entity snapshots, signon data and string tables do not go through it and are not logged yet.
+  `networksystem.dll`). Entity snapshots, signon data and string tables do not go through it and are not logged; the
+  world state comes from the server's SourceTV demo instead (odx-capture README, "CS2 game server").
 - Incoming: an `INetworkMessageProcessingPreFilter` installed on each channel (`InstallMessageFilter`, slot 73).
 - Output: `<game>/csgo/odx-netlog/<UTC start>.jsonl`, one object per message: `utc_us` (server Windows clock),
-  `direction`, `slot`, `steamid`, `address`, `message`, `id`, `buf`, `text` (protobuf text format from the engine's
-  binding; bytes fields such as `CCLCMsg_Move.data` stay serialized).
+  `tick` (the server tick it was logged in; it puts the demo's ticks on the clock), `direction`, `slot`, `steamid`,
+  `address`, `message`, `id`, `buf`, `text` (protobuf text format from the engine's binding; bytes fields such as
+  `CCLCMsg_Move.data` stay serialized). `Odx.Session` `Cs2ServerCapture` reads it; `tests/fixtures/cs2_netmessages.jsonl`
+  is a sample (from before `tick` was added).
 
 ## Build (Windows, MSVC)
 
@@ -35,5 +38,6 @@ Never on a player's CS2 install: the server runs from its own directory with `-i
    	"file"	"addons/odx/bin/win64/odx_netlog"
    }
    ```
-4. `game/bin/win64/cs2.exe -dedicated -insecure -port 27015 +map de_dust2`; the console prints
-   `[odx] logging net messages to …`.
+4. `game/bin/win64/cs2.exe -dedicated -insecure -usercon -port 27015 +rcon_password <password> +map de_dust2`; the
+   console prints `[odx] logging net messages to … (server tick N)`. A new build can be swapped in while the server
+   runs: `meta unload <id>`, copy the DLL, `meta load addons/odx/bin/win64/odx_netlog` (RCON or console).

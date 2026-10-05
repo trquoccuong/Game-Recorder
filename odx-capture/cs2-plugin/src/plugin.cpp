@@ -1,5 +1,6 @@
 #include <ISmmPlugin.h>
 #include <eiface.h>
+#include <iserver.h>
 #include <networksystem/iprotobufbinding.h>
 #include <networksystem/netmessage.h>
 #include <tier1/utlstring.h>
@@ -52,6 +53,14 @@ long long g_lastFlushUs;
 
 void *Slot(void *object, int index) { return (*static_cast<void ***>(object))[index]; }
 
+// The game server's current tick; -1 while no map runs.
+int ServerTick()
+{
+    INetworkGameServer *server = g_pNetworkServerService->GetIGameServer();
+    CGlobalVars *globals = server ? server->GetGlobals() : nullptr;
+    return globals ? globals->tickcount : -1;
+}
+
 uint64 SteamIdOf(int slot)
 {
     const CSteamID *id = g_engine->GetClientSteamID(CPlayerSlot(slot));
@@ -101,10 +110,12 @@ void AppendJsonString(std::string &out, const char *s)
 }
 
 // One JSON object per line: the message as the engine's protobuf binding prints it (text format; bytes fields
-// escaped), so nothing depends on our own copy of the game's .proto files.
+// escaped), so nothing depends on our own copy of the game's .proto files. "tick" with "utc_us" is what puts the
+// server's SourceTV demo on the clock (Odx.Session Cs2ServerCapture).
 void Log(const char *direction, void *channel, const CNetMessage *message, int bufType)
 {
     long long now = UtcNowUs();
+    int tick = ServerTick();
     NetMessageInfo_t *info = message->GetNetMessage()->GetNetMessageInfo();
     CUtlString text;
     // ToString takes the CNetMessage itself (engine2 reads the proto object embedded at +0x30), not AsProto().
@@ -121,7 +132,7 @@ void Log(const char *direction, void *channel, const CNetMessage *message, int b
     }
     if (!g_log) return;
 
-    std::string line = "{\"utc_us\":" + std::to_string(now) + ",\"direction\":\"" + direction +
+    std::string line = "{\"utc_us\":" + std::to_string(now) + ",\"tick\":" + std::to_string(tick) + ",\"direction\":\"" + direction +
                        "\",\"slot\":" + std::to_string(peer.slot) + ",\"steamid\":\"" + std::to_string(peer.steamId) +
                        "\",\"address\":";
     AppendJsonString(line, peer.address.c_str());
@@ -173,6 +184,7 @@ bool NetLogPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, 
 {
     PLUGIN_SAVEVARS();
     GET_V_IFACE_CURRENT(GetEngineFactory, g_engine, IVEngineServer2, INTERFACEVERSION_VENGINESERVER);
+    GET_V_IFACE_ANY(GetEngineFactory, g_pNetworkServerService, INetworkServerService, NETWORKSERVERSERVICE_INTERFACE_VERSION);
 
     g_vtable = FindVtable("networksystem.dll", ".?AVCNetChan@@");
     if (!g_vtable)
@@ -195,7 +207,7 @@ bool NetLogPlugin::Load(PluginId id, ISmmAPI *ismm, char *error, size_t maxlen, 
     }
 
     g_originalSend = reinterpret_cast<SendNetMessageFn>(PatchVtable(g_vtable, kSendNetMessage, reinterpret_cast<void *>(&SendNetMessageHook)));
-    META_CONPRINTF("[odx] logging net messages to %s\n", path.c_str());
+    META_CONPRINTF("[odx] logging net messages to %s (server tick %d)\n", path.c_str(), ServerTick());
     return true;
 }
 

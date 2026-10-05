@@ -145,7 +145,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 $"{options.Orchestrator} refused the access key (access_key in odx-capture.json)");
         }
         IsReady = false;
-        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId), stop);
+        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId, SignedInSteamId()), stop);
         Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
         if (_roomCode is not null) await SendAsync(new JoinRoom(_roomCode), stop);
         else if (options.CreateRoom) await SendAsync(new CreateRoom(options.Lan), stop);
@@ -256,6 +256,19 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private static string MachineId =>
         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(Environment.MachineName)))[..16]
             .ToLowerInvariant();
+
+    /// <summary>
+    /// The Steam account signed in on this machine as a SteamID64, from the Steam client's registry entry (the account id
+    /// of an individual account plus 76561197960265728); null when Steam is not running or not on Windows.
+    /// </summary>
+    private static string? SignedInSteamId()
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam\ActiveProcess");
+        return key?.GetValue("ActiveUser") is int accountId and not 0
+            ? (76561197960265728UL + (uint)accountId).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : null;
+    }
 
     private async Task HandleAsync(AgentMessage message, CancellationToken stop)
     {

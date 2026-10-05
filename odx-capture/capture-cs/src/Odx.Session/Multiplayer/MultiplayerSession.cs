@@ -12,8 +12,10 @@ public sealed record ServerClock(string Server, double OffsetMs, double RttMs, d
 
 /// <param name="StopReason">"round_end", "permanent_death" or "abort"; null while recording.</param>
 /// <param name="StopUtcMs">Server UTC when this player's recording was stopped.</param>
+/// <param name="SteamId">The Steam account the player was signed in with (SteamID64), which the game server's state names.</param>
 public sealed record RoundPlayer(string PlayerId, string Name, string? StopReason = null, double? StopUtcMs = null,
-    bool Done = false, bool UploadOk = false, string? Error = null, string? ToolVersion = null, string? MachineId = null);
+    bool Done = false, bool UploadOk = false, string? Error = null, string? ToolVersion = null, string? MachineId = null,
+    string? SteamId = null);
 
 /// <summary>
 /// One round as the orchestrator saw it (staging round.json). One round = one session (spec v3 §1: task boundaries are
@@ -71,10 +73,10 @@ public sealed record SessionReport(string SessionId, bool Pass, int ValidPlayers
 
 /// <summary>
 /// Turns a staged round (round.json, server_events.jsonl, game_profile.json, players/&lt;id&gt;/ with each agent's uploaded
-/// capture) into the spec v3 tree and checks it:
+/// capture, server/ with the game server's own capture when there is one) into the spec v3 tree and checks it:
 /// <code>
 /// &lt;vendor&gt;/&lt;mm-dd-yyyy&gt;/&lt;game&gt;/&lt;session-id&gt;/
-///   session.json  validation.json  schema.bin.gz  server/events.jsonl
+///   session.json  validation.json  schema.bin.gz  server/events.jsonl  [server/server_state.bin packets.bin packets.txt capture/]
 ///   players/&lt;id&gt;/ player.json frames.csv frames.bin video.mp4 events.jsonl capture/(v2 session.json, raw logs)
 /// </code>
 /// Every frame gets a server UTC from the player's samples against the orchestrator's time service, so player
@@ -99,6 +101,25 @@ public static class MultiplayerSession
         string dir = Path.Combine(outRoot, vendor, DateTime.UtcNow.ToString("MM-dd-yyyy", CultureInfo.InvariantCulture),
             Slug(round.Game), round.SessionId);
         Directory.CreateDirectory(Path.Combine(dir, "server"));
+        string stagedServer = Path.Combine(stagingDir, "server");
+        JsonObject? serverInfo = null;
+        string? serverError = null;
+        if (Cs2ServerCapture.IsStaged(stagedServer))
+        {
+            // The game server's recording is read by a third-party parser: a file it cannot read must not cost the
+            // players' streams their session.
+            try
+            {
+                var server = Cs2ServerCapture.Write(stagedServer, Path.Combine(dir, "server"),
+                    new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, ToolVersion = BuildInfo.Version });
+                events = events.Concat(server.Events).OrderBy(GameEvents.UtcMs).ToList();
+                serverInfo = server.Info;
+            }
+            catch (Exception e)
+            {
+                serverError = $"{e.GetType().Name}: {e.Message}";
+            }
+        }
         WriteEvents(Path.Combine(dir, "server", "events.jsonl"), events);
         FramesBin.WriteSchema(Path.Combine(dir, FramesBin.SchemaFileName));
 
@@ -111,7 +132,8 @@ public static class MultiplayerSession
                 issues.Add(Issue.Error("session.events", $"no {type} event from the game server"));
         if (valid < required)
             issues.Add(Issue.Error("session.min_players", $"{valid} of {round.Players.Count} player streams valid, {required} required"));
-        var report = new SessionReport(round.SessionId, issues.Count == 0, valid, required, issues, reports);
+        if (serverError is not null) issues.Add(Issue.Warning("server.capture", $"the game server's capture could not be read: {serverError}"));
+        var report = new SessionReport(round.SessionId, issues.All(i => i.Severity != Issue.ErrorSeverity), valid, required, issues, reports);
 
         var session = new JsonObject
         {
@@ -132,6 +154,7 @@ public static class MultiplayerSession
                 ["player_id"] = p.PlayerId,
                 ["name"] = p.Name,
                 ["machine_id"] = p.MachineId,
+                ["steam_id"] = p.SteamId,
                 ["tool_version"] = p.ToolVersion,
                 ["stop_reason"] = p.StopReason,
                 ["valid"] = reports.First(r => r.PlayerId == p.PlayerId).Pass,
@@ -147,10 +170,13 @@ public static class MultiplayerSession
                     ["measured_at_utc"] = SessionBuilder.IsoUtc(c.MeasuredAtUtcMs),
                 }
                 : null,
+            ["server"] = serverInfo,
             ["files"] = new JsonObject
             {
                 ["schema"] = FramesBin.SchemaFileName,
                 ["server_events"] = "server/events.jsonl",
+                ["server_state"] = serverInfo?["server_state"] is null ? null : $"server/{Cs2ServerCapture.StateFile}",
+                ["server_packets"] = serverInfo?["packets"] is null ? null : $"server/{PacketLog.BinFile}",
                 ["players_root"] = "players/<player-id>/",
             },
             ["decoding"] = new JsonObject
@@ -161,7 +187,11 @@ public static class MultiplayerSession
                 ["frames.bin"] = "odx.capture.v1.FrameRecord: one per frames.csv row, full precision, plus server_time_us",
                 ["packets.bin"] = "odx.capture.v1.PacketRecord: one per decoded game message (or per UDP/TCP payload when the " +
                                   "game's protocol is kept raw), with server_time_us; packets.txt lists the same records as text, " +
-                                  "and capture/packets.pcapng holds the original capture",
+                                  "and capture/packets.pcapng holds the original capture; server/packets.bin holds the net messages " +
+                                  "the game server exchanged with each client (peer_id: the client's SteamID64)",
+                ["server_state.bin"] = "odx.capture.v1.ServerStateRecord: one per server tick, every player's state (matched to " +
+                                       "players/<id>/player.json by steam_id) and the world entities that matter to play; " +
+                                       "server/capture/ holds the original recording (CS2: SourceTV demo.dem)",
             },
             ["vendor_tool_version"] = BuildInfo.Version,
         };
@@ -183,6 +213,7 @@ public static class MultiplayerSession
             ["name"] = player.Name,
             ["is_bot"] = false,
             ["machine_id"] = player.MachineId,
+            ["steam_id"] = player.SteamId,
             ["tool_version"] = player.ToolVersion,
             ["stop_reason"] = player.StopReason,
         };
