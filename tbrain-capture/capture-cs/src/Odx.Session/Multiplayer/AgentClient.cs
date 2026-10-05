@@ -1,5 +1,4 @@
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -9,15 +8,16 @@ namespace Odx.Session;
 
 /// <param name="Orchestrator">e.g. http://192.168.1.10:5180</param>
 /// <param name="WindowProcess">Process name to record (odx record --window); null: the game profile's window, else the monitor.</param>
-/// <param name="IsHost">Starts and ends rounds (<see cref="AgentClient.ToggleRoundAsync"/>) instead of taking part in ready checks.</param>
-/// <param name="AutoReady">Says ready on connect and after every round (headless capture machines).</param>
+/// <param name="RoomCode">Invite code of the room to join; with <paramref name="CreateRoom"/> instead, a new room is opened
+/// with this player as its host. After a reconnect the agent joins the same room again.</param>
+/// <param name="AutoReady">Says ready whenever it is idle in a room between rounds (headless capture machines).</param>
 public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name, string OutputRoot, string? WindowProcess,
-    bool IsHost = false, bool AutoReady = false);
+    string? RoomCode = null, bool CreateRoom = false, bool AutoReady = false);
 
 /// <summary>
-/// A player's capture machine under the orchestrator: on Start it records (sampling its clock against the orchestrator's
-/// time service, checked once on Welcome), on Stop it lets the capture build and validate the session, uploads the folder
-/// and reports Done. odx agent (headless) and odx-app's agent mode both run this.
+/// A player's capture machine under the orchestrator, in one room: on Start it records (sampling its clock against the
+/// orchestrator's time service, checked once on Welcome), on Stop it lets the capture build and validate the session, uploads
+/// the folder and reports Done. odx agent (headless) and odx-app's room mode both run this.
 /// </summary>
 public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICaptureRun> startCapture)
 {
@@ -34,6 +34,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private ICaptureRun? _run;
     private string? _runSessionId, _startingSessionId, _stopReason;
     private CancellationTokenSource? _stopBeforeStart;
+    private string? _roomCode = options.RoomCode?.Trim().ToUpperInvariant();
 
     /// <summary>Human-readable progress for a UI or console.</summary>
     public event Action<string>? Log;
@@ -44,8 +45,18 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// </summary>
     public event Action<int, CancellationToken>? Countdown;
 
-    /// <summary>Whether this player said it is ready for the next round; cleared when play starts (after the countdown).</summary>
+    /// <summary>Raised with the room's latest state, or null once out of it (left, closed by the host).</summary>
+    public event Action<RoomUpdate?>? RoomChanged;
+
+    /// <summary>Raised when the orchestrator refuses a room request (unknown invite code, not the host…).</summary>
+    public event Action<string>? RoomError;
+
+    /// <summary>Whether this player is ready for the next round; the orchestrator clears it when play starts.</summary>
     public bool IsReady { get; private set; }
+
+    public RoomUpdate? Room { get; private set; }
+
+    public bool IsHost => Room?.HostPlayerId == options.PlayerId;
 
     /// <summary>The capture in progress (odx-app shows its counters); null between sessions.</summary>
     public ICaptureRun? CurrentRun => _run;
@@ -90,9 +101,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         }.Uri;
         await socket.ConnectAsync(wsUri, stop);
         IsReady = false;
-        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId, options.IsHost), stop);
+        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId), stop);
         Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
-        if (options.AutoReady) await SetReadyAsync(true, stop);
+        if (_roomCode is not null) await SendAsync(new JoinRoom(_roomCode), stop);
+        else if (options.CreateRoom) await SendAsync(new CreateRoom(), stop);
 
         var buffer = new byte[64 * 1024];
         while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
@@ -112,17 +124,30 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     }
 
     /// <summary>
-    /// Host control (a player in place of a game server plugin): starts a round, with a countdown on every player, when none
-    /// is running, otherwise ends it.
+    /// Host control (in place of a game server plugin): starts a round, with a countdown on every member, when none is
+    /// running, otherwise ends it.
     /// </summary>
-    public async Task ToggleRoundAsync(int countdownMs, CancellationToken stop)
+    public Task ToggleRoundAsync(int countdownMs, CancellationToken stop) => SendAsync(new ToggleRound(countdownMs), stop);
+
+    public async Task LeaveRoomAsync(CancellationToken stop)
     {
-        var status = await _http.GetFromJsonAsync<JsonObject>("/status", stop);
-        object e = status?["current_session"] is null
-            ? new { type = GameEvents.RoundStart, countdown_ms = countdownMs, by = options.PlayerId }
-            : new { type = GameEvents.RoundEnd, by = options.PlayerId };
-        using var response = await _http.PostAsJsonAsync("/game/events", e, stop);
-        response.EnsureSuccessStatusCode();
+        await SendAsync(new LeaveRoom(), stop);
+        LeftRoom();
+    }
+
+    /// <summary>Host only: closes the room for every member.</summary>
+    public async Task CloseRoomAsync(CancellationToken stop)
+    {
+        await SendAsync(new CloseRoom(), stop);
+        LeftRoom();
+    }
+
+    private void LeftRoom()
+    {
+        _roomCode = null;
+        Room = null;
+        IsReady = false;
+        RoomChanged?.Invoke(null);
     }
 
     private static string MachineId =>
@@ -137,6 +162,25 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
                 MeasureClock();
                 break;
+            case RoomUpdate r:
+                bool joined = Room?.Code != r.Code;
+                Room = r;
+                _roomCode = r.Code;
+                var me = r.Members.FirstOrDefault(m => m.PlayerId == options.PlayerId);
+                IsReady = me?.Ready == true;
+                if (joined) Log?.Invoke($"in room {r.Code}{(IsHost ? " (host)" : "")}");
+                RoomChanged?.Invoke(r);
+                if (options.AutoReady && !IsHost && me is { Ready: false, State: "idle" } && r.CurrentSession is null)
+                    await SetReadyAsync(true, stop);
+                break;
+            case RoomError e:
+                Log?.Invoke(e.Message);
+                RoomError?.Invoke(e.Message);
+                break;
+            case RoomClosed c:
+                Log?.Invoke($"room {c.Code} was closed by its host");
+                LeftRoom();
+                break;
             case Arm a:
                 _armed = a;
                 _profileWindow = JsonNode.Parse(a.GameProfileJson)?["window_process"]?.GetValue<string>();
@@ -146,8 +190,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 Log?.Invoke($"armed for {a.SessionId}");
                 break;
             case Start s when _armed?.SessionId == s.SessionId:
-                if (s.CountdownMs == 0) IsReady = false;
-                else _ = Task.Delay(s.CountdownMs, stop).ContinueWith(_ => IsReady = false, TaskScheduler.Default);
                 lock (_gate)
                 {
                     _stopReason = null;
@@ -240,7 +282,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Done(s.SessionId, ok, error ?? (result.CaptureOk ? null : "capture failed")), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{s.SessionId} done: {(ok ? "uploaded" : error ?? "capture failed")}");
-        if (options.AutoReady) await SetReadyAsync(true, stop);
         lock (_gate)
         {
             _run = null;
@@ -254,7 +295,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Done(sessionId, false, reason), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{sessionId}: {reason}");
-        if (options.AutoReady) await SetReadyAsync(true, stop);
     }
 
     private async Task UploadAsync(string sessionId, string dir, CancellationToken stop)

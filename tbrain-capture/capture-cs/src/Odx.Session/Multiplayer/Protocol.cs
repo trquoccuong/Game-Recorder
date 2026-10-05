@@ -39,6 +39,14 @@ public static class GameEvents
 [JsonDerivedType(typeof(AgentState), "state")]
 [JsonDerivedType(typeof(Done), "done")]
 [JsonDerivedType(typeof(Ready), "ready")]
+[JsonDerivedType(typeof(CreateRoom), "create_room")]
+[JsonDerivedType(typeof(JoinRoom), "join_room")]
+[JsonDerivedType(typeof(LeaveRoom), "leave_room")]
+[JsonDerivedType(typeof(CloseRoom), "close_room")]
+[JsonDerivedType(typeof(ToggleRound), "toggle_round")]
+[JsonDerivedType(typeof(RoomUpdate), "room")]
+[JsonDerivedType(typeof(RoomError), "room_error")]
+[JsonDerivedType(typeof(RoomClosed), "room_closed")]
 public abstract record AgentMessage
 {
     public static readonly JsonSerializerOptions Json = new()
@@ -55,9 +63,7 @@ public abstract record AgentMessage
 
 /// <summary>Agent → orchestrator, first message.</summary>
 /// <param name="MachineId">Stable per machine but not the machine name (a hash of it).</param>
-/// <param name="IsHost">This player starts and ends rounds; the ready check counts the other players only.</param>
-public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null, bool IsHost = false)
-    : AgentMessage;
+public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null) : AgentMessage;
 
 /// <summary>Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder).</summary>
 public sealed record Welcome(int TimePort) : AgentMessage;
@@ -81,5 +87,31 @@ public sealed record AgentState(string State, string? Detail = null) : AgentMess
 /// <summary>Agent → orchestrator: the session's files are uploaded (or why not).</summary>
 public sealed record Done(string SessionId, bool Ok, string? Error = null) : AgentMessage;
 
-/// <summary>Agent → orchestrator: the player is (not) ready; when every player is, a round starts after a countdown.</summary>
+/// <summary>Agent → orchestrator: the player is (not) ready; when every player of the room is, a round starts after a countdown.</summary>
 public sealed record Ready(bool IsReady) : AgentMessage;
+
+/// <summary>Agent → orchestrator: open a room with this player as its host; the answer is a <see cref="RoomUpdate"/> with the invite code.</summary>
+public sealed record CreateRoom : AgentMessage;
+
+/// <summary>Agent → orchestrator: join the room with this invite code (leaving any other).</summary>
+public sealed record JoinRoom(string Code) : AgentMessage;
+
+public sealed record LeaveRoom : AgentMessage;
+
+/// <summary>Agent → orchestrator, host only: close the room for everyone.</summary>
+public sealed record CloseRoom : AgentMessage;
+
+/// <summary>Agent → orchestrator, host only: start a round (with this countdown) when none runs, otherwise end it.</summary>
+public sealed record ToggleRound(int CountdownMs) : AgentMessage;
+
+public sealed record RoomMember(string PlayerId, string Name, bool Ready, string State);
+
+/// <summary>Orchestrator → every member whenever the room changes (members, ready, states, round).</summary>
+public sealed record RoomUpdate(string Code, string? HostPlayerId, List<RoomMember> Members, string? CurrentSession,
+    bool Countdown) : AgentMessage;
+
+/// <summary>Orchestrator → agent: a room request failed (unknown code, not the host…).</summary>
+public sealed record RoomError(string Message) : AgentMessage;
+
+/// <summary>Orchestrator → members: the host closed the room.</summary>
+public sealed record RoomClosed(string Code) : AgentMessage;

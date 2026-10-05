@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using Odx.Core;
@@ -16,14 +17,17 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
     public TimeSpan DoneTimeout { get; init; } = TimeSpan.FromMinutes(15);
     /// <summary>Countdown of a round started because every player is ready (as in the client's sample delivery).</summary>
     public int ReadyCountdownMs { get; init; } = 5000;
-    /// <summary>Players (host included) needed before a ready check can start a round.</summary>
+    /// <summary>Members (host included) a room needs before a ready check can start a round.</summary>
     public int MinReadyPlayers { get; init; } = 2;
+    /// <summary>A room nobody is in is closed after this long (the host closes it otherwise).</summary>
+    public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
 }
 
 /// <summary>
-/// The match state machine (spec v3 §2). A round starts from round_start (game server plugin or host) or when every
-/// non-host player is ready. With a countdown, players record from round_countdown and play starts at round_start; a
-/// round_end, an unready or a player leaving during the countdown cancels the round (nothing is kept). A permanent
+/// Rooms and their match state machine (spec v3 §2). A host opens a room and shares its invite code; only the room's members
+/// are recorded. A round starts from round_start (game server plugin via /rooms/{code}/events, or the host) or when every
+/// non-host member is ready. With a countdown, members record from round_countdown and play starts at round_start; a
+/// round_end, an unready or a member leaving during the countdown cancels the round (nothing is kept). A permanent
 /// player_death stops that player, round_end stops the rest; when all players have uploaded (or
 /// <see cref="OrchestratorOptions.DoneTimeout"/> passes) the round is assembled into a v3 session.
 /// </summary>
@@ -32,14 +36,36 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private sealed class AgentLink(Hello hello, WebSocket socket)
     {
         public Hello Hello { get; } = hello;
+        public string Id => Hello.PlayerId;
         public WebSocket Socket { get; } = socket;
         public SemaphoreSlim SendLock { get; } = new(1, 1);
         public string State { get; set; } = "idle";
         public bool Ready { get; set; }
+        public Room? Room { get; set; }
     }
 
-    private sealed class OpenRound(RoundRecord record, string stagingDir)
+    private sealed class Room(string code, string? hostPlayerId)
     {
+        public string Code { get; } = code;
+        /// <summary>Null for a room opened over HTTP (game server plugin, simulator): no host, ready checks only.</summary>
+        public string? HostPlayerId { get; } = hostPlayerId;
+        public List<AgentLink> Members { get; } = [];
+        public string? MatchId { get; set; }
+        public string? Map { get; set; }
+        public string Game { get; set; } = "";
+        public int RoundNumber { get; set; }
+        public OpenRound? Current { get; set; }
+        /// <summary>Events between rounds (match_start, player_ready…); they open the next round's events.</summary>
+        public List<JsonObject> BetweenRounds { get; } = [];
+        public List<SessionReport> Reports { get; } = [];
+        public DateTime EmptySinceUtc { get; set; } = DateTime.UtcNow;
+
+        public bool IsHost(AgentLink a) => a.Id == HostPlayerId;
+    }
+
+    private sealed class OpenRound(Room room, RoundRecord record, string stagingDir)
+    {
+        public Room Room { get; } = room;
         public RoundRecord Record { get; set; } = record;
         public string StagingDir { get; } = stagingDir;
         public List<JsonObject> Events { get; } = [];
@@ -57,21 +83,18 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public List<OpenRound> Ended { get; } = [];
         public List<OpenRound> Cancelled { get; } = [];
         public OpenRound? Countdown { get; set; }
+        public HashSet<Room> Changed { get; } = [];
     }
+
+    private const string CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // no 0/O, 1/I: read out and typed by people
 
     private readonly object _lock = new();
     private readonly Dictionary<string, AgentLink> _agents = [];
+    private readonly Dictionary<string, Room> _rooms = [];
     private readonly Dictionary<string, OpenRound> _rounds = [];
-    private readonly List<SessionReport> _reports = [];
-    /// <summary>Events between rounds (match_start, player_ready…); they open the next round's events.</summary>
-    private readonly List<JsonObject> _betweenRounds = [];
     private readonly string _profileJson = File.ReadAllText(options.GameProfilePath);
     private readonly string _profileGame = GameProfile.Load(options.GameProfilePath).GameTitle;
-    private string? _matchId, _map;
-    private string _game = "";
-    private int _roundNumber;
     private long _eventId;
-    private OpenRound? _current;
     private ServerClock? _serverClock;
 
     public int TimePort => timePort;
@@ -92,27 +115,21 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         }
         var link = new AgentLink(hello, socket);
         lock (_lock) _agents[hello.PlayerId] = link;
-        log.LogInformation("agent {Player} ({Name}, {Version}{Host}) connected", hello.PlayerId, hello.Name, hello.ToolVersion,
-            hello.IsHost ? ", host" : "");
+        log.LogInformation("agent {Player} ({Name}, {Version}) connected", hello.PlayerId, hello.Name, hello.ToolVersion);
         await SendAsync(link, new Welcome(timePort));
 
         try
         {
             while (!stop.IsCancellationRequested && await ReceiveAsync(socket, buffer, stop) is { } message)
             {
-                switch (message)
+                if (message is Done d)
                 {
-                    case AgentState s:
-                        link.State = s.State;
-                        log.LogInformation("agent {Player}: {State} {Detail}", hello.PlayerId, s.State, s.Detail);
-                        break;
-                    case Done d:
-                        MarkDone(d.SessionId, hello.PlayerId, d.Ok, d.Error);
-                        break;
-                    case Ready r:
-                        await SetReadyAsync(link, r.IsReady);
-                        break;
+                    MarkDone(d.SessionId, hello.PlayerId, d.Ok, d.Error);
+                    continue;
                 }
+                var effects = new Effects();
+                lock (_lock) Handle(link, message, effects);
+                await RunAsync(effects);
             }
         }
         catch (OperationCanceledException)
@@ -124,8 +141,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             lock (_lock)
             {
                 if (_agents.GetValueOrDefault(hello.PlayerId) == link) _agents.Remove(hello.PlayerId);
-                if (_current is { Counting: true } counting && counting.IndexOf(hello.PlayerId) >= 0)
-                    Cancel(counting, $"player_left:{hello.PlayerId}", effects);
+                Leave(link, "disconnected", effects);
             }
             log.LogWarning("agent {Player} disconnected", hello.PlayerId);
             await RunAsync(effects);
@@ -134,14 +150,151 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         }
     }
 
-    /// <summary>Applies one game server (or host) event and returns it stamped with its server time and id.</summary>
+    /// <summary>Called with the lock held.</summary>
+    private void Handle(AgentLink link, AgentMessage message, Effects effects)
+    {
+        var room = link.Room;
+        switch (message)
+        {
+            case AgentState s:
+                link.State = s.State;
+                log.LogInformation("agent {Player}: {State} {Detail}", link.Id, s.State, s.Detail);
+                if (room is not null) effects.Changed.Add(room);
+                break;
+            case CreateRoom:
+                Leave(link, "left_room", effects);
+                var created = new Room(NewCode(), link.Id);
+                _rooms[created.Code] = created;
+                log.LogInformation("room {Room} opened by {Player}", created.Code, link.Id);
+                Join(link, created, effects);
+                break;
+            case JoinRoom j:
+                string code = j.Code.Trim().ToUpperInvariant();
+                if (!_rooms.TryGetValue(code, out var target))
+                    effects.Sends.Add((link, new RoomError($"no room with invite code {code}")));
+                else if (target != room)
+                {
+                    Leave(link, "left_room", effects);
+                    Join(link, target, effects);
+                }
+                else effects.Changed.Add(target);
+                break;
+            case LeaveRoom:
+                Leave(link, "left_room", effects);
+                break;
+            case CloseRoom when room is not null && room.IsHost(link):
+                Close(room, effects);
+                break;
+            case ToggleRound t when room is not null && room.IsHost(link):
+                Apply(room, room.Current is null
+                    ? new JsonObject { ["type"] = GameEvents.RoundStart, ["countdown_ms"] = t.CountdownMs, ["by"] = link.Id }
+                    : new JsonObject { ["type"] = GameEvents.RoundEnd, ["by"] = link.Id }, effects);
+                break;
+            case CloseRoom or ToggleRound:
+                effects.Sends.Add((link, new RoomError("only the room's host can do that")));
+                break;
+            case Ready r when room is not null && link.Ready != r.IsReady:
+                SetReady(room, link, r.IsReady, effects);
+                break;
+        }
+    }
+
+    private void Join(AgentLink link, Room room, Effects effects)
+    {
+        room.Members.Add(link);
+        link.Room = room;
+        link.Ready = false;
+        effects.Changed.Add(room);
+        log.LogInformation("{Player} joined room {Room}", link.Id, room.Code);
+    }
+
+    /// <summary>Out of the room: a countdown they are in is cancelled, a recording of theirs is stopped.</summary>
+    private void Leave(AgentLink link, string reason, Effects effects)
+    {
+        if (link.Room is not { } room) return;
+        room.Members.Remove(link);
+        link.Room = null;
+        link.Ready = false;
+        if (room.Current is { } round && round.IndexOf(link.Id) >= 0)
+        {
+            if (round.Counting) Cancel(round, $"player_left:{link.Id}", effects);
+            else StopPlayer(round, link.Id, NtpResponder.NowUnixMs(), reason, effects);
+        }
+        if (room.Members.Count == 0) room.EmptySinceUtc = DateTime.UtcNow;
+        effects.Changed.Add(room);
+        log.LogInformation("{Player} left room {Room} ({Reason})", link.Id, room.Code, reason);
+    }
+
+    private void Close(Room room, Effects effects)
+    {
+        if (room.Current is { Counting: true } counting) Cancel(counting, "room_closed", effects);
+        else if (room.Current is not null) EndRound(room, NtpResponder.NowUnixMs(), "round_end", "room_closed", effects);
+        foreach (var member in room.Members)
+        {
+            member.Room = null;
+            member.Ready = false;
+            effects.Sends.Add((member, new RoomClosed(room.Code)));
+        }
+        room.Members.Clear();
+        _rooms.Remove(room.Code);
+        log.LogInformation("room {Room} closed", room.Code);
+    }
+
+    private string NewCode()
+    {
+        string code;
+        do code = new string(RandomNumberGenerator.GetItems<char>(CodeAlphabet, 6));
+        while (_rooms.ContainsKey(code));
+        return code;
+    }
+
+    /// <summary>A room without a host, for a game server plugin or the simulator; returns its invite code.</summary>
+    public string OpenRoom()
+    {
+        lock (_lock)
+        {
+            var room = new Room(NewCode(), null);
+            _rooms[room.Code] = room;
+            log.LogInformation("room {Room} opened (no host)", room.Code);
+            return room.Code;
+        }
+    }
+
+    /// <summary>Applies one game server event to a room and returns it stamped; null when there is no such room.</summary>
     /// <exception cref="FormatException">The event has no "type".</exception>
-    public async Task<JsonObject> PostEventAsync(JsonObject e)
+    public async Task<JsonObject?> PostEventAsync(string code, JsonObject e)
     {
         var effects = new Effects();
-        lock (_lock) Apply(e, effects);
+        lock (_lock)
+        {
+            if (!_rooms.TryGetValue(code.ToUpperInvariant(), out var room)) return null;
+            Apply(room, e, effects);
+        }
         await RunAsync(effects);
         return e;
+    }
+
+    /// <summary>Closes rooms that stayed empty for <see cref="OrchestratorOptions.EmptyRoomTimeout"/>.</summary>
+    public async Task SweepRoomsAsync(CancellationToken stop)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromMinutes(1), stop);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            lock (_lock)
+                foreach (var room in _rooms.Values.Where(r => r.Members.Count == 0 && r.Current is null &&
+                                                              DateTime.UtcNow - r.EmptySinceUtc > options.EmptyRoomTimeout).ToList())
+                {
+                    _rooms.Remove(room.Code);
+                    log.LogInformation("room {Room} closed after staying empty", room.Code);
+                }
+        }
     }
 
     /// <summary>
@@ -188,69 +341,77 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     public JsonObject Status()
     {
         lock (_lock)
-        {
-            var agents = new JsonArray(_agents.Values.Select(a => (JsonNode)new JsonObject
-            {
-                ["player_id"] = a.Hello.PlayerId,
-                ["name"] = a.Hello.Name,
-                ["version"] = a.Hello.ToolVersion,
-                ["state"] = a.State,
-                ["host"] = a.Hello.IsHost,
-                ["ready"] = a.Ready,
-            }).ToArray());
             return new JsonObject
             {
-                ["match_id"] = _matchId,
-                ["game"] = _game,
-                ["current_session"] = _current?.Record.SessionId,
-                ["countdown"] = _current?.Counting ?? false,
-                ["pending_sessions"] = new JsonArray(_rounds.Keys.Select(k => (JsonNode)k).ToArray()),
-                ["agents"] = agents,
-                ["sessions"] = new JsonArray(_reports.Select(r => (JsonNode)new JsonObject
-                {
-                    ["session_id"] = r.SessionId, ["pass"] = r.Pass, ["valid_players"] = r.ValidPlayers,
-                    ["required_players"] = r.RequiredPlayers,
-                }).ToArray()),
+                ["rooms"] = new JsonArray(_rooms.Values.Select(r => (JsonNode)RoomStatus(r)).ToArray()),
+                ["agents_outside_rooms"] = new JsonArray(_agents.Values.Where(a => a.Room is null)
+                    .Select(a => (JsonNode)a.Id).ToArray()),
             };
-        }
     }
 
-    private async Task SetReadyAsync(AgentLink link, bool ready)
+    /// <summary>Null when there is no room with this code.</summary>
+    public JsonObject? RoomStatus(string code)
     {
-        var effects = new Effects();
-        lock (_lock)
+        lock (_lock) return _rooms.TryGetValue(code.ToUpperInvariant(), out var room) ? RoomStatus(room) : null;
+    }
+
+    private JsonObject RoomStatus(Room room) => new()
+    {
+        ["code"] = room.Code,
+        ["host"] = room.HostPlayerId,
+        ["match_id"] = room.MatchId,
+        ["game"] = room.Game,
+        ["current_session"] = room.Current?.Record.SessionId,
+        ["countdown"] = room.Current?.Counting ?? false,
+        ["pending_sessions"] = new JsonArray(_rounds.Values.Where(r => r.Room == room)
+            .Select(r => (JsonNode)r.Record.SessionId).ToArray()),
+        ["members"] = new JsonArray(room.Members.Select(a => (JsonNode)new JsonObject
         {
-            if (link.Ready == ready) return;
-            link.Ready = ready;
-            string id = link.Hello.PlayerId;
-            Apply(new JsonObject { ["type"] = ready ? "player_ready" : "player_unready", ["player"] = id, ["name"] = link.Hello.Name },
-                effects);
-            if (!ready && _current is { Counting: true } counting && counting.IndexOf(id) >= 0)
-                Cancel(counting, $"player_unready:{id}", effects);
-            else if (ready && EveryoneReady())
-                Apply(new JsonObject { ["type"] = GameEvents.RoundStart, ["countdown_ms"] = options.ReadyCountdownMs, ["by"] = "ready_check" },
-                    effects);
-        }
-        await RunAsync(effects);
+            ["player_id"] = a.Id,
+            ["name"] = a.Hello.Name,
+            ["version"] = a.Hello.ToolVersion,
+            ["state"] = a.State,
+            ["ready"] = a.Ready,
+        }).ToArray()),
+        ["sessions"] = new JsonArray(room.Reports.Select(r => (JsonNode)new JsonObject
+        {
+            ["session_id"] = r.SessionId, ["pass"] = r.Pass, ["valid_players"] = r.ValidPlayers,
+            ["required_players"] = r.RequiredPlayers,
+        }).ToArray()),
+    };
+
+    private void SetReady(Room room, AgentLink link, bool ready, Effects effects)
+    {
+        link.Ready = ready;
+        effects.Changed.Add(room);
+        Apply(room, new JsonObject { ["type"] = ready ? "player_ready" : "player_unready", ["player"] = link.Id,
+            ["name"] = link.Hello.Name }, effects);
+        if (!ready && room.Current is { Counting: true } counting && counting.IndexOf(link.Id) >= 0)
+            Cancel(counting, $"player_unready:{link.Id}", effects);
+        else if (ready && EveryoneReady(room))
+            Apply(room, new JsonObject { ["type"] = GameEvents.RoundStart, ["countdown_ms"] = options.ReadyCountdownMs,
+                ["by"] = "ready_check" }, effects);
     }
 
-    /// <summary>No round running, enough players, and every one that is not a host is ready and idle.</summary>
-    private bool EveryoneReady()
+    /// <summary>No round running, enough members, and every one that is not the host is ready and idle.</summary>
+    private bool EveryoneReady(Room room)
     {
-        var players = _agents.Values.Where(a => !a.Hello.IsHost).ToList();
-        return _current is null && _agents.Count >= options.MinReadyPlayers && players.Count > 0 &&
+        var players = room.Members.Where(a => !room.IsHost(a)).ToList();
+        return room.Current is null && room.Members.Count >= options.MinReadyPlayers && players.Count > 0 &&
                players.All(a => a.Ready && a.State is "idle" or "armed");
     }
 
     /// <summary>Called with the lock held.</summary>
-    private void Apply(JsonObject e, Effects effects)
+    private void Apply(Room room, JsonObject e, Effects effects)
     {
         e["utc_ms"] ??= NtpResponder.NowUnixMs();
         double utc = GameEvents.UtcMs(e);
         string type = GameEvents.Type(e);
         Stamp(e, utc);
+        effects.Changed.Add(room);
 
-        if (_current is { Counting: true } counting && type is GameEvents.RoundStart or GameEvents.RoundEnd or GameEvents.MatchStart or GameEvents.MatchEnd)
+        if (room.Current is { Counting: true } counting &&
+            type is GameEvents.RoundStart or GameEvents.RoundEnd or GameEvents.MatchStart or GameEvents.MatchEnd)
         {
             Cancel(counting, EndReason(e), effects);
             if (type == GameEvents.RoundEnd) return;  // the cancel is the whole story of this round
@@ -258,23 +419,23 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         switch (type)
         {
             case GameEvents.MatchStart:
-                if (_current is not null) EndRound(utc, "abort", "abort", effects);
-                StartMatch(e);
+                if (room.Current is not null) EndRound(room, utc, "abort", "abort", effects);
+                StartMatch(room, e);
                 break;
             case GameEvents.RoundStart:
-                if (_current is not null) EndRound(utc, "abort", "abort", effects);
-                if (_matchId is null) StartMatch(e);
-                StartRound(e, utc, effects);
+                if (room.Current is not null) EndRound(room, utc, "abort", "abort", effects);
+                if (room.MatchId is null) StartMatch(room, e);
+                StartRound(room, e, utc, effects);
                 break;
-            case GameEvents.PlayerDeath when _current is not null && e["permanent"]?.GetValue<bool>() == true &&
+            case GameEvents.PlayerDeath when room.Current is not null && e["permanent"]?.GetValue<bool>() == true &&
                                              GameEvents.Text(e, "player") is { } player:
-                StopPlayer(_current, player, utc, "permanent_death", effects);
+                StopPlayer(room.Current, player, utc, "permanent_death", effects);
                 break;
         }
-        AddToRound(e);
-        if (type is GameEvents.RoundEnd or GameEvents.MatchEnd && _current is not null)
-            EndRound(utc, "round_end", EndReason(e), effects);
-        if (type == GameEvents.MatchEnd) _matchId = null;
+        AddToRound(room, e);
+        if (type is GameEvents.RoundEnd or GameEvents.MatchEnd && room.Current is not null)
+            EndRound(room, utc, "round_end", EndReason(e), effects);
+        if (type == GameEvents.MatchEnd) room.MatchId = null;
     }
 
     private void Stamp(JsonObject e, double utc)
@@ -284,11 +445,11 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         e["server_time_us"] = (long)Math.Round(utc * 1000);
     }
 
-    private void AddToRound(JsonObject e)
+    private static void AddToRound(Room room, JsonObject e)
     {
-        if (_current is not { } round)
+        if (room.Current is not { } round)
         {
-            _betweenRounds.Add(e);
+            room.BetweenRounds.Add(e);
             return;
         }
         e["session_id"] = round.Record.SessionId;
@@ -296,37 +457,39 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         round.Events.Add(e);
     }
 
-    private void StartMatch(JsonObject e)
+    private void StartMatch(Room room, JsonObject e)
     {
-        _matchId = GameEvents.Text(e, "match_id") ?? DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture);
-        _game = GameEvents.Text(e, "game") ?? _profileGame;
-        _map = GameEvents.Text(e, "map");
-        _roundNumber = 0;
-        log.LogInformation("match {Match}: {Game} {Map}", _matchId, _game, _map);
+        room.MatchId = GameEvents.Text(e, "match_id") ??
+                       $"{room.Code}-{DateTime.UtcNow.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture)}";
+        room.Game = GameEvents.Text(e, "game") ?? _profileGame;
+        room.Map = GameEvents.Text(e, "map");
+        room.RoundNumber = 0;
+        log.LogInformation("room {Room}: match {Match}, {Game} {Map}", room.Code, room.MatchId, room.Game, room.Map);
     }
 
     /// <summary>With a countdown, <paramref name="e"/> becomes round_countdown and round_start follows when play starts.</summary>
-    private void StartRound(JsonObject e, double utc, Effects effects)
+    private void StartRound(Room room, JsonObject e, double utc, Effects effects)
     {
-        _roundNumber = e["round"]?.GetValue<int>() ?? _roundNumber + 1;
-        string sid = $"{_matchId}-r{_roundNumber:D2}";
-        var players = _agents.Values.Where(a => a.State is "idle" or "armed").ToList();
-        foreach (var busy in _agents.Values.Except(players))
-            log.LogWarning("{Player} is {State}, left out of {Session}", busy.Hello.PlayerId, busy.State, sid);
+        room.RoundNumber = e["round"]?.GetValue<int>() ?? room.RoundNumber + 1;
+        string sid = $"{room.MatchId}-r{room.RoundNumber:D2}";
+        var players = room.Members.Where(a => a.State is "idle" or "armed").ToList();
+        foreach (var busy in room.Members.Except(players))
+            log.LogWarning("{Player} is {State}, left out of {Session}", busy.Id, busy.State, sid);
         int countdownMs = e["countdown_ms"]?.GetValue<int>() ?? 0;
-        var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, utc + countdownMs, null, timePort,
-            players.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name, ToolVersion: a.Hello.ToolVersion,
+        var record = new RoundRecord(sid, room.MatchId!, room.Game, room.Map, room.RoundNumber, utc + countdownMs, null, timePort,
+            players.Select(a => new RoundPlayer(a.Id, a.Hello.Name, ToolVersion: a.Hello.ToolVersion,
                 MachineId: a.Hello.MachineId)).ToList(), countdownMs,
             ServerClock: Volatile.Read(ref _serverClock));
         // Unique per attempt: a cancelled round's number is used again while its staging may still be deleted.
         string staging = Path.Combine(options.OutRoot, ".staging", $"{sid}-{Guid.NewGuid().ToString("N")[..8]}");
         Directory.CreateDirectory(staging);
         File.WriteAllText(Path.Combine(staging, RoundRecord.ProfileFileName), _profileJson);
-        _current = new OpenRound(record, staging) { Counting = countdownMs > 0 };
-        _current.Events.AddRange(_betweenRounds);
-        _betweenRounds.Clear();
-        _rounds[sid] = _current;
-        if (countdownMs == 0) ClearReady();
+        var round = new OpenRound(room, record, staging) { Counting = countdownMs > 0 };
+        round.Events.AddRange(room.BetweenRounds);
+        room.BetweenRounds.Clear();
+        room.Current = round;
+        _rounds[sid] = round;
+        if (countdownMs == 0) ClearReady(room);
         foreach (var a in players)
         {
             a.State = "starting";
@@ -337,19 +500,20 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             e["type"] = "round_countdown";
             e["starts_in_ms"] = countdownMs;
-            effects.Countdown = _current;
+            effects.Countdown = round;
         }
         log.LogInformation("round {Session}: {Count} player(s){Countdown}", sid, players.Count,
             countdownMs > 0 ? $", play starts in {countdownMs / 1000.0:F0} s" : "");
     }
 
-    private void CountdownEnded(OpenRound round)
+    private async Task CountdownEndedAsync(OpenRound round)
     {
+        var effects = new Effects();
         lock (_lock)
         {
-            if (_current != round || !round.Counting) return;
+            if (round.Room.Current != round || !round.Counting) return;
             round.Counting = false;
-            ClearReady();
+            ClearReady(round.Room);
             var e = new JsonObject
             {
                 ["type"] = GameEvents.RoundStart,
@@ -357,32 +521,36 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 ["players"] = new JsonArray(round.Record.Players.Select(p => (JsonNode)p.PlayerId).ToArray()),
             };
             Stamp(e, round.Record.StartUtcMs);
-            AddToRound(e);
+            AddToRound(round.Room, e);
+            effects.Changed.Add(round.Room);
         }
         log.LogInformation("round {Session}: play started", round.Record.SessionId);
+        await RunAsync(effects);
     }
 
     /// <summary>Ready is for the next round once play starts; until then an unready cancels the countdown.</summary>
-    private void ClearReady()
+    private static void ClearReady(Room room)
     {
-        foreach (var a in _agents.Values) a.Ready = false;
+        foreach (var a in room.Members) a.Ready = false;
     }
 
     /// <summary>Drops a round during its countdown: everyone stops, nothing is uploaded or kept, its number is used again.</summary>
     private void Cancel(OpenRound round, string reason, Effects effects)
     {
+        var room = round.Room;
         double utc = NtpResponder.NowUnixMs();
         round.Counting = false;
         round.Ended = true;
-        _current = null;
+        room.Current = null;
         _rounds.Remove(round.Record.SessionId);
-        _roundNumber = round.Record.Round - 1;
+        room.RoundNumber = round.Record.Round - 1;
         foreach (var p in round.Record.Players.ToList()) StopPlayer(round, p.PlayerId, utc, "cancelled", effects);
         var e = new JsonObject { ["type"] = "round_cancelled", ["utc_ms"] = utc, ["cancelled_session_id"] = round.Record.SessionId,
             ["reason"] = reason };
         Stamp(e, utc);
-        _betweenRounds.Add(e);
+        room.BetweenRounds.Add(e);
         effects.Cancelled.Add(round);
+        effects.Changed.Add(room);
         log.LogInformation("round {Session} cancelled: {Reason}", round.Record.SessionId, reason);
     }
 
@@ -397,14 +565,15 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
 
     /// <param name="playerReason">Stop reason of every player still recording.</param>
     /// <param name="endReason">Why the round ended, for session.json.</param>
-    private void EndRound(double utc, string playerReason, string endReason, Effects effects)
+    private void EndRound(Room room, double utc, string playerReason, string endReason, Effects effects)
     {
-        var round = _current!;
-        _current = null;
+        var round = room.Current!;
+        room.Current = null;
         round.Ended = true;
         round.Record = round.Record with { EndUtcMs = utc, EndReason = endReason };
         foreach (var p in round.Record.Players.ToList()) StopPlayer(round, p.PlayerId, utc, playerReason, effects);
         effects.Ended.Add(round);
+        effects.Changed.Add(room);
     }
 
     /// <summary>The game's own "reason", else "player_stop:&lt;id&gt;" when a host ended it, else the event type.</summary>
@@ -413,7 +582,16 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
 
     private async Task RunAsync(Effects effects)
     {
-        foreach (var (link, message) in effects.Sends) await SendAsync(link, message);
+        List<(AgentLink, AgentMessage)> updates;
+        lock (_lock)
+            updates = effects.Changed.Where(r => _rooms.ContainsKey(r.Code)).SelectMany(r =>
+            {
+                var update = new RoomUpdate(r.Code, r.HostPlayerId,
+                    r.Members.Select(a => new RoomMember(a.Id, a.Hello.Name, a.Ready, a.State)).ToList(),
+                    r.Current?.Record.SessionId, r.Current?.Counting ?? false);
+                return r.Members.Select(a => (a, (AgentMessage)update));
+            }).ToList();
+        foreach (var (link, message) in effects.Sends.Concat(updates)) await SendAsync(link, message);
         foreach (var round in effects.Ended)
         {
             if (AllDone(round)) _ = Task.Run(() => Assemble(round));
@@ -436,7 +614,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             RoundCancelled?.Invoke(round.Record.SessionId);
         }
         if (effects.Countdown is { } counting)
-            _ = Task.Delay(counting.Record.CountdownMs).ContinueWith(_ => CountdownEnded(counting), TaskScheduler.Default);
+            _ = Task.Delay(counting.Record.CountdownMs).ContinueWith(_ => CountdownEndedAsync(counting), TaskScheduler.Default).Unwrap();
     }
 
     private void MarkDone(string sessionId, string playerId, bool ok, string? error)
@@ -464,7 +642,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private void Assemble(OpenRound round)
     {
         if (Interlocked.Exchange(ref round.Finalized, 1) == 1) return;
-        // Stays in _rounds (pending in /status) until its report is recorded; uploads are refused from here on.
+        // Stays in _rounds (pending in the status) until its report is recorded; uploads are refused from here on.
         lock (_lock)
         {
             round.Record.Save(round.StagingDir);
@@ -475,7 +653,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             var (dir, report) = MultiplayerSession.Assemble(round.StagingDir, options.OutRoot, options.Vendor, options.Tolerances);
             lock (_lock)
             {
-                _reports.Add(report);
+                round.Room.Reports.Add(report);
                 _rounds.Remove(round.Record.SessionId);
             }
             log.LogInformation("session {Session}: {Result}, {Valid}/{Count} players valid -> {Dir}", report.SessionId,
@@ -501,7 +679,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         }
         catch (WebSocketException e)
         {
-            log.LogWarning("send to {Player} failed: {Error}", link.Hello.PlayerId, e.Message);
+            log.LogWarning("send to {Player} failed: {Error}", link.Id, e.Message);
         }
         finally
         {
