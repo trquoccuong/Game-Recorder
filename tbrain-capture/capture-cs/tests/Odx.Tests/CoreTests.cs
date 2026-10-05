@@ -123,3 +123,29 @@ public class RawInputParserTests
         Assert.Empty(RawInputParser.Parse(raw, Ptr, 0));
     }
 }
+
+public class CaptureConfigTests
+{
+    private static string Dir(string? json)
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "odx-config-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        if (json is not null) File.WriteAllText(Path.Combine(dir, CaptureConfig.FileName), json);
+        return dir;
+    }
+
+    [Fact]
+    public void Missing_file_or_empty_value_leaves_the_time_server_unset()
+    {
+        Assert.Null(CaptureConfig.Load(Dir(null)).TimeServer);
+        Assert.Null(CaptureConfig.Load(Dir("""{"time_server": " "}""")).TimeServer);
+    }
+
+    [Fact]
+    public void Reads_the_time_server() =>
+        Assert.Equal("10.0.0.5:12300", CaptureConfig.Load(Dir("""{"time_server": "10.0.0.5:12300"}""")).TimeServer);
+
+    [Fact]
+    public void Invalid_file_is_reported() =>
+        Assert.Throws<InvalidDataException>(() => CaptureConfig.Load(Dir("{ time_server")));
+}

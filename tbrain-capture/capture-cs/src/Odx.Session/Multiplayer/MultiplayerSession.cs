@@ -7,6 +7,10 @@ namespace Odx.Session;
 
 /// <param name="StopReason">"round_end", "permanent_death" or "abort"; null while recording.</param>
 /// <param name="StopUtcMs">Server UTC when this player's recording was stopped.</param>
+/// <summary>The orchestrator's own clock against the configured NTP server (spec v3 §4 baseline: players and server).</summary>
+/// <param name="OffsetMs">NTP time − orchestrator clock.</param>
+public sealed record ServerClock(string Server, double OffsetMs, double RttMs, double MeasuredAtUtcMs);
+
 public sealed record RoundPlayer(string PlayerId, string Name, string? StopReason = null, double? StopUtcMs = null,
     bool Done = false, bool UploadOk = false, string? Error = null);
 
@@ -17,7 +21,8 @@ public sealed record RoundPlayer(string PlayerId, string Name, string? StopReaso
 /// of their samples' server differs with how each agent reaches the orchestrator.
 /// </summary>
 public sealed record RoundRecord(string SessionId, string MatchId, string Game, string? Map, int Round, double StartUtcMs,
-    double? EndUtcMs, int TimePort, List<RoundPlayer> Players, int CountdownMs = 0, string? EndReason = null)
+    double? EndUtcMs, int TimePort, List<RoundPlayer> Players, int CountdownMs = 0, string? EndReason = null,
+    ServerClock? ServerClock = null)
 {
     public const string FileName = "round.json", EventsFileName = "server_events.jsonl";
 
@@ -109,6 +114,15 @@ public static class MultiplayerSession
             ["players"] = new JsonArray(round.Players.Select(p => (JsonNode?)JsonValue.Create(p.PlayerId)).ToArray()),
             ["valid_players"] = valid,
             ["time_service_port"] = round.TimePort,
+            ["server_clock"] = round.ServerClock is { } c
+                ? new JsonObject
+                {
+                    ["ntp_server"] = c.Server,
+                    ["ntp_offset_ms"] = Math.Round(c.OffsetMs, 3),
+                    ["ntp_round_trip_ms"] = Math.Round(c.RttMs, 3),
+                    ["measured_at_utc"] = SessionBuilder.IsoUtc(c.MeasuredAtUtcMs),
+                }
+                : null,
             ["vendor_tool_version"] = BuildInfo.Version,
         };
         File.WriteAllText(Path.Combine(dir, "session.json"), session.ToJsonString(RoundRecord.PrettyJson));
