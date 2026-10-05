@@ -6,4 +6,5 @@ capture-cs/tests
 extractor
 tests
 deploy/sessions
+deploy/zerotier
 deploy/.env

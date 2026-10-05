@@ -53,6 +53,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _agentStop;
     private AgentClient? _agent;
     private string _agentLog = "";
+    private LanState? _lan;
 
     /// <summary>
     /// Idle → Countdown → Starting (odx record warming up) → Recording → Stopping (incl. build + validate) → Idle.
@@ -114,6 +115,8 @@ public partial class MainWindow : Window
         HotkeyLabel.Content = _t.Hotkey;
         PlayerLabel.Content = _t.PlayerId;
         RoomLabel.Content = _t.Room;
+        LanBox.Content = _t.LanOption;
+        LanBox.ToolTip = _t.LanTooltip;
         RoomBox.ToolTip = _t.RoomTooltip;
         RefreshButton.Content = _t.Refresh;
         BrowseButton.Content = _t.Browse;
@@ -293,6 +296,7 @@ public partial class MainWindow : Window
         CreateButton.Content = inRoom ? _t.CloseRoom : _t.CreateRoom;
         CreateButton.IsEnabled = idle || inRoom && _agent!.IsHost;
         CreateButton.Visibility = inRoom && !_agent!.IsHost ? Visibility.Collapsed : Visibility.Visible;
+        LanBox.Visibility = idle ? Visibility.Visible : Visibility.Collapsed;
         RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
         _tray.Text = idle ? "Odx Capture" : _t.TrayTooltip(_trayStartStop.Text);
     }
@@ -439,11 +443,11 @@ public partial class MainWindow : Window
     private void Create_Click(object sender, RoutedEventArgs e)
     {
         if (_state == RunState.Agent) CloseRoom();
-        else EnterRoom(null);
+        else EnterRoom(null, LanBox.IsChecked == true);
     }
 
     /// <param name="code">Invite code to join; null opens a new room with this player as its host.</param>
-    private void EnterRoom(string? code)
+    private void EnterRoom(string? code, bool lan = false)
     {
         SaveSettings();
         if (_config.Orchestrator is not { } orchestrator || _settings.PlayerId.Length == 0)
@@ -453,7 +457,8 @@ public partial class MainWindow : Window
         }
         _agentStop = new CancellationTokenSource();
         var agent = new AgentClient(new AgentOptions(orchestrator, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
-            _settings.WindowProcess, RoomCode: code, CreateRoom: code is null, AccessKey: _config.AccessKey), StartAgentCapture);
+            _settings.WindowProcess, RoomCode: code, CreateRoom: code is null, AccessKey: _config.AccessKey, Lan: lan),
+            StartAgentCapture);
         agent.Countdown += (ms, cancelled) => Dispatcher.BeginInvoke(() => ShowAgentCountdown(ms, cancelled));
         agent.Log += line => Dispatcher.BeginInvoke(() =>
         {
@@ -472,6 +477,13 @@ public partial class MainWindow : Window
             SetState(_state);
             if (_run is null) ShowAgentStatus();
         });
+        agent.LanChanged += lan => Dispatcher.BeginInvoke(() =>
+        {
+            if (_agent != agent) return;
+            _lan = lan;
+            if (_run is null) ShowAgentStatus();
+            if (lan is { Status: "zerotier_missing" }) OfferZeroTier(agent);
+        });
         agent.RoomError += error => Dispatcher.BeginInvoke(() =>
         {
             if (_agent != agent) return;
@@ -480,9 +492,51 @@ public partial class MainWindow : Window
         });
         _agent = agent;
         _agentLog = "";
+        _lan = null;
         SetState(RunState.Agent, t => t.JoiningRoom);
         _ = agent.RunUntilStoppedAsync(_agentStop.Token);
     }
+
+    /// <summary>
+    /// The room plays over a virtual LAN this machine cannot join yet: offer to install ZeroTier (winget, one UAC prompt),
+    /// start its tray app (it gives the user a copy of the service's API token), then join again.
+    /// </summary>
+    private async void OfferZeroTier(AgentClient agent)
+    {
+        if (MessageBox.Show(this, _t.LanInstallQuestion, _t.LanInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question)
+            != MessageBoxResult.Yes) return;
+        SetStatus(t => t.LanInstalling);
+        bool installed = await Task.Run(() =>
+        {
+            try
+            {
+                if (ZeroTierApi.LocalToken() is null && !File.Exists(ZeroTierTray))
+                {
+                    using var winget = Process.Start(new ProcessStartInfo("winget",
+                        "install --id ZeroTier.ZeroTierOne -e --silent --accept-package-agreements --accept-source-agreements")
+                        { UseShellExecute = false, CreateNoWindow = true })!;
+                    winget.WaitForExit();
+                }
+                if (ZeroTierApi.LocalToken() is null && File.Exists(ZeroTierTray)) Process.Start(new ProcessStartInfo(ZeroTierTray) { UseShellExecute = true });
+                for (int i = 0; i < 30 && ZeroTierApi.LocalToken() is null; i++) Thread.Sleep(1000);
+                return ZeroTierApi.LocalToken() is not null;
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                return false;
+            }
+        });
+        if (_agent != agent) return;
+        if (!installed)
+        {
+            SetStatus(t => t.LanInstallFailed);
+            return;
+        }
+        if (_agentStop is { } stop) await agent.JoinLanAsync(stop.Token);
+    }
+
+    private static readonly string ZeroTierTray =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "ZeroTier", "One", "zerotier_desktop_ui.exe");
 
     private async void LeaveRoom()
     {
@@ -536,7 +590,8 @@ public partial class MainWindow : Window
         bool host = _agent.IsHost, ready = _agent.IsReady;
         string members = string.Join(" · ", room.Members.Select(m =>
             m.Name + (m.PlayerId == room.HostPlayerId ? " (host)" : "") + (m.Ready ? " ✓" : "")));
-        SetStatus(t => t.RoomStatus(room.Code, host, members) + "\n" + log + "\n" +
+        var lan = _lan;
+        SetStatus(t => t.RoomStatus(room.Code, host, members) + (lan is null ? "" : "\n" + t.LanStatus(lan)) + "\n" + log + "\n" +
                        (host ? t.HostHint(hotkey) : ready ? t.ReadyOn(hotkey) : t.ReadyHint(hotkey)));
     }
 

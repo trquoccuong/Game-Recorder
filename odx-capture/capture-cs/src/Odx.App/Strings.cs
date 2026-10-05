@@ -44,6 +44,13 @@ public sealed class Strings
     public required string CreateRoom { get; init; }
     public required string LeaveRoom { get; init; }
     public required string CloseRoom { get; init; }
+    public required string LanOption { get; init; }
+    public required string LanTooltip { get; init; }
+    public required Func<LanState, string> LanStatus { get; init; }
+    public required string LanInstallTitle { get; init; }
+    public required string LanInstallQuestion { get; init; }
+    public required string LanInstalling { get; init; }
+    public required string LanInstallFailed { get; init; }
 
     public required string PrimaryMonitor { get; init; }
     public required Func<string, string> NotRunning { get; init; }
@@ -126,6 +133,19 @@ public sealed class Strings
         CreateRoom = "Create room",
         LeaveRoom = "Leave room",
         CloseRoom = "Close room",
+        LanOption = "LAN (ZeroTier)",
+        LanTooltip = "Create the room with a virtual LAN, for games that only play over LAN (e.g. Warcraft III): everyone in the room is on one LAN",
+        LanStatus = lan => lan.Status switch
+        {
+            "ok" => $"LAN: {lan.Address} (in-game, host or join through LAN)",
+            "joining" => "LAN: connecting…",
+            "zerotier_missing" => "LAN: ZeroTier is needed on this machine",
+            _ => $"LAN: not connected ({lan.Address})",
+        },
+        LanInstallTitle = "Virtual LAN",
+        LanInstallQuestion = "This room plays over a virtual LAN, which needs ZeroTier on this machine. Install it now? (Windows asks for permission once.)",
+        LanInstalling = "Installing ZeroTier…",
+        LanInstallFailed = "ZeroTier could not be installed or started; install it from zerotier.com, then leave and join the room again.",
         PrimaryMonitor = "Primary monitor",
         NotRunning = exe => $"{exe} (not running)",
         NoGameProfile = "None (keep raw capture only)",
@@ -208,6 +228,19 @@ public sealed class Strings
         CreateRoom = "Tạo room",
         LeaveRoom = "Rời room",
         CloseRoom = "Đóng room",
+        LanOption = "LAN (ZeroTier)",
+        LanTooltip = "Tạo room có mạng LAN ảo, cho game chỉ chơi được qua LAN (vd. Warcraft III): mọi người trong room chung một mạng LAN",
+        LanStatus = lan => lan.Status switch
+        {
+            "ok" => $"LAN: {lan.Address} (trong game tạo/vào trận qua LAN)",
+            "joining" => "LAN: đang kết nối…",
+            "zerotier_missing" => "LAN: máy này cần ZeroTier",
+            _ => $"LAN: chưa kết nối được ({lan.Address})",
+        },
+        LanInstallTitle = "Mạng LAN ảo",
+        LanInstallQuestion = "Room này chơi qua mạng LAN ảo, cần cài ZeroTier trên máy này. Cài ngay bây giờ? (Windows sẽ hỏi quyền một lần.)",
+        LanInstalling = "Đang cài ZeroTier…",
+        LanInstallFailed = "Không cài hoặc khởi động được ZeroTier; hãy tự cài từ zerotier.com rồi rời và vào lại room.",
         PrimaryMonitor = "Màn hình chính",
         NotRunning = exe => $"{exe} (không chạy)",
         NoGameProfile = "Không có (chỉ giữ dữ liệu thô)",

@@ -10,3 +10,4 @@ dist/
 .cache/
 deploy/.env
 deploy/sessions/
+deploy/zerotier/

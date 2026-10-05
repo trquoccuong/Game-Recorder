@@ -19,6 +19,9 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
     public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
     /// <summary>Every HTTP and WebSocket request must carry "Authorization: Bearer &lt;key&gt;"; null lets anyone in.</summary>
     public string? AccessKey { get; init; }
+    /// <summary>ZeroTier controller API (and its token) for rooms with a virtual LAN; null: rooms have no LAN.</summary>
+    public Uri? ZeroTierApi { get; init; }
+    public string? ZeroTierToken { get; init; }
 }
 
 /// <summary>
@@ -40,6 +43,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public string State { get; set; } = "idle";
         public bool Ready { get; set; }
         public Room? Room { get; set; }
+        /// <summary>ZeroTier node authorized on the room's LAN.</summary>
+        public string? LanNode { get; set; }
     }
 
     private sealed class Room(string code, string? hostPlayerId)
@@ -57,6 +62,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public List<JsonObject> BetweenRounds { get; } = [];
         public List<SessionReport> Reports { get; } = [];
         public DateTime EmptySinceUtc { get; set; } = DateTime.UtcNow;
+        /// <summary>The room's ZeroTier network (virtual LAN); null without one.</summary>
+        public string? LanNetworkId { get; init; }
 
         public bool IsHost(AgentLink a) => a.Id == HostPlayerId;
     }
@@ -82,6 +89,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public List<OpenRound> Cancelled { get; } = [];
         public OpenRound? Countdown { get; set; }
         public HashSet<Room> Changed { get; } = [];
+        public List<(string Network, string Node)> LanRevoke { get; } = [];
+        public List<string> LanDelete { get; } = [];
     }
 
     private const string CodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";  // no 0/O, 1/I: read out and typed by people
@@ -94,6 +103,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private readonly string _profileGame = GameProfile.Load(options.GameProfilePath).GameTitle;
     private long _eventId;
     private ServerClock? _serverClock;
+    private readonly ZeroTierApi? _zeroTier = options is { ZeroTierApi: { } api, ZeroTierToken: { } token } ? new ZeroTierApi(api, token) : null;
 
     public int TimePort => timePort;
 
@@ -125,8 +135,19 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                     MarkDone(d.SessionId, hello.PlayerId, d.Ok, d.Error);
                     continue;
                 }
+                if (message is LanMember lan)
+                {
+                    await AuthorizeLanAsync(link, lan.NodeId, stop);
+                    continue;
+                }
+                string? lanNetwork = null;
+                if (message is CreateRoom { Lan: true })
+                {
+                    lanNetwork = await CreateLanAsync(link, stop);
+                    if (lanNetwork is null) continue;
+                }
                 var effects = new Effects();
-                lock (_lock) Handle(link, message, effects);
+                lock (_lock) Handle(link, message, effects, lanNetwork);
                 await RunAsync(effects);
             }
         }
@@ -148,8 +169,49 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         }
     }
 
+    /// <summary>A ZeroTier network for a new room; null (and the host told why) when this server cannot make one.</summary>
+    private async Task<string?> CreateLanAsync(AgentLink link, CancellationToken stop)
+    {
+        if (_zeroTier is null)
+        {
+            await SendAsync(link, new RoomError("this server has no virtual LAN (ZeroTier) set up"));
+            return null;
+        }
+        try
+        {
+            return await _zeroTier.CreateNetworkAsync("odx-room", stop);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            log.LogError("ZeroTier controller: {Error}", e.Message);
+            await SendAsync(link, new RoomError($"cannot create the room's LAN: {e.Message}"));
+            return null;
+        }
+    }
+
+    private async Task AuthorizeLanAsync(AgentLink link, string nodeId, CancellationToken stop)
+    {
+        string? network;
+        lock (_lock)
+        {
+            network = link.Room?.LanNetworkId;
+            if (network is null || !ZeroTierApi.IsNodeId(nodeId)) return;
+            link.LanNode = nodeId;
+        }
+        try
+        {
+            await _zeroTier!.AuthorizeAsync(network, nodeId, true, stop);
+            log.LogInformation("{Player} ({Node}) on the LAN of room {Room}", link.Id, nodeId, link.Room?.Code);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            log.LogError("ZeroTier controller: {Error}", e.Message);
+            await SendAsync(link, new RoomError($"cannot add you to the room's LAN: {e.Message}"));
+        }
+    }
+
     /// <summary>Called with the lock held.</summary>
-    private void Handle(AgentLink link, AgentMessage message, Effects effects)
+    private void Handle(AgentLink link, AgentMessage message, Effects effects, string? lanNetwork = null)
     {
         var room = link.Room;
         switch (message)
@@ -161,9 +223,10 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 break;
             case CreateRoom:
                 Leave(link, "left_room", effects);
-                var created = new Room(NewCode(), link.Id);
+                var created = new Room(NewCode(), link.Id) { LanNetworkId = lanNetwork };
                 _rooms[created.Code] = created;
-                log.LogInformation("room {Room} opened by {Player}", created.Code, link.Id);
+                log.LogInformation("room {Room} opened by {Player}{Lan}", created.Code, link.Id,
+                    lanNetwork is null ? "" : $", LAN {lanNetwork}");
                 Join(link, created, effects);
                 break;
             case JoinRoom j:
@@ -216,6 +279,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         room.Members.Remove(link);
         link.Room = null;
         link.Ready = false;
+        if (room.LanNetworkId is { } network && link.LanNode is { } node) effects.LanRevoke.Add((network, node));
+        link.LanNode = null;
         if (room.Current is { } round && round.IndexOf(link.Id) >= 0)
         {
             if (round.Counting) Cancel(round, $"player_left:{link.Id}", effects);
@@ -234,10 +299,12 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             member.Room = null;
             member.Ready = false;
+            member.LanNode = null;
             effects.Sends.Add((member, new RoomClosed(room.Code)));
         }
         room.Members.Clear();
         _rooms.Remove(room.Code);
+        if (room.LanNetworkId is { } network) effects.LanDelete.Add(network);
         log.LogInformation("room {Room} closed", room.Code);
     }
 
@@ -293,6 +360,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                                                               DateTime.UtcNow - r.EmptySinceUtc > options.EmptyRoomTimeout).ToList())
                 {
                     _rooms.Remove(room.Code);
+                    if (room.LanNetworkId is { } network) _ = DeleteLanAsync(network);
                     log.LogInformation("room {Room} closed after staying empty", room.Code);
                 }
         }
@@ -582,10 +650,22 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             {
                 var update = new RoomUpdate(r.Code, r.HostPlayerId,
                     r.Members.Select(a => new RoomMember(a.Id, a.Hello.Name, a.Ready, a.State)).ToList(),
-                    r.Current?.Record.SessionId, r.Current?.Counting ?? false);
+                    r.Current?.Record.SessionId, r.Current?.Counting ?? false, r.LanNetworkId);
                 return r.Members.Select(a => (a, (AgentMessage)update));
             }).ToList();
         foreach (var (link, message) in effects.Sends.Concat(updates)) await SendAsync(link, message);
+        foreach (var (network, node) in effects.LanRevoke)
+        {
+            try
+            {
+                await _zeroTier!.AuthorizeAsync(network, node, false, default);
+            }
+            catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+            {
+                log.LogWarning("ZeroTier controller: {Error}", e.Message);
+            }
+        }
+        foreach (string network in effects.LanDelete) await DeleteLanAsync(network);
         foreach (var round in effects.Ended)
         {
             if (AllDone(round)) _ = Task.Run(() => Assemble(round));
@@ -609,6 +689,18 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         }
         if (effects.Countdown is { } counting)
             _ = Task.Delay(counting.Record.CountdownMs).ContinueWith(_ => CountdownEndedAsync(counting), TaskScheduler.Default).Unwrap();
+    }
+
+    private async Task DeleteLanAsync(string network)
+    {
+        try
+        {
+            await _zeroTier!.DeleteNetworkAsync(network, default);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            log.LogWarning("ZeroTier controller: {Error}", e.Message);
+        }
     }
 
     private void MarkDone(string sessionId, string playerId, bool ok, string? error)

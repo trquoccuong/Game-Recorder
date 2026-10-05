@@ -12,8 +12,13 @@ namespace Odx.Session;
 /// with this player as its host. After a reconnect the agent joins the same room again.</param>
 /// <param name="AutoReady">Says ready whenever it is idle in a room between rounds (headless capture machines).</param>
 /// <param name="AccessKey">The orchestrator's access key (access_key in odx-capture.json), sent with every request.</param>
+/// <param name="Lan">With <paramref name="CreateRoom"/>: the new room gets a virtual LAN (ZeroTier).</param>
 public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name, string OutputRoot, string? WindowProcess,
-    string? RoomCode = null, bool CreateRoom = false, bool AutoReady = false, string? AccessKey = null);
+    string? RoomCode = null, bool CreateRoom = false, bool AutoReady = false, string? AccessKey = null, bool Lan = false);
+
+/// <param name="Status">"joining", "ok", "zerotier_missing" (not installed, or its tray app never ran), "error".</param>
+/// <param name="Address">This machine's IP on the room's LAN once "ok"; the error text for "error".</param>
+public sealed record LanState(string NetworkId, string Status, string? Address = null);
 
 /// <summary>
 /// A player's capture machine under the orchestrator, in one room: on Start it records (sampling its clock against the
@@ -41,6 +46,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private string? _runSessionId, _startingSessionId, _stopReason;
     private CancellationTokenSource? _stopBeforeStart;
     private string? _roomCode = options.RoomCode?.Trim().ToUpperInvariant();
+    private string? _lanNetwork;
 
     /// <summary>Human-readable progress for a UI or console.</summary>
     public event Action<string>? Log;
@@ -56,6 +62,9 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
 
     /// <summary>Raised when the orchestrator refuses a room request (unknown invite code, not the host…).</summary>
     public event Action<string>? RoomError;
+
+    /// <summary>Progress of joining the room's virtual LAN; null once out of it.</summary>
+    public event Action<LanState?>? LanChanged;
 
     /// <summary>Whether this player is ready for the next round; the orchestrator clears it when play starts.</summary>
     public bool IsReady { get; private set; }
@@ -129,7 +138,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId), stop);
         Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
         if (_roomCode is not null) await SendAsync(new JoinRoom(_roomCode), stop);
-        else if (options.CreateRoom) await SendAsync(new CreateRoom(), stop);
+        else if (options.CreateRoom) await SendAsync(new CreateRoom(options.Lan), stop);
 
         var buffer = new byte[64 * 1024];
         while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
@@ -172,7 +181,66 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         _roomCode = null;
         Room = null;
         IsReady = false;
+        LeaveLan();
         RoomChanged?.Invoke(null);
+    }
+
+    /// <summary>
+    /// Joins the room's ZeroTier network through this machine's ZeroTier service, has the orchestrator authorize this node
+    /// and waits for an address. Called again after ZeroTier has been installed.
+    /// </summary>
+    public async Task JoinLanAsync(CancellationToken stop)
+    {
+        if (Room?.LanNetworkId is not { } network) return;
+        _lanNetwork = network;
+        if (ZeroTierApi.LocalToken() is not { } token)
+        {
+            LanChanged?.Invoke(new LanState(network, "zerotier_missing"));
+            return;
+        }
+        LanChanged?.Invoke(new LanState(network, "joining"));
+        using var zeroTier = new ZeroTierApi(ZeroTierApi.Local, token);
+        try
+        {
+            string node = await zeroTier.NodeIdAsync(stop);
+            await zeroTier.JoinAsync(network, stop);
+            await SendAsync(new LanMember(node), stop);
+            for (int i = 0; i < 60 && _lanNetwork == network; i++)
+            {
+                var (status, addresses) = await zeroTier.NetworkAsync(network, stop);
+                if (status == "OK" && addresses.Count > 0)
+                {
+                    LanChanged?.Invoke(new LanState(network, "ok", addresses[0]));
+                    Log?.Invoke($"LAN {addresses[0]} (ZeroTier {network})");
+                    return;
+                }
+                await Task.Delay(1000, stop);
+            }
+            if (_lanNetwork == network) LanChanged?.Invoke(new LanState(network, "error", "no address from the room's LAN after 60 s"));
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            LanChanged?.Invoke(new LanState(network, e is HttpRequestException ? "zerotier_missing" : "error", e.Message));
+        }
+    }
+
+    private void LeaveLan()
+    {
+        if (_lanNetwork is not { } network) return;
+        _lanNetwork = null;
+        if (ZeroTierApi.LocalToken() is { } token)
+            _ = Task.Run(async () =>
+            {
+                using var zeroTier = new ZeroTierApi(ZeroTierApi.Local, token);
+                try
+                {
+                    await zeroTier.LeaveAsync(network, default);
+                }
+                catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+                {
+                }
+            });
+        LanChanged?.Invoke(null);
     }
 
     private static string MachineId =>
@@ -195,6 +263,11 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 IsReady = me?.Ready == true;
                 if (joined) Log?.Invoke($"in room {r.Code}{(IsHost ? " (host)" : "")}");
                 RoomChanged?.Invoke(r);
+                if (r.LanNetworkId is not null && r.LanNetworkId != _lanNetwork)
+                {
+                    _lanNetwork = r.LanNetworkId;  // before the next update arrives, so it is joined once
+                    _ = Task.Run(() => JoinLanAsync(stop), stop);
+                }
                 if (options.AutoReady && !IsHost && me is { Ready: false, State: "idle" } && r.CurrentSession is null)
                     await SetReadyAsync(true, stop);
                 break;

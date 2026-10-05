@@ -7,12 +7,28 @@ services:
     restart: unless-stopped
     environment:
       ODX_ACCESS_KEY: ${ODX_ACCESS_KEY:?set ODX_ACCESS_KEY in .env}
-    command: ["--out", "/data", "--game-profile", "/app/games/${ODX_GAME_PROFILE:-cs2.json}", "--vendor", "${ODX_VENDOR:-odx}"]
+      ODX_ZT_TOKEN: ${ODX_ZT_TOKEN:-}
+    command: ["--out", "/data", "--game-profile", "/app/games/${ODX_GAME_PROFILE:-cs2.json}", "--vendor", "${ODX_VENDOR:-odx}",
+              "--zerotier-api", "http://zerotier:9993"]
     volumes:
       - ./sessions:/data
     ports:
       # Time service (SNTP): players measure their clock against <domain>:12300 directly, it cannot go through Caddy.
       - "12300:12300/udp"
+  # ZeroTier network controller: one virtual LAN per room created "with LAN". Players' ZeroTier reaches it on 9993/udp;
+  # its API (9993/tcp) is only reachable inside this compose network, never published.
+  zerotier:
+    image: zyclonite/zerotier:latest
+    restart: unless-stopped
+    cap_add: [NET_ADMIN, SYS_ADMIN]
+    devices: [/dev/net/tun]
+    environment:
+      ZT_OVERRIDE_LOCAL_CONF: "true"
+      ZT_ALLOW_MANAGEMENT_FROM: "0.0.0.0/0"
+    ports:
+      - "9993:9993/udp"
+    volumes:
+      - ./zerotier:/var/lib/zerotier-one
   caddy:
     image: caddy:2
     restart: unless-stopped
