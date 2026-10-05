@@ -622,7 +622,7 @@ public partial class MainWindow : Window
     /// <summary>Settles which encoder "auto" means (a ~2 s probe, cached) before the first recording needs it.</summary>
     private async Task CheckEncoderAsync()
     {
-        string encoder = await Task.Run(() => Odx.Recorder.EncoderChoice.Resolve(ExternalTools.Ffmpeg(), "auto"));
+        string encoder = await Task.Run(() => EncoderChoice.Resolve(ExternalTools.Ffmpeg(), "auto"));
         if (_state == RunState.Idle && StatusText.Text == _t.Ready) SetStatus(t => t.ReadyWithEncoder(encoder == "nvenc"));
     }
 

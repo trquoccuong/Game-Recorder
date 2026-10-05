@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Odx.Recorder;
+namespace Odx.Core;
 
 /// <summary>Which H.264 encoder "auto" means on this machine; odx-app asks at start-up so the first recording does not wait.</summary>
 public static class EncoderChoice
