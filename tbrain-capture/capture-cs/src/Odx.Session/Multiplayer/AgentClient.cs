@@ -8,8 +8,11 @@ using Odx.Core;
 namespace Odx.Session;
 
 /// <param name="Orchestrator">e.g. http://192.168.1.10:5180</param>
-/// <param name="WindowProcess">Process name to record (odx record --window); null records the primary monitor.</param>
-public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name, string OutputRoot, string? WindowProcess);
+/// <param name="WindowProcess">Process name to record (odx record --window); null: the game profile's window, else the monitor.</param>
+/// <param name="IsHost">Starts and ends rounds (<see cref="AgentClient.ToggleRoundAsync"/>) instead of taking part in ready checks.</param>
+/// <param name="AutoReady">Says ready on connect and after every round (headless capture machines).</param>
+public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name, string OutputRoot, string? WindowProcess,
+    bool IsHost = false, bool AutoReady = false);
 
 /// <summary>
 /// A player's capture machine under the orchestrator: on Start it records (sampling its clock against the orchestrator's
@@ -29,7 +32,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private string? _profileWindow;
     private readonly object _gate = new();
     private ICaptureRun? _run;
-    private string? _runSessionId, _startingSessionId;
+    private string? _runSessionId, _startingSessionId, _stopReason;
     private CancellationTokenSource? _stopBeforeStart;
 
     /// <summary>Human-readable progress for a UI or console.</summary>
@@ -40,6 +43,9 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// begins (round_start_frame). The token is cancelled if the round is stopped before the countdown ends.
     /// </summary>
     public event Action<int, CancellationToken>? Countdown;
+
+    /// <summary>Whether this player said it is ready for the next round; cleared when play starts (after the countdown).</summary>
+    public bool IsReady { get; private set; }
 
     /// <summary>The capture in progress (odx-app shows its counters); null between sessions.</summary>
     public ICaptureRun? CurrentRun => _run;
@@ -83,8 +89,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             Path = "/agents",
         }.Uri;
         await socket.ConnectAsync(wsUri, stop);
-        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId), stop);
+        IsReady = false;
+        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId, options.IsHost), stop);
         Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
+        if (options.AutoReady) await SetReadyAsync(true, stop);
 
         var buffer = new byte[64 * 1024];
         while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
@@ -94,6 +102,13 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             await HandleAsync(AgentMessage.Parse(text), stop);
         }
         StopCapture();
+    }
+
+    public async Task SetReadyAsync(bool ready, CancellationToken stop)
+    {
+        IsReady = ready;
+        await SendAsync(new Ready(ready), stop);
+        Log?.Invoke(ready ? "ready" : "not ready");
     }
 
     /// <summary>
@@ -131,8 +146,11 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 Log?.Invoke($"armed for {a.SessionId}");
                 break;
             case Start s when _armed?.SessionId == s.SessionId:
+                if (s.CountdownMs == 0) IsReady = false;
+                else _ = Task.Delay(s.CountdownMs, stop).ContinueWith(_ => IsReady = false, TaskScheduler.Default);
                 lock (_gate)
                 {
+                    _stopReason = null;
                     _startingSessionId = s.SessionId;
                     _stopBeforeStart = CancellationTokenSource.CreateLinkedTokenSource(stop);
                 }
@@ -140,6 +158,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 break;
             case Stop s when s.SessionId == _runSessionId || s.SessionId == _startingSessionId:
                 Log?.Invoke($"stop {s.SessionId} ({s.Reason})");
+                lock (_gate) _stopReason = s.Reason;
                 StopCapture();
                 break;
         }
@@ -197,6 +216,16 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         Log?.Invoke($"recording {s.SessionId} into {run.SessionDir}");
 
         var result = await run.Completion;
+        if (Volatile.Read(ref _stopReason) == "cancelled")
+        {
+            lock (_gate)
+            {
+                _run = null;
+                _runSessionId = null;
+            }
+            await EndWithoutCaptureAsync(s.SessionId, "round cancelled, recording kept locally only", stop);
+            return;
+        }
         await SendAsync(new AgentState("uploading", s.SessionId), stop);
         string? error = null;
         try
@@ -211,6 +240,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Done(s.SessionId, ok, error ?? (result.CaptureOk ? null : "capture failed")), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{s.SessionId} done: {(ok ? "uploaded" : error ?? "capture failed")}");
+        if (options.AutoReady) await SetReadyAsync(true, stop);
         lock (_gate)
         {
             _run = null;
@@ -224,6 +254,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Done(sessionId, false, reason), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{sessionId}: {reason}");
+        if (options.AutoReady) await SetReadyAsync(true, stop);
     }
 
     private async Task UploadAsync(string sessionId, string dir, CancellationToken stop)

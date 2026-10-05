@@ -188,6 +188,7 @@ public partial class MainWindow : Window
         {
             if (!AgentMode) Toggle();
             else if (_state == RunState.Agent && _settings.IsHost) ToggleRound();
+            else if (_state == RunState.Agent) ToggleReady();
             handled = true;
         }
         return IntPtr.Zero;
@@ -419,7 +420,7 @@ public partial class MainWindow : Window
         }
         _agentStop = new CancellationTokenSource();
         var agent = new AgentClient(new AgentOptions(uri, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
-            _settings.WindowProcess), StartAgentCapture);
+            _settings.WindowProcess, _settings.IsHost), StartAgentCapture);
         agent.Countdown += (ms, cancelled) => Dispatcher.BeginInvoke(() => ShowAgentCountdown(ms, cancelled));
         agent.Log += line => Dispatcher.BeginInvoke(() =>
         {
@@ -445,8 +446,22 @@ public partial class MainWindow : Window
     private void ShowAgentStatus()
     {
         string url = _settings.Orchestrator, log = _agentLog, hotkey = _settings.Hotkey.ToString();
-        bool host = _settings.IsHost;
-        SetStatus(t => t.AgentStatus(url, log) + (host ? "\n" + t.HostHint(hotkey) : ""));
+        bool host = _settings.IsHost, ready = _agent?.IsReady == true;
+        SetStatus(t => t.AgentStatus(url, log) + "\n" +
+                       (host ? t.HostHint(hotkey) : ready ? t.ReadyOn(hotkey) : t.ReadyHint(hotkey)));
+    }
+
+    private async void ToggleReady()
+    {
+        if (_agent is null || _agentStop is null) return;
+        try
+        {
+            await _agent.SetReadyAsync(!_agent.IsReady, _agentStop.Token);
+        }
+        catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
+        {
+        }
+        if (_run is null) ShowAgentStatus();
     }
 
     private async void ToggleRound()
