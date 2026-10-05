@@ -21,7 +21,7 @@ The orchestrator's log shows `session <id>: PASS, 2/2 players valid -> <folder>`
 ## What to check in the session
 
 ```
-<out>\tbrain\<mm-dd-yyyy>\counter-strike-2\<session>\
+data\delivery\tbrain\<mm-dd-yyyy>\counter-strike-2\<session>\        (on the server machine)
   session.json  validation.json  schema.bin.gz
   server\  server_state.bin  events.jsonl  packets.bin  packets.txt  capture\(demo.dem, netmessages.jsonl, senddata.jsonl)
   players\<player-a>\  player.json  video.mp4  frames.csv  frames.bin  events.jsonl  packets.bin  packets.txt  capture\

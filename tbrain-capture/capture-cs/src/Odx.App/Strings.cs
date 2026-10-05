@@ -29,10 +29,8 @@ public sealed class Strings
     public required string Source { get; init; }
     public required string GameProfile { get; init; }
     public required string Fps { get; init; }
-    public required string OutputFolder { get; init; }
     public required string Hotkey { get; init; }
     public required string Refresh { get; init; }
-    public required string Browse { get; init; }
     public required string GameTooltip { get; init; }
     public required string HotkeyTooltip { get; init; }
     public required string PlayerId { get; init; }
@@ -123,10 +121,8 @@ public sealed class Strings
         Source = "Source",
         GameProfile = "Game profile",
         Fps = "FPS",
-        OutputFolder = "Output folder",
         Hotkey = "Start/stop hotkey",
         Refresh = "Refresh",
-        Browse = "Browse…",
         GameTooltip = "Builds frames.csv + session.json after recording and validates them",
         HotkeyTooltip = "Click, then press the new key combination",
         PlayerId = "Player ID",
@@ -223,10 +219,8 @@ public sealed class Strings
         Source = "Nguồn quay",
         GameProfile = "Hồ sơ game",
         Fps = "FPS",
-        OutputFolder = "Thư mục lưu",
         Hotkey = "Phím tắt bắt đầu/dừng",
         Refresh = "Làm mới",
-        Browse = "Chọn…",
         GameTooltip = "Sau khi ghi, tạo frames.csv + session.json và kiểm tra hợp lệ",
         HotkeyTooltip = "Bấm vào đây rồi nhấn tổ hợp phím mới",
         PlayerId = "Mã người chơi",
