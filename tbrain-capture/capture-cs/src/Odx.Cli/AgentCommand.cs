@@ -48,6 +48,11 @@ public static class AgentCommand
         var agent = new AgentClient(new AgentOptions(uri, player, name ?? player, outRoot, window, RoomCode: room,
             AutoReady: autoReady, AccessKey: accessKey ?? Odx.Core.CaptureConfig.Load().AccessKey), CaptureRun.Start);
         agent.Log += line => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {line}");
+        agent.PacketCaptureWanted += _ =>
+        {
+            if (PktmonCapture.IsElevated) agent.Packets ??= new PktmonCapture();
+            else Console.WriteLine($"{DateTime.Now:HH:mm:ss} this game's packets are recorded only when odx agent runs as administrator");
+        };
         agent.RunUntilStoppedAsync(stop.Token).GetAwaiter().GetResult();
         return 0;
     }

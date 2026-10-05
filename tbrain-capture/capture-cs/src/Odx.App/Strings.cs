@@ -51,6 +51,8 @@ public sealed class Strings
     public required string LanInstallQuestion { get; init; }
     public required string LanInstalling { get; init; }
     public required string LanInstallFailed { get; init; }
+    public required string PacketsOn { get; init; }
+    public required string PacketsOff { get; init; }
 
     public required string PrimaryMonitor { get; init; }
     public required Func<string, string> NotRunning { get; init; }
@@ -146,6 +148,8 @@ public sealed class Strings
         LanInstallQuestion = "This room plays over a virtual LAN, which needs ZeroTier on this machine. Install it now? (Windows asks for permission once.)",
         LanInstalling = "Installing ZeroTier…",
         LanInstallFailed = "ZeroTier could not be installed or started; install it from zerotier.com, then leave and join the room again.",
+        PacketsOn = "Network packets: recorded with each round",
+        PacketsOff = "Network packets: not recorded (administrator permission was declined; leave and join the room to be asked again)",
         PrimaryMonitor = "Primary monitor",
         NotRunning = exe => $"{exe} (not running)",
         NoGameProfile = "None (keep raw capture only)",
@@ -241,6 +245,8 @@ public sealed class Strings
         LanInstallQuestion = "Room này chơi qua mạng LAN ảo, cần cài ZeroTier trên máy này. Cài ngay bây giờ? (Windows sẽ hỏi quyền một lần.)",
         LanInstalling = "Đang cài ZeroTier…",
         LanInstallFailed = "Không cài hoặc khởi động được ZeroTier; hãy tự cài từ zerotier.com rồi rời và vào lại room.",
+        PacketsOn = "Gói mạng: ghi cùng mỗi round",
+        PacketsOff = "Gói mạng: không ghi (đã từ chối quyền admin; rời và vào lại room để được hỏi lại)",
         PrimaryMonitor = "Màn hình chính",
         NotRunning = exe => $"{exe} (không chạy)",
         NoGameProfile = "Không có (chỉ giữ dữ liệu thô)",

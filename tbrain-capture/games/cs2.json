@@ -3,6 +3,12 @@
   "platform": "PC",
   "localization": "en-US",
   "window_process": "cs2",
+  "network": {
+    "protocol": "raw",
+    "ports": [
+      "udp/27015"
+    ]
+  },
   "input_mouse_convention": {
     "maps_to": "camera_look_velocity",
     "dx_positive": "right",

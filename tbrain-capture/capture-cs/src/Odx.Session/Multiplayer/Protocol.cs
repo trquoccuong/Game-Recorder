@@ -66,8 +66,11 @@ public abstract record AgentMessage
 /// <param name="MachineId">Stable per machine but not the machine name (a hash of it).</param>
 public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null) : AgentMessage;
 
-/// <summary>Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder).</summary>
-public sealed record Welcome(int TimePort) : AgentMessage;
+/// <summary>
+/// Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder), and the game profile
+/// its rounds use, so a player knows before any round whether packets will be captured.
+/// </summary>
+public sealed record Welcome(int TimePort, string? GameProfileJson = null) : AgentMessage;
 
 /// <summary>Orchestrator → agent: prepare a session; the game profile (JSON) is the one the build must use.</summary>
 public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;

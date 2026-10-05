@@ -41,6 +41,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private Arm? _armed;
     private string? _profilePath;
     private string? _profileWindow;
+    private PacketCaptureSpec? _armedNetwork;
     private readonly object _gate = new();
     private ICaptureRun? _run;
     private string? _runSessionId, _startingSessionId, _stopReason;
@@ -59,6 +60,15 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
 
     /// <summary>Raised with the room's latest state, or null once out of it (left, closed by the host).</summary>
     public event Action<RoomUpdate?>? RoomChanged;
+
+    /// <summary>
+    /// The orchestrator's game asks for its traffic to be recorded (spec v3 §2.3); the owner then sets <see cref="Packets"/>
+    /// (odx-app: the elevated pktmon helper).
+    /// </summary>
+    public event Action<PacketCaptureSpec>? PacketCaptureWanted;
+
+    /// <summary>Records each round's game traffic into packets.pcapng; null records none.</summary>
+    public IPacketCapture? Packets { get; set; }
 
     /// <summary>Raised when the orchestrator refuses a room request (unknown invite code, not the host…).</summary>
     public event Action<string>? RoomError;
@@ -254,6 +264,9 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             case Welcome w:
                 _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
                 MeasureClock();
+                if (w.GameProfileJson is { } welcomeProfile &&
+                    GameProfile.Parse(JsonNode.Parse(welcomeProfile)!.AsObject(), "orchestrator").Network is { } network)
+                    PacketCaptureWanted?.Invoke(network);
                 break;
             case RoomUpdate r:
                 bool joined = Room?.Code != r.Code;
@@ -281,7 +294,9 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 break;
             case Arm a:
                 _armed = a;
-                _profileWindow = JsonNode.Parse(a.GameProfileJson)?["window_process"]?.GetValue<string>();
+                var armedProfile = GameProfile.Parse(JsonNode.Parse(a.GameProfileJson)!.AsObject(), "orchestrator");
+                _profileWindow = armedProfile.WindowProcess;
+                _armedNetwork = armedProfile.Network;
                 _profilePath = Path.Combine(Path.GetTempPath(), $"odx-agent-{options.PlayerId}-{a.SessionId}.json");
                 await File.WriteAllTextAsync(_profilePath, a.GameProfileJson, stop);
                 await SendAsync(new AgentState("armed", a.SessionId), stop);
@@ -343,6 +358,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         CancellationToken stopped;
         lock (_gate) stopped = _stopBeforeStart!.Token;
         if (s.CountdownMs > 0) Countdown?.Invoke(s.CountdownMs, stopped);
+        string? etl = await StartPacketsAsync(s.SessionId, stop);
         ICaptureRun run;
         try
         {
@@ -351,6 +367,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         }
         catch (Exception e)
         {
+            if (etl is not null) await StopPacketsAsync(etl, null, stop);
             await EndWithoutCaptureAsync(s.SessionId, e.Message, stop);
             return;
         }
@@ -365,6 +382,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         Log?.Invoke($"recording {s.SessionId} into {run.SessionDir}");
 
         var result = await run.Completion;
+        if (etl is not null) await StopPacketsAsync(etl, result.SessionDir, stop);
         if (Volatile.Read(ref _stopReason) == "cancelled")
         {
             lock (_gate)
@@ -393,6 +411,40 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         {
             _run = null;
             _runSessionId = null;
+        }
+    }
+
+    /// <summary>The .etl pktmon writes to while recording, or null when this round captures no packets.</summary>
+    private async Task<string?> StartPacketsAsync(string sessionId, CancellationToken stop)
+    {
+        if (Packets is not { } packets || _armedNetwork is not { } network) return null;
+        string etl = Path.Combine(Path.GetTempPath(), $"odx-packets-{options.PlayerId}-{sessionId}.etl");
+        try
+        {
+            await packets.StartAsync(network.Ports, etl, stop);
+            return etl;
+        }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException or IOException)
+        {
+            Log?.Invoke($"packet capture not started: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <param name="sessionDir">Where packets.pcapng goes (uploaded with the capture); null discards the capture.</param>
+    private async Task StopPacketsAsync(string etl, string? sessionDir, CancellationToken stop)
+    {
+        string pcapng = Path.Combine(sessionDir ?? Path.GetTempPath(), sessionDir is null ? Path.GetFileNameWithoutExtension(etl) + ".pcapng"
+            : PacketCaptureFiles.Pcapng);
+        try
+        {
+            await Packets!.StopAsync(etl, pcapng, stop);
+            if (sessionDir is null) File.Delete(pcapng);
+            else PacketCaptureFiles.WriteLocalAddresses(sessionDir);
+        }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException or IOException)
+        {
+            Log?.Invoke($"packet capture: {e.Message}");
         }
     }
 

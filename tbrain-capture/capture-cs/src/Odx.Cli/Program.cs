@@ -4,6 +4,7 @@
 //   build      capture folder -> spec v2 session (frames.csv + session.json)
 //   validate   spec v2 §1.5 vendor checks
 //   agent          one player's capture machine under odx-orchestrator (Windows build only)
+//   packet-capture the elevated pktmon helper odx-app starts for a room's packet capture (Windows build only)
 //   simulate-game  posts a scripted match to odx-orchestrator in place of a game server
 // The net8.0 build (Linux servers) has build, validate and simulate-game only.
 using System.Text;
@@ -18,6 +19,7 @@ return command switch
     "input" => Odx.Input.InputCommand.Run(rest),
     "record" => Odx.Recorder.RecordCommand.Run(rest),
     "agent" => AgentCommand.Run(rest),
+    "packet-capture" => PacketCaptureCommand.Run(rest),
 #endif
     "build" => BuildCommand.Run(rest),
     "validate" => ValidateCommand.Run(rest),
