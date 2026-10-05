@@ -38,6 +38,8 @@ public sealed class Strings
     public required string PlayerId { get; init; }
     public required string Room { get; init; }
     public required string RoomTooltip { get; init; }
+    public required string EnterInviteCode { get; init; }
+    public required string CancelDialog { get; init; }
     public required string JoinRoom { get; init; }
     public required string CreateRoom { get; init; }
     public required string LeaveRoom { get; init; }
@@ -72,6 +74,7 @@ public sealed class Strings
     public required string JoiningRoom { get; init; }
     public required Func<string, bool, string, string> RoomStatus { get; init; }
     public required Func<string, string> StartRound { get; init; }
+    public required Func<int, int, string> WaitingReady { get; init; }
     public required Func<string, string> EndRound { get; init; }
     public required Func<string, string> ReadyButton { get; init; }
     public required Func<string, string> UnreadyButton { get; init; }
@@ -116,7 +119,9 @@ public sealed class Strings
         HotkeyTooltip = "Click, then press the new key combination",
         PlayerId = "Player ID",
         Room = "Room",
-        RoomTooltip = "Invite code from the room's host (6 characters)",
+        RoomTooltip = "This room's invite code: send it to the other players",
+        EnterInviteCode = "Invite code from the room's host (6 characters):",
+        CancelDialog = "Cancel",
         JoinRoom = "Join room",
         CreateRoom = "Create room",
         LeaveRoom = "Leave room",
@@ -144,11 +149,12 @@ public sealed class Strings
         CouldNotStart = error => $"Could not start: {error}",
         HotkeyInUse = hotkey => $"Hotkey {hotkey} is already used by another application; choose another one.",
         PressKeys = "Press a key combination…",
-        HostHint = hotkey => $"Host: press {hotkey} to start or end the round for everyone.",
-        InvalidRoomCode = "Type the room's 6-character invite code (and a player ID).",
+        HostHint = hotkey => $"Host: once everyone is ready (✓), press {hotkey} to start the round; again to end it.",
+        InvalidRoomCode = "Fill in your Player ID first.",
         JoiningRoom = "Joining the room…",
         RoomStatus = (code, host, members) => $"Room {code}{(host ? " · you are the host: share this invite code" : "")}\nPlayers: {members}",
         StartRound = hotkey => $"Start round ({hotkey})",
+        WaitingReady = (ready, others) => $"Waiting for players to be ready ({ready}/{others})",
         EndRound = hotkey => $"End round ({hotkey})",
         ReadyButton = hotkey => $"I'm ready ({hotkey})",
         UnreadyButton = hotkey => $"Not ready ({hotkey})",
@@ -195,7 +201,9 @@ public sealed class Strings
         HotkeyTooltip = "Bấm vào đây rồi nhấn tổ hợp phím mới",
         PlayerId = "Mã người chơi",
         Room = "Room",
-        RoomTooltip = "Mã mời do host của room gửi (6 ký tự)",
+        RoomTooltip = "Mã mời của room này: gửi cho những người chơi khác",
+        EnterInviteCode = "Mã mời do host của room gửi (6 ký tự):",
+        CancelDialog = "Hủy",
         JoinRoom = "Vào room",
         CreateRoom = "Tạo room",
         LeaveRoom = "Rời room",
@@ -223,11 +231,12 @@ public sealed class Strings
         CouldNotStart = error => $"Không thể bắt đầu: {error}",
         HotkeyInUse = hotkey => $"Phím tắt {hotkey} đang được ứng dụng khác dùng; hãy chọn phím khác.",
         PressKeys = "Nhấn tổ hợp phím…",
-        HostHint = hotkey => $"Host: nhấn {hotkey} để bắt đầu hoặc kết thúc round cho mọi người.",
-        InvalidRoomCode = "Nhập mã mời 6 ký tự của room (và mã người chơi).",
+        HostHint = hotkey => $"Host: khi mọi người đã sẵn sàng (✓), nhấn {hotkey} để bắt đầu round; nhấn lại để kết thúc.",
+        InvalidRoomCode = "Hãy điền mã người chơi trước.",
         JoiningRoom = "Đang vào room…",
         RoomStatus = (code, host, members) => $"Room {code}{(host ? " · bạn là host: gửi mã mời này cho mọi người" : "")}\nNgười chơi: {members}",
         StartRound = hotkey => $"Bắt đầu round ({hotkey})",
+        WaitingReady = (ready, others) => $"Chờ mọi người sẵn sàng ({ready}/{others})",
         EndRound = hotkey => $"Kết thúc round ({hotkey})",
         ReadyButton = hotkey => $"Tôi sẵn sàng ({hotkey})",
         UnreadyButton = hotkey => $"Hủy sẵn sàng ({hotkey})",

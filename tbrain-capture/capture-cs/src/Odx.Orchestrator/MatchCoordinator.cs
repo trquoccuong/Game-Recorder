@@ -27,8 +27,8 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
 
 /// <summary>
 /// Rooms and their match state machine (spec v3 §2). A host opens a room and shares its invite code; only the room's members
-/// are recorded. A round starts from round_start (game server plugin via /rooms/{code}/events, or the host) or when every
-/// non-host member is ready. With a countdown, members record from round_countdown and play starts at round_start; a
+/// are recorded. A round starts from round_start (game server plugin via /rooms/{code}/events), from the host once every
+/// other member is ready, or in a room without a host when every member is ready. With a countdown, members record from round_countdown and play starts at round_start; a
 /// round_end, an unready or a member leaving during the countdown cancels the round (nothing is kept). A permanent
 /// player_death stops that player, round_end stops the rest; when all players have uploaded (or
 /// <see cref="OrchestratorOptions.DoneTimeout"/> passes) the round is assembled into a v3 session.
@@ -186,6 +186,9 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 break;
             case CloseRoom when room is not null && room.IsHost(link):
                 Close(room, effects);
+                break;
+            case ToggleRound when room is not null && room.IsHost(link) && room.Current is null && NotReady(room) is { Count: > 0 } waiting:
+                effects.Sends.Add((link, new RoomError($"not ready yet: {string.Join(", ", waiting.Select(a => a.Hello.Name))}")));
                 break;
             case ToggleRound t when room is not null && room.IsHost(link):
                 Apply(room, room.Current is null
@@ -395,13 +398,17 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 ["by"] = "ready_check" }, effects);
     }
 
-    /// <summary>No round running, enough members, and every one that is not the host is ready and idle.</summary>
-    private bool EveryoneReady(Room room)
-    {
-        var players = room.Members.Where(a => !room.IsHost(a)).ToList();
-        return room.Current is null && room.Members.Count >= options.MinReadyPlayers && players.Count > 0 &&
-               players.All(a => a.Ready && a.State is "idle" or "armed");
-    }
+    /// <summary>
+    /// Starts a round on its own only in a room without a host (game server plugin, simulator): no round running, enough
+    /// members, all ready and idle. A host starts rounds itself, once the others are ready (<see cref="NotReady"/>).
+    /// </summary>
+    private bool EveryoneReady(Room room) =>
+        room.HostPlayerId is null && room.Current is null && room.Members.Count >= options.MinReadyPlayers &&
+        NotReady(room).Count == 0;
+
+    /// <summary>Members other than the host who are not ready (or still busy with the last round).</summary>
+    private static List<AgentLink> NotReady(Room room) =>
+        room.Members.Where(a => !room.IsHost(a) && !(a.Ready && a.State is "idle" or "armed")).ToList();
 
     /// <summary>Called with the lock held.</summary>
     private void Apply(Room room, JsonObject e, Effects effects)
