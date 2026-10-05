@@ -40,6 +40,8 @@ public sealed class Strings
     public required string Orchestrator { get; init; }
     public required string OrchestratorTooltip { get; init; }
     public required string PlayerId { get; init; }
+    public required string Host { get; init; }
+    public required string HostTooltip { get; init; }
 
     public required string PrimaryMonitor { get; init; }
     public required Func<string, string> NotRunning { get; init; }
@@ -69,6 +71,8 @@ public sealed class Strings
     public required string InvalidOrchestrator { get; init; }
     public required Func<string, string, string> AgentStatus { get; init; }
     public required string Disconnected { get; init; }
+    public required Func<string, string> HostHint { get; init; }
+    public required Func<string, string> RoundToggleFailed { get; init; }
     public required Func<string, string> TrayTooltip { get; init; }
     public required string EndOverlay { get; init; }
     public required string NotifySavedPass { get; init; }
@@ -106,6 +110,8 @@ public sealed class Strings
         Orchestrator = "Orchestrator",
         OrchestratorTooltip = "Multiplayer: http://<host>:5180 of odx-orchestrator, which starts and stops the recordings. Leave empty to record on your own.",
         PlayerId = "Player ID",
+        Host = "Host (controls rounds)",
+        HostTooltip = "The hotkey starts a round (3 s countdown on every player) and ends it for everyone.",
         PrimaryMonitor = "Primary monitor",
         NotRunning = exe => $"{exe} (not running)",
         NoGameProfile = "None (keep raw capture only)",
@@ -133,6 +139,8 @@ public sealed class Strings
         InvalidOrchestrator = "Orchestrator must be an address like http://192.168.1.10:5180, and Player ID must not be empty.",
         AgentStatus = (url, log) => $"Orchestrator {url}: recordings start and stop with the game's rounds.\n{log}",
         Disconnected = "Disconnected from the orchestrator",
+        HostHint = hotkey => $"Host: press {hotkey} to start or end the round for everyone.",
+        RoundToggleFailed = error => $"Could not start/end the round: {error}",
         TrayTooltip = state => $"Odx Capture: {state}",
         EndOverlay = "END",
         NotifySavedPass = "Recording saved · validation PASS",
@@ -172,6 +180,8 @@ public sealed class Strings
         Orchestrator = "Orchestrator",
         OrchestratorTooltip = "Chơi nhiều người: địa chỉ http://<máy>:5180 của odx-orchestrator, nó tự bắt đầu và dừng ghi. Để trống để tự ghi.",
         PlayerId = "Mã người chơi",
+        Host = "Host (điều khiển round)",
+        HostTooltip = "Phím tắt bắt đầu round (mọi người đếm ngược 3 giây) và kết thúc round cho tất cả.",
         PrimaryMonitor = "Màn hình chính",
         NotRunning = exe => $"{exe} (không chạy)",
         NoGameProfile = "Không có (chỉ giữ dữ liệu thô)",
@@ -199,6 +209,8 @@ public sealed class Strings
         InvalidOrchestrator = "Orchestrator phải là địa chỉ dạng http://192.168.1.10:5180 và mã người chơi không được để trống.",
         AgentStatus = (url, log) => $"Orchestrator {url}: tự ghi theo từng round của game.\n{log}",
         Disconnected = "Đã ngắt kết nối orchestrator",
+        HostHint = hotkey => $"Host: nhấn {hotkey} để bắt đầu hoặc kết thúc round cho mọi người.",
+        RoundToggleFailed = error => $"Không bắt đầu/kết thúc được round: {error}",
         TrayTooltip = state => $"Odx Capture: {state}",
         EndOverlay = "KẾT THÚC",
         NotifySavedPass = "Đã lưu bản ghi · Kiểm tra ĐẠT",

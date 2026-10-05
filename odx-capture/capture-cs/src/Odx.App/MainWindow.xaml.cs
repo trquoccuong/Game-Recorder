@@ -50,6 +50,7 @@ public partial class MainWindow : Window
     private List<SourceItem> _windows = [];
     private bool _windowsListed;
     private CancellationTokenSource? _agentStop;
+    private AgentClient? _agent;
     private string _agentLog = "";
 
     /// <summary>
@@ -71,6 +72,7 @@ public partial class MainWindow : Window
         HotkeyBox.Text = _settings.Hotkey.ToString();
         OrchestratorBox.Text = _settings.Orchestrator;
         PlayerBox.Text = _settings.PlayerId;
+        HostBox.IsChecked = _settings.IsHost;
         Loaded += async (_, _) => await RefreshWindowsAsync();
         _clock.Tick += (_, _) => ShowRecordingStatus();
 
@@ -102,6 +104,8 @@ public partial class MainWindow : Window
         OrchestratorLabel.Content = _t.Orchestrator;
         PlayerLabel.Content = _t.PlayerId;
         OrchestratorBox.ToolTip = _t.OrchestratorTooltip;
+        HostBox.Content = _t.Host;
+        HostBox.ToolTip = _t.HostTooltip;
         RefreshButton.Content = _t.Refresh;
         BrowseButton.Content = _t.Browse;
         GameBox.ToolTip = _t.GameTooltip;
@@ -174,6 +178,7 @@ public partial class MainWindow : Window
         if (msg == WM_HOTKEY && wParam.ToInt32() == HotkeyId)
         {
             if (!AgentMode) Toggle();
+            else if (_state == RunState.Agent && _settings.IsHost) ToggleRound();
             handled = true;
         }
         return IntPtr.Zero;
@@ -230,6 +235,7 @@ public partial class MainWindow : Window
         _settings.NtpServer = NtpBox.Text.Trim();
         _settings.Orchestrator = OrchestratorBox.Text.Trim();
         _settings.PlayerId = PlayerBox.Text.Trim();
+        _settings.IsHost = HostBox.IsChecked == true;
         _settings.Save();
     }
 
@@ -269,7 +275,7 @@ public partial class MainWindow : Window
             _ => _t.TrayStop,
         };
         SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
-        NtpBox.IsEnabled = LanguageBox.IsEnabled = OrchestratorBox.IsEnabled = PlayerBox.IsEnabled = idle;
+        NtpBox.IsEnabled = LanguageBox.IsEnabled = OrchestratorBox.IsEnabled = PlayerBox.IsEnabled = HostBox.IsEnabled = idle;
         RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
         _tray.Text = idle ? "Odx Capture" : _t.TrayTooltip(_trayStartStop.Text);
     }
@@ -405,11 +411,13 @@ public partial class MainWindow : Window
         _agentStop = new CancellationTokenSource();
         var agent = new AgentClient(new AgentOptions(uri, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
             _settings.WindowProcess), StartAgentCapture);
+        agent.Countdown += (ms, cancelled) => Dispatcher.BeginInvoke(() => ShowAgentCountdown(ms, cancelled));
         agent.Log += line => Dispatcher.BeginInvoke(() =>
         {
             _agentLog = $"{DateTime.Now:HH:mm:ss} {line}";
             if (_run is null && _state == RunState.Agent) ShowAgentStatus();
         });
+        _agent = agent;
         _agentLog = "";
         SetState(RunState.Agent);
         ShowAgentStatus();
@@ -420,14 +428,54 @@ public partial class MainWindow : Window
     {
         _agentStop?.Cancel();
         _agentStop = null;
+        _agent = null;
         if (_run is null) SetState(RunState.Idle, t => t.Disconnected);
         else StopRecording();
     }
 
     private void ShowAgentStatus()
     {
-        string url = _settings.Orchestrator, log = _agentLog;
-        SetStatus(t => t.AgentStatus(url, log));
+        string url = _settings.Orchestrator, log = _agentLog, hotkey = _settings.Hotkey.ToString();
+        bool host = _settings.IsHost;
+        SetStatus(t => t.AgentStatus(url, log) + (host ? "\n" + t.HostHint(hotkey) : ""));
+    }
+
+    private async void ToggleRound()
+    {
+        if (_agent is null || _agentStop is null) return;
+        try
+        {
+            await _agent.ToggleRoundAsync(CountdownSeconds * 1000, _agentStop.Token);
+        }
+        catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException)
+        {
+            string error = e.Message;
+            SetStatus(t => t.RoundToggleFailed(error));
+        }
+    }
+
+    /// <summary>The same 3-2-1 as a solo recording; it closes as the capture starts, so it never shows in the video.</summary>
+    private void ShowAgentCountdown(int countdownMs, CancellationToken cancelled)
+    {
+        int left = (int)Math.Ceiling(countdownMs / 1000.0);
+        var overlay = new CountdownOverlay { Seconds = left };
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(countdownMs / (double)left) };
+        bool closed = false;
+        void End()
+        {
+            if (closed) return;
+            closed = true;
+            timer.Stop();
+            overlay.Close();
+        }
+        timer.Tick += (_, _) =>
+        {
+            if (--left > 0) overlay.Seconds = left;
+            else End();
+        };
+        cancelled.Register(() => Dispatcher.BeginInvoke(End));
+        overlay.Show();
+        timer.Start();
     }
 
     /// <summary>AgentClient calls this off the UI thread when the orchestrator starts a round.</summary>

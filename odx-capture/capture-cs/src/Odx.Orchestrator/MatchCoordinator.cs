@@ -189,7 +189,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         var ready = _agents.Values.Where(a => a.State is "idle" or "armed").ToList();
         foreach (var busy in _agents.Values.Except(ready))
             log.LogWarning("{Player} is {State}, left out of {Session}", busy.Hello.PlayerId, busy.State, sid);
-        var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, utc, null, timePort,
+        int countdownMs = e["countdown_ms"]?.GetValue<int>() ?? 0;
+        var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, utc + countdownMs, null, timePort,
             ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name)).ToList());
         string staging = Path.Combine(options.OutRoot, ".staging", sid);
         Directory.CreateDirectory(staging);
@@ -199,7 +200,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             a.State = "starting";
             sends.Add((a, new Arm(sid, _profileJson, options.Fps)));
-            sends.Add((a, new Start(sid)));
+            sends.Add((a, new Start(sid, countdownMs)));
         }
         log.LogInformation("round {Session}: {Count} player(s)", sid, ready.Count);
     }
