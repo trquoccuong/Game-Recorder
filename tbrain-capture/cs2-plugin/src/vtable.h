@@ -9,5 +9,4 @@ void **FindVtable(const char *module, const char *rttiName);
 // Replaces vtable[index] with replacement; returns the previous entry.
 void *PatchVtable(void **vtable, int index, void *replacement);
 
-// Current UTC time in microseconds since the Unix epoch.
 long long UtcNowUs();

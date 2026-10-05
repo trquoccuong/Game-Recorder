@@ -447,7 +447,6 @@ public static class Cs2ServerCapture
         _ => value.ToString(),
     };
 
-    /// <summary>A player slot as the player: the controller's entity is slot + 1. Null for "nobody" (-1, e.g. no attacker).</summary>
     /// <summary>
     /// A player slot as the player, where they were at that moment, and their id in the session when they are one of its
     /// players: the controller's entity is slot + 1. Null for "nobody" (-1, e.g. no attacker).
