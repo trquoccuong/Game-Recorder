@@ -142,7 +142,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         if (fileName != Path.GetFileName(fileName) || fileName is "." or "..") return null;
         lock (_lock)
         {
-            if (!_rounds.TryGetValue(sessionId, out var round) || round.IndexOf(playerId) < 0) return null;
+            if (!_rounds.TryGetValue(sessionId, out var round) || round.Finalized != 0 || round.IndexOf(playerId) < 0) return null;
             string dir = Path.Combine(round.StagingDir, "players", playerId);
             Directory.CreateDirectory(dir);
             return Path.Combine(dir, fileName);
@@ -254,16 +254,20 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private void Assemble(OpenRound round)
     {
         if (Interlocked.Exchange(ref round.Finalized, 1) == 1) return;
+        // Stays in _rounds (pending in /status) until its report is recorded; uploads are refused from here on.
         lock (_lock)
         {
-            _rounds.Remove(round.Record.SessionId);
             round.Record.Save(round.StagingDir);
             MultiplayerSession.WriteEvents(Path.Combine(round.StagingDir, RoundRecord.EventsFileName), round.Events);
         }
         try
         {
             var (dir, report) = MultiplayerSession.Assemble(round.StagingDir, options.OutRoot, options.Vendor, options.Tolerances);
-            lock (_lock) _reports.Add(report);
+            lock (_lock)
+            {
+                _reports.Add(report);
+                _rounds.Remove(round.Record.SessionId);
+            }
             log.LogInformation("session {Session}: {Result}, {Valid}/{Count} players valid -> {Dir}", report.SessionId,
                 report.Pass ? "PASS" : "FAIL", report.ValidPlayers, report.Players.Count, dir);
             foreach (var issue in report.Issues.Concat(report.Players.SelectMany(p => p.Issues)))
@@ -273,6 +277,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         catch (Exception e) when (e is IOException or InvalidDataException or FormatException or System.Text.Json.JsonException)
         {
             log.LogError("cannot assemble {Session}: {Error} (staged in {Dir})", round.Record.SessionId, e.Message, round.StagingDir);
+            lock (_lock) _rounds.Remove(round.Record.SessionId);
         }
     }
 

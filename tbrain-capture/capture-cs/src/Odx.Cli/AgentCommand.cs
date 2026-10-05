@@ -8,8 +8,6 @@ namespace Odx.Cli;
 
 public static class AgentCommand
 {
-    private static readonly TimeSpan Retry = TimeSpan.FromSeconds(5);
-
     public static int Run(string[] args)
     {
         string? orchestrator = null, player = null, outRoot = null, name = null, window = null;
@@ -40,23 +38,7 @@ public static class AgentCommand
         };
         var agent = new AgentClient(new AgentOptions(uri, player, name ?? player, outRoot, window), CaptureRun.Start);
         agent.Log += line => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {line}");
-        while (!stop.IsCancellationRequested)
-        {
-            try
-            {
-                agent.RunAsync(stop.Token).GetAwaiter().GetResult();
-                if (!stop.IsCancellationRequested) Console.WriteLine($"{DateTime.Now:HH:mm:ss} orchestrator closed the connection");
-            }
-            catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or HttpRequestException)
-            {
-                Console.WriteLine($"{DateTime.Now:HH:mm:ss} {uri}: {e.Message}");
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            stop.Token.WaitHandle.WaitOne(Retry);
-        }
+        agent.RunUntilStoppedAsync(stop.Token).GetAwaiter().GetResult();
         return 0;
     }
 }
