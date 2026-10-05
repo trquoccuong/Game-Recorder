@@ -232,18 +232,27 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     }
 
     /// <summary>
-    /// The player's choice, else the game's window from the profile when it is running, else the primary monitor (the
-    /// session's capture.window check then flags it).
+    /// The first open window of: the player's choice, the game's window from the profile; else the primary monitor (the
+    /// session's capture.window check then flags it). A round never fails just because a game is not open.
     /// </summary>
     private string? WindowToRecord()
     {
-        if (options.WindowProcess is not null || _profileWindow is null) return options.WindowProcess;
-        var running = System.Diagnostics.Process.GetProcessesByName(_profileWindow);
+        foreach (string? process in new[] { options.WindowProcess, _profileWindow }.Distinct())
+        {
+            if (process is null) continue;
+            if (HasWindow(process)) return process;
+            Log?.Invoke($"{process} is not running");
+        }
+        if (options.WindowProcess is not null || _profileWindow is not null) Log?.Invoke("recording the primary monitor");
+        return null;
+    }
+
+    private static bool HasWindow(string process)
+    {
+        var running = System.Diagnostics.Process.GetProcessesByName(process);
         bool open = running.Any(p => p.MainWindowHandle != IntPtr.Zero);
         foreach (var p in running) p.Dispose();
-        if (open) return _profileWindow;
-        Log?.Invoke($"{_profileWindow} is not running: recording the primary monitor");
-        return null;
+        return open;
     }
 
     /// <summary>A Stop can arrive during the countdown or while the capture is starting; both end up here.</summary>

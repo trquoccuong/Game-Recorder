@@ -63,8 +63,10 @@
 
         <Label x:Name="RoomLabel" Grid.Row="6" />
         <StackPanel x:Name="RoomPanel" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,6">
-            <TextBox x:Name="RoomBox" AutomationProperties.AutomationId="RoomBox" Width="110" MaxLength="6"
-                     CharacterCasing="Upper" FontFamily="Consolas" FontSize="14" VerticalContentAlignment="Center" />
+            <!-- The current room's invite code, selectable so the host can copy it; the code to join is asked in a dialog. -->
+            <TextBox x:Name="RoomBox" AutomationProperties.AutomationId="RoomBox" Width="110" IsReadOnly="True"
+                     Visibility="Collapsed" FontFamily="Consolas" FontSize="14" FontWeight="SemiBold"
+                     VerticalContentAlignment="Center" HorizontalContentAlignment="Center" />
             <Button x:Name="JoinButton" AutomationProperties.AutomationId="JoinButton" Click="Join_Click" />
             <Button x:Name="CreateButton" AutomationProperties.AutomationId="CreateButton" Click="Create_Click" />
         </StackPanel>

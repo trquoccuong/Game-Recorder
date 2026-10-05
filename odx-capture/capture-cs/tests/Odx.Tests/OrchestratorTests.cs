@@ -239,8 +239,11 @@ public sealed class OrchestratorTests : IAsyncLifetime
     public async Task HostStartsRoundWithCountdownOnEveryPlayerAndEndsIt()
     {
         var (_, hostStarted, code) = await HostRoom("p1");
-        var started = new List<TaskCompletionSource> { hostStarted, Connect(null, "p2", code).Started };
+        var (member, memberStarted) = Connect(null, "p2", code);
+        var started = new List<TaskCompletionSource> { hostStarted, memberStarted };
         await WaitForAgents(2, code);
+        await member.SetReadyAsync(true, default);
+        for (int i = 0; i < 100 && !_agents[0].Room!.Members.All(m => m.PlayerId == "p1" || m.Ready); i++) await Task.Delay(50);
         var countdowns = _agents.Select(a =>
         {
             var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -340,10 +343,12 @@ public sealed class OrchestratorTests : IAsyncLifetime
     public async Task OnlyTheHostsRoomIsRecorded()
     {
         var (_, aStarted, a) = await HostRoom("p1");
-        var memberStarted = Connect(null, "p2", a).Started;
+        var (member, memberStarted) = Connect(null, "p2", a);
         var (otherHost, bStarted, b) = await HostRoom("p3");
         await WaitForAgents(2, a);
         Assert.NotEqual(a, b);
+        await member.SetReadyAsync(true, default);
+        for (int i = 0; i < 100 && !_agents[0].Room!.Members.All(m => m.PlayerId == "p1" || m.Ready); i++) await Task.Delay(50);
 
         await _agents[0].ToggleRoundAsync(300, default);
         await Task.WhenAll(aStarted.Task, memberStarted.Task).WaitAsync(TimeSpan.FromSeconds(5));
@@ -353,6 +358,27 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.Equal(["p1", "p2"], (await RoomStatus(a))["members"]!.AsArray().Select(m => (string)m!["player_id"]!).Order());
         Assert.True(otherHost.IsHost);
         Assert.False(_agents[1].IsHost);
+    }
+
+    [Fact]
+    public async Task AHostedRoomWaitsForItsHostAndTheHostForEveryoneReady()
+    {
+        var (host, hostStarted, code) = await HostRoom("p1");
+        var (member, _) = Connect(null, "p2", code);
+        await WaitForAgents(2, code);
+        var refused = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.RoomError += m => refused.TrySetResult(m);
+
+        await host.ToggleRoundAsync(300, default);
+        Assert.Contains("P2", await refused.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        await member.SetReadyAsync(true, default);
+        await Task.Delay(ReadyCountdownMs + 500);  // a hostless room would have started by now
+        Assert.Null((await RoomStatus(code))["current_session"]);
+        Assert.False(hostStarted.Task.IsCompleted);
+
+        await host.ToggleRoundAsync(300, default);
+        await hostStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     [Fact]

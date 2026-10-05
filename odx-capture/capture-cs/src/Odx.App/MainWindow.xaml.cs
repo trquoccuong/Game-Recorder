@@ -249,7 +249,9 @@ public partial class MainWindow : Window
         switch (_state)
         {
             case RunState.Idle: BeginCountdown(); break;
-            case RunState.Agent when _agent is { IsHost: true }: ToggleRound(); break;
+            case RunState.Agent when _agent is { IsHost: true, Room: { } room } && (room.CurrentSession is not null || WaitingFor(room).Count == 0):
+                ToggleRound();
+                break;
             case RunState.Agent when _agent?.Room is { CurrentSession: null }: ToggleReady(); break;
             case RunState.Countdown: CancelCountdown(); break;
             case RunState.Starting or RunState.Recording: StopRecording(); break;
@@ -271,7 +273,9 @@ public partial class MainWindow : Window
             _ => _t.Stop(_settings.Hotkey.ToString()),
         };
         StartStopButton.IsEnabled = _trayStartStop.Enabled = state != RunState.Stopping &&
-            !(state == RunState.Agent && (_agent?.Room is null || (!_agent.IsHost && _agent.Room.CurrentSession is not null)));
+            !(state == RunState.Agent && (_agent?.Room is not { } room ||
+                                          (!_agent.IsHost && room.CurrentSession is not null) ||
+                                          (_agent.IsHost && room.CurrentSession is null && WaitingFor(room).Count > 0)));
         _trayStartStop.Text = state switch
         {
             RunState.Idle => _t.Start,
@@ -281,8 +285,9 @@ public partial class MainWindow : Window
             _ => _t.TrayStop,
         };
         SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
-        LanguageBox.IsEnabled = PlayerBox.IsEnabled = RoomBox.IsEnabled = idle;
+        LanguageBox.IsEnabled = PlayerBox.IsEnabled = idle;
         bool inRoom = state == RunState.Agent && _agent?.Room is not null;
+        RoomBox.Visibility = inRoom ? Visibility.Visible : Visibility.Collapsed;
         JoinButton.Content = inRoom ? _t.LeaveRoom : _t.JoinRoom;
         JoinButton.IsEnabled = idle || inRoom;
         CreateButton.Content = inRoom ? _t.CloseRoom : _t.CreateRoom;
@@ -409,16 +414,26 @@ public partial class MainWindow : Window
     {
         string hotkey = _settings.Hotkey.ToString();
         if (_agent?.Room is not { } room) return _t.JoiningRoom;
+        if (_agent.IsHost && room.CurrentSession is null && WaitingFor(room) is { Count: > 0 } waiting)
+            return _t.WaitingReady(room.Members.Count - 1 - waiting.Count, room.Members.Count - 1);
         if (_agent.IsHost) return room.CurrentSession is null ? _t.StartRound(hotkey) : _t.EndRound(hotkey);
         if (room.CurrentSession is not null) return _t.InRound;
         return _agent.IsReady ? _t.UnreadyButton(hotkey) : _t.ReadyButton(hotkey);
     }
 
+    /// <summary>The other members the host waits for (the orchestrator checks the same before a round starts).</summary>
+    private static List<RoomMember> WaitingFor(RoomUpdate room) =>
+        room.Members.Where(m => m.PlayerId != room.HostPlayerId && !(m.Ready && m.State is "idle" or "armed")).ToList();
+
     private void Join_Click(object sender, RoutedEventArgs e)
     {
-        if (_state == RunState.Agent) LeaveRoom();
-        else if (RoomBox.Text.Trim().Length == 6) EnterRoom(RoomBox.Text.Trim());
-        else SetStatus(t => t.InvalidRoomCode);
+        if (_state == RunState.Agent)
+        {
+            LeaveRoom();
+            return;
+        }
+        var dialog = new JoinRoomDialog(_t) { Owner = this };
+        if (dialog.ShowDialog() == true) EnterRoom(dialog.Code);
     }
 
     private void Create_Click(object sender, RoutedEventArgs e)

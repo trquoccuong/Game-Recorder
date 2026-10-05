@@ -117,12 +117,14 @@ dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profil
 **Rooms.** Players are recorded only with the other members of their room. Set the orchestrator's address once in `odx-capture.json` (`"orchestrator": "http://<host>:5180"`; empty: odx-app records on its own only, the room rows stay hidden). In odx-app:
 
 - **Create room** opens a room with you as its host and shows its 6-character invite code (no 0/O or 1/I) to share. **Close room** ends it for everyone; a room nobody is in also closes after 30 min.
-- **Join room** with an invite code; **Leave room** to go. Leaving during a countdown cancels the round; leaving during a round stops your recording.
+- **Join room** asks for the invite code in a dialog; **Leave room** to go. Leaving during a countdown cancels the round; leaving during a round stops your recording.
 - In a room, the main button and the hotkey are the room action:
   - the host starts and ends rounds (3 s countdown);
-  - the other players say they are ready (again to take it back). Once at least 2 members are in and every non-host member is ready, the round starts with a 5 s countdown (`--ready-countdown-ms`, `--min-ready`), as in the client's sample delivery.
+  - the other players say they are ready (again to take it back); the host can start only once all of them are (the button waits, the orchestrator checks too). A room never starts on its own while it has a host.
 
   The status line lists the members (✓ = ready). The game profile and FPS come from the orchestrator.
+
+A room without a host (opened by a game server plugin or the simulator, `POST /rooms`) starts a round on its own once at least 2 members are in and all are ready, with a 5 s countdown (`--ready-countdown-ms`, `--min-ready`), as in the client's sample delivery.
 
 Every member starts capturing when the countdown starts and sees it on screen (excluded from screen capture, so never in the video). A `round_end`, an unready, or a member leaving during the countdown cancels the round (`round_cancelled`): everyone stops, nothing is uploaded or assembled, and the round number is used again. After a lost connection an agent joins its room again.
 
