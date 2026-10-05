@@ -21,8 +21,10 @@ $out = Join-Path $dist $name
 $cache = Join-Path $root '.cache'
 
 $bin = Join-Path $out 'bin'
-if (Test-Path $out) { Remove-Item -Recurse -Force $out }
-New-Item -ItemType Directory -Force $out, $bin, $cache | Out-Null
+$launcherExe = Join-Path $out 'Odx Capture.exe'
+# data\ holds what this machine recorded and delivered (PackageFolders): a rebuild replaces the program, never the data.
+foreach ($old in @($bin, $launcherExe)) { if (Test-Path $old) { Remove-Item -Recurse -Force $old } }
+New-Item -ItemType Directory -Force $out, $bin, $cache, (Join-Path $out 'data\captures'), (Join-Path $out 'data\delivery') | Out-Null
 # NativeAOT finds the MSVC linker through vswhere.exe, which is not on PATH by default.
 $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 
@@ -77,8 +79,18 @@ $ffmpegDir = Join-Path $bin 'ffmpeg'
 New-Item -ItemType Directory -Force $ffmpegDir | Out-Null
 Copy-Item (Join-Path $ffmpegBuild '*') $ffmpegDir
 
-Add-Type -AssemblyName System.IO.Compression.FileSystem
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $packageZip = Join-Path $dist "$name.zip"
 if (Test-Path $packageZip) { Remove-Item -Force $packageZip }
-[IO.Compression.ZipFile]::CreateFromDirectory($out, $packageZip, [IO.Compression.CompressionLevel]::Optimal, $true)
+# The program and empty data folders only: the data\ of this machine stays out of the package.
+$zip = [IO.Compression.ZipFile]::Open($packageZip, [IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($file in @(Get-Item $launcherExe) + @(Get-ChildItem $bin -Recurse -File)) {
+        $entry = "$name/" + $file.FullName.Substring($out.Length + 1).Replace('\', '/')
+        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip, $file.FullName, $entry,
+            [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    }
+    foreach ($folder in 'data/captures/', 'data/delivery/') { $zip.CreateEntry("$name/$folder") | Out-Null }
+}
+finally { $zip.Dispose() }
 Write-Host "package: $packageZip"

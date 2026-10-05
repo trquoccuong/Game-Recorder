@@ -8,12 +8,14 @@ using Odx.Session;
 
 namespace Odx.Orchestrator;
 
-/// <param name="OutRoot">Sessions go to &lt;OutRoot&gt;/&lt;vendor&gt;/…; uploads are staged in &lt;OutRoot&gt;/.staging/.</param>
+/// <param name="OutRoot">Sessions go to &lt;OutRoot&gt;/&lt;vendor&gt;/…; uploads are staged in <see cref="StagingRoot"/>.</param>
 /// <param name="DoneTimeout">How long after a round ends to wait for uploads before assembling with what arrived.</param>
 public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath, string Vendor = "odx", int HttpPort = 5180,
     int TimePort = 12300, int Fps = 30)
 {
     public GateTolerances Tolerances { get; init; } = GateTolerances.Default;
+    /// <summary>Where rounds are staged until assembled; null: &lt;OutRoot&gt;/.staging/.</summary>
+    public string? StagingRoot { get; init; }
     public TimeSpan DoneTimeout { get; init; } = TimeSpan.FromMinutes(15);
     /// <summary>A room nobody is in is closed after this long (the host closes it otherwise).</summary>
     public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
@@ -549,7 +551,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 MachineId: a.Hello.MachineId, SteamId: a.Hello.SteamId)).ToList(), countdownMs,
             ServerClock: Volatile.Read(ref _serverClock));
         // Unique per attempt: a cancelled round's number is used again while its staging may still be deleted.
-        string staging = Path.Combine(options.OutRoot, ".staging", $"{sid}-{Guid.NewGuid().ToString("N")[..8]}");
+        string staging = Path.Combine(options.StagingRoot ?? Path.Combine(options.OutRoot, ".staging"),
+            $"{sid}-{Guid.NewGuid().ToString("N")[..8]}");
         Directory.CreateDirectory(staging);
         File.WriteAllText(Path.Combine(staging, RoundRecord.ProfileFileName), _profileJson);
         var round = new OpenRound(room, record, staging) { Counting = countdownMs > 0 };

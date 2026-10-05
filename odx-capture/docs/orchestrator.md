@@ -17,14 +17,14 @@ with `capture-cs/publish.ps1` (see [player-setup.md](player-setup.md#1-build-the
 Set-Content -Path D:\odx\rcon.txt -Value '<RCON password>' -NoNewline
 
 $bin = 'D:\odx\odx-capture-0.1.0-win-x64\bin'
-& "$bin\odx-orchestrator.exe" --out D:\odx\sessions --game-profile "$bin\games\cs2.json" `
+& "$bin\odx-orchestrator.exe" --game-profile "$bin\games\cs2.json" `
     --cs2-game-dir D:\cs2-server\game\csgo --cs2-rcon 127.0.0.1:27015 --cs2-rcon-password-file D:\odx\rcon.txt `
     --access-key <access key>
 ```
 
 | Option | |
 |---|---|
-| `--out` | Sessions go to `<out>\odx\<mm-dd-yyyy>\counter-strike-2\<session>\`; uploads are staged in `<out>\.staging\`. Plan disk space: about 2 MB per second of video per player. |
+| `--out` | Optional. By default sessions go to the package's `data\delivery\odx\<mm-dd-yyyy>\counter-strike-2\<session>\` (what to hand over) and rounds are staged in `data\staging\` while players upload; with `--out` both go under that folder (`<out>\.staging\`). Plan disk space: about 2 MB per second of video per player. |
 | `--game-profile` | The game every room plays: `games\cs2.json`. |
 | `--cs2-game-dir` | The server's `game\csgo` folder (where `replays\` and `odx-netlog\` are). |
 | `--cs2-rcon` | The server's RCON address; default `127.0.0.1:27015`. |
@@ -58,6 +58,6 @@ When players are connected, `/status` lists the rooms, their members and states 
 
 ## Rebuild a session
 
-A round's inputs stay in `<out>\.staging\<session>-<id>\` (players' uploads, the server's demo and log). A newer version
-can build the session again from it (`MultiplayerSession.Assemble(<staging>, <out>, "odx")` in `Odx.Session`); there
+A round's inputs stay in `data\staging\<session>-<id>\` (players' uploads, the server's demo and log). A newer version
+can build the session again from it (`MultiplayerSession.Assemble(<staging>, <delivery>, "odx")` in `Odx.Session`); there
 is no command for that yet, so keep the staging folders of rounds you may want to rebuild.

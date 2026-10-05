@@ -6,7 +6,6 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
-using Microsoft.Win32;
 using Odx.Core;
 using Odx.Session;
 using Forms = System.Windows.Forms;
@@ -83,7 +82,6 @@ public partial class MainWindow : Window
         LanguageBox.SelectedItem = Strings.Languages.First(l => l.Code == (_settings.Language ?? Strings.DefaultLanguage));
         FpsBox.ItemsSource = new[] { 30, 60 };
         FpsBox.SelectedItem = _settings.Fps;
-        OutputBox.Text = _settings.OutputRoot;
         HotkeyBox.Text = _settings.Hotkey.ToString();
         PlayerBox.Text = _settings.PlayerId;
         var roomRows = _config.Orchestrator is null ? Visibility.Collapsed : Visibility.Visible;
@@ -111,7 +109,6 @@ public partial class MainWindow : Window
         SourceLabel.Content = _t.Source;
         GameLabel.Content = _t.GameProfile;
         FpsLabel.Content = _t.Fps;
-        OutputLabel.Content = _t.OutputFolder;
         HotkeyLabel.Content = _t.Hotkey;
         PlayerLabel.Content = _t.PlayerId;
         RoomLabel.Content = _t.Room;
@@ -119,7 +116,6 @@ public partial class MainWindow : Window
         LanBox.ToolTip = _t.LanTooltip;
         RoomBox.ToolTip = _t.RoomTooltip;
         RefreshButton.Content = _t.Refresh;
-        BrowseButton.Content = _t.Browse;
         GameBox.ToolTip = _t.GameTooltip;
         HotkeyBox.ToolTip = _t.HotkeyTooltip;
         _trayShow.Text = _t.TrayShow;
@@ -242,7 +238,6 @@ public partial class MainWindow : Window
         _settings.WindowProcess = (SourceBox.SelectedItem as SourceItem)?.Process;
         _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
         _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
-        _settings.OutputRoot = OutputBox.Text.Trim();
         _settings.PlayerId = PlayerBox.Text.Trim();
         _settings.Save();
     }
@@ -287,7 +282,7 @@ public partial class MainWindow : Window
             RunState.Stopping => _t.Stopping,
             _ => _t.TrayStop,
         };
-        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
+        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = HotkeyBox.IsEnabled = idle;
         LanguageBox.IsEnabled = PlayerBox.IsEnabled = idle;
         bool inRoom = state == RunState.Agent && _agent?.Room is not null;
         RoomBox.Visibility = inRoom ? Visibility.Visible : Visibility.Collapsed;
@@ -297,7 +292,7 @@ public partial class MainWindow : Window
         CreateButton.IsEnabled = idle || inRoom && _agent!.IsHost;
         CreateButton.Visibility = inRoom && !_agent!.IsHost ? Visibility.Collapsed : Visibility.Visible;
         LanBox.Visibility = idle ? Visibility.Visible : Visibility.Collapsed;
-        RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
+        RefreshButton.IsEnabled = idle;
         _tray.Text = idle ? "Odx Capture" : _t.TrayTooltip(_trayStartStop.Text);
     }
 
@@ -455,7 +450,7 @@ public partial class MainWindow : Window
             return;
         }
         _agentStop = new CancellationTokenSource();
-        var agent = new AgentClient(new AgentOptions(orchestrator, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
+        var agent = new AgentClient(new AgentOptions(orchestrator, _settings.PlayerId, Environment.UserName, PackageFolders.Captures,
             _settings.WindowProcess, RoomCode: code, CreateRoom: code is null, AccessKey: _config.AccessKey, Lan: lan),
             StartAgentCapture);
         agent.Countdown += (ms, cancelled) => Dispatcher.BeginInvoke(() => ShowAgentCountdown(ms, cancelled));
@@ -747,12 +742,6 @@ public partial class MainWindow : Window
         _windowsListed = true;
         if (SourceBox.SelectedItem is SourceItem selected) _settings.WindowProcess = selected.Process;
         LoadSources();
-    }
-
-    private void Browse_Click(object sender, RoutedEventArgs e)
-    {
-        var dialog = new OpenFolderDialog { InitialDirectory = OutputBox.Text };
-        if (dialog.ShowDialog(this) == true) OutputBox.Text = dialog.FolderName;
     }
 
     // While the hotkey box has focus the global hotkey is released, so pressing the current combination re-assigns it

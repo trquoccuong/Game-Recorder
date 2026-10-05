@@ -11,7 +11,6 @@ public sealed class AppSettings
     private static readonly string FilePath =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Odx", "odx-app.json");
 
-    public string OutputRoot { get; set; } = @"C:\odx_capture";
     /// <summary>Process name passed to odx record --window; null records the primary monitor.</summary>
     public string? WindowProcess { get; set; }
     public int Fps { get; set; } = 60;
@@ -23,7 +22,9 @@ public sealed class AppSettings
     public string PlayerId { get; set; } = Environment.MachineName.ToLowerInvariant();
 
     /// <param name="timeServer">time_server of odx-capture.json; null uses the Windows clock only.</param>
-    public CaptureOptions ToCaptureOptions(string? timeServer) => new(OutputRoot, WindowProcess, Fps, GameProfile, timeServer);
+    /// <remarks>Recordings go to the package's data\captures\ (<see cref="PackageFolders"/>).</remarks>
+    public CaptureOptions ToCaptureOptions(string? timeServer) =>
+        new(PackageFolders.Captures, WindowProcess, Fps, GameProfile, timeServer);
 
     public static AppSettings Load()
     {

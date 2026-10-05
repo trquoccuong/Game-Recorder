@@ -23,7 +23,7 @@ and packets, plus the game server's side (per-tick state, game events, net messa
  │        ▲ RCON tcp/27015 (local only)    │            │   video, input, packets (pktmon)     │
  │        │ demo + plugin log (files)      │            │                                      │
  │ odx-orchestrator  tcp/5180, udp/12300   │◄── rooms, clock, uploads ─────────────────────────┘
- │   sessions → <out>/odx/<date>/...    │
+ │   sessions → data\delivery\odx\...    │
  └─────────────────────────────────────────┘
 ```
 

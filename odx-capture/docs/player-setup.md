@@ -29,7 +29,9 @@ powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0 -Orchestrato
 1. Unzip the package anywhere (e.g. `D:\Odx`); nothing else to install.
 2. Start `Odx Capture.exe`. The first start takes a while (Windows Defender scans the new files) and the app checks the
    video encoder once.
-3. In the app, pick the output folder (where captures are kept before upload; plan about 2 MB per second of recording).
+3. Recordings are kept in the package's `data\captures\` (one folder per recording, also after the upload; plan about
+   2 MB per second of recording). The sessions to hand over are built on the server machine, in its package's
+   `data\delivery\`.
 
 ## 3. CS2
 

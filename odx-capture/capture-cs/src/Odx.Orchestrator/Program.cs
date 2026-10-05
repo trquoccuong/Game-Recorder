@@ -1,7 +1,8 @@
-// odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] [--time-port 12300]
+// odx-orchestrator --game-profile <game.json> [--out <dir>] [--vendor odx] [--http-port 5180] [--time-port 12300]
 //                  [--fps 30] [--min-valid K] [--max-rtt-ms 100] [--access-key K]
 //                  [--zerotier-api http://zerotier:9993 --zerotier-token-file <authtoken.secret>]
 //                  [--cs2-game-dir <cs2>/game/csgo --cs2-rcon 127.0.0.1:27015 --cs2-rcon-password-file <file>]
+// --out: where sessions go; by default the package's data\delivery\, with rounds staged in data\staging\ (PackageFolders).
 // --access-key (or the ODX_ACCESS_KEY environment variable): clients must send it (access_key in odx-capture.json).
 // --zerotier-api: a ZeroTier controller giving rooms created "with LAN" their own virtual LAN; its token comes from
 // --zerotier-token-file or the ODX_ZT_TOKEN environment variable.
@@ -41,12 +42,12 @@ for (int i = 0; i < args.Length; i++)
         case "--cs2-game-dir": cs2Dir = Next(); break;
         case "--cs2-rcon": cs2Rcon = Next(); break;
         case "--cs2-rcon-password-file": cs2Password = File.ReadAllText(Next()).Trim(); break;
-        default: outRoot = null; i = args.Length; break;
+        default: profile = null; i = args.Length; break;
     }
 }
-if (outRoot is null || profile is null)
+if (profile is null)
 {
-    Console.Error.WriteLine("usage: odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] " +
+    Console.Error.WriteLine("usage: odx-orchestrator --game-profile <game.json> [--out <dir>] [--vendor odx] [--http-port 5180] " +
                             "[--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100] " +
                             "[--access-key K] [--zerotier-api URL --zerotier-token-file PATH] " +
                             "[--cs2-game-dir DIR --cs2-rcon HOST:PORT --cs2-rcon-password-file PATH]");
@@ -67,6 +68,9 @@ if (cs2Dir is not null)
     };
 }
 
-var app = OrchestratorHost.Build(options with { OutRoot = outRoot, GameProfilePath = profile, Tolerances = tolerances });
+options = outRoot is null
+    ? options with { OutRoot = Odx.Core.PackageFolders.Delivery, StagingRoot = Odx.Core.PackageFolders.Staging }
+    : options with { OutRoot = outRoot };
+var app = OrchestratorHost.Build(options with { GameProfilePath = profile, Tolerances = tolerances });
 await app.RunAsync();
 return 0;

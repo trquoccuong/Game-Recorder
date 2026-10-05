@@ -50,9 +50,9 @@ dotnet run --project src/Odx.Cli -f net10.0-windows10.0.22621.0 -- record --out 
 
 Run `odx input` and `odx record` into the same `--out` folder. Grid times (`t_grid_qpc_ms`) are the per-frame clock for `Frames.AggregateInputs`. Requires Windows 10 2004+ and ffmpeg (the packaged `ffmpeg/ffmpeg.exe`, else PATH, or `--ffmpeg`). `--encoder auto` (default) uses NVENC when it works on the machine, which keeps the CPU free for the game, else x264; the probe (~2 s cold) is cached per ffmpeg build in `%LOCALAPPDATA%\Odx\encoder.json`. NVENC needs an NVIDIA GPU with driver 471.41+ (the packaged ffmpeg is built with NVENC 11.1 headers; ffmpeg builds with the newest headers need 610+). Both commands also accept `--stop-event <name>`: they stop when that named Win32 event is set.
 
-`odx-app` (WPF, `src/Odx.App`) is the desktop front end. It runs `odx input` and `odx record` as child processes into `<output folder>/<yyyyMMdd-HHmmss>/` and stops both through `--stop-event`.
+`odx-app` (WPF, `src/Odx.App`) is the desktop front end. It runs `odx input` and `odx record` as child processes into the package's `data/captures/<yyyyMMdd-HHmmss>/` and stops both through `--stop-event`. The package keeps its data next to `bin/` (`PackageFolders`): `data/captures/` (recordings made on that PC), `data/delivery/` (the orchestrator's sessions, what to hand over) and `data/staging/` (rounds being uploaded); rebuilding the package keeps `data/`, and the zip carries only empty `data/captures/` and `data/delivery/`.
 - English / Vietnamese UI (all texts in `src/Odx.App/Strings.cs`; defaults to the Windows display language, switchable at any time). Validator issue messages stay in English.
-- Source (primary monitor or a window), FPS and output folder; the time server comes from `odx-capture.json` (the result shows the measured RTT and Windows clock offset and warns above 1 s); settings saved in `%APPDATA%\Odx\odx-app.json`.
+- Source (primary monitor or a window) and FPS; the time server comes from `odx-capture.json` (the result shows the measured RTT and Windows clock offset and warns above 1 s); settings saved in `%APPDATA%\Odx\odx-app.json`.
 - Global start/stop hotkey, default `F10`; click the hotkey box and press a new combination to change it. While the app runs, other programs (and the game) do not receive that key. It is still recorded in `input_events.csv`; `odx build` leaves it out of `input_keys` as long as the game profile does not bind it.
 - Start shows a 3-second countdown overlay (click-through, never takes focus); capture begins after it closes, so it is not in the video. Start/hotkey again during the countdown cancels. Stopping shows an "END" badge once both capture tools have exited (also never in the video), then a notice with the result in the top right corner of the screen for a few seconds (click-through, never in the video; Windows' own notifications are hidden while a game runs full screen). In a room the notice comes when the round is uploaded and again with the session's PASS/FAIL.
 - One instance only: starting it again brings the running window back from the tray.
@@ -113,7 +113,7 @@ Step-by-step setup for a test with players on several machines (CS2 server, orch
 
 ```bash
 cd capture-cs
-dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profile ../games/example-fps.json [--http-port 5180] [--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
+dotnet run --project src/Odx.Orchestrator -- --game-profile ../games/example-fps.json [--out D:/odx_sessions] [--http-port 5180] [--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
 ```
 
 **Rooms.** Players are recorded only with the other members of their room. Set the orchestrator's address once in `odx-capture.json` (`"orchestrator": "http://<host>:5180"`; empty: odx-app records on its own only, the room rows stay hidden). In odx-app:
@@ -149,7 +149,7 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
 - **Assembly:** once every player is done (or 15 min later), `MultiplayerSession.Assemble` writes:
 
   ```
-  <out>/<vendor>/<mm-dd-yyyy>/<game>/<match>-rNN/
+  <out: data/delivery by default>/<vendor>/<mm-dd-yyyy>/<game>/<match>-rNN/
     session.json  validation.json  schema.bin.gz  server/events.jsonl
     server/ server_state.bin packets.bin packets.txt capture/   (with a game server attached: CS2, below)
     players/<pid>/ player.json frames.csv frames.bin video.mp4 events.jsonl capture/
@@ -167,7 +167,7 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
 - **CS2 game server (spec v3 §3):** with `--cs2-game-dir`, the orchestrator records the server's side of every round from a CS2 dedicated server on the same machine (its clock is the server's clock):
 
   ```bash
-  odx-orchestrator --out D:/sessions --game-profile ../games/cs2.json --cs2-game-dir <cs2-server>/game/csgo \
+  odx-orchestrator --game-profile ../games/cs2.json --cs2-game-dir <cs2-server>/game/csgo \
       [--cs2-rcon 127.0.0.1:27015] --cs2-rcon-password-file <file>     # or ODX_CS2_RCON_PASSWORD
   ```
 
