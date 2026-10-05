@@ -203,7 +203,7 @@ public static class MultiplayerSession
         var recording = File.Exists(recordingPath) ? JsonNode.Parse(File.ReadAllText(recordingPath))!.AsObject() : null;
         AddRecordingInfo(info, capture, recording, profile);
         var (_, rows) = Csv.ReadFile(Path.Combine(src, "frames.csv"));
-        AddFloorChecks(checks, capture, recording, rows, info, tol);
+        AddFloorChecks(checks, capture, recording, rows, info, tol, player.StopReason == "permanent_death");
 
         var frameUtc = PutFramesOnServerTime(round, src, info, checks, tol);
         var header = new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
@@ -259,8 +259,10 @@ public static class MultiplayerSession
     }
 
     /// <summary>Spec v3 §2 floors (720p/30) and the sample delivery's 10 s / camera-coverage checks; window-only capture is advisory.</summary>
+    /// <param name="diedForGood">Stopped by a permanent death: spec v3 §1 wants the recording cut there, so a short one is
+    /// not a fault and the duration floor does not apply.</param>
     private static void AddFloorChecks(List<QaCheck> checks, JsonObject capture, JsonObject? recording,
-        List<Dictionary<string, string>> rows, JsonObject info, GateTolerances tol)
+        List<Dictionary<string, string>> rows, JsonObject info, GateTolerances tol, bool diedForGood)
     {
         double fps = capture["fps"]?.GetValue<double>() ?? 0;
         int width = capture["record_width_px"]?.GetValue<int>() ?? 0, height = capture["record_height_px"]?.GetValue<int>() ?? 0;
@@ -268,8 +270,8 @@ public static class MultiplayerSession
         checks.Add(new QaCheck("floor.fps", $"at least {tol.MinFps} fps", fps >= tol.MinFps, $"{fps} fps"));
         checks.Add(new QaCheck("floor.resolution", $"at least {tol.MinWidth}x{tol.MinHeight}",
             width >= tol.MinWidth && height >= tol.MinHeight, $"{width}x{height}"));
-        checks.Add(new QaCheck("floor.duration", $"at least {tol.MinDurationMs / 1000} s", durationMs >= tol.MinDurationMs,
-            $"{durationMs / 1000:F1} s"));
+        checks.Add(new QaCheck("floor.duration", $"at least {tol.MinDurationMs / 1000} s (unless stopped by a permanent death)",
+            durationMs >= tol.MinDurationMs || diedForGood, $"{durationMs / 1000:F1} s{(diedForGood ? ", permanent death" : "")}"));
 
         int withCamera = rows.Count(r => r[Frames.C2wColumns[0]] != Frames.Null);
         int withKeys = rows.Count(r => r["input_keys"] != Frames.Null);

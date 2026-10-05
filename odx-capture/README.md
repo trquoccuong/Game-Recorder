@@ -156,7 +156,7 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
   - `capture/` holds the v2 `session.json` and the raw logs.
 - **Gate** (`validation.json`, per-player checks in `player.json` → `qa`; `GateTolerances`):
   - each player passes v2 §1.5;
-  - floors: ≥ 30 fps, ≥ 1280x720 (spec v3 §2), ≥ 10 s, camera on ≥ 90 % of frames when there is camera data;
+  - floors: ≥ 30 fps, ≥ 1280x720 (spec v3 §2), ≥ 10 s (not for a player stopped by a permanent death), camera on ≥ 90 % of frames when there is camera data;
   - `sync.clock`: median RTT ≤ 100 ms;
   - `sync.start`: first frame ≤ 3 s after `round_start` + `countdown_ms`;
   - `sync.end`: last frame ≥ stop − 1 s;
@@ -173,6 +173,7 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
   - One round = one session (`<match>-rNN`).
   - Ping is the median NTP RTT to the orchestrator.
   - The sync tolerances above (`GateTolerances`) and the K-of-N rule are proposals (v3 §4 leaves them open); the 10 s and 90 % camera floors come from the client's sample delivery, not the spec.
+  - The 10 s floor does not apply to a player stopped by a permanent death: v3 §1 asks to cut that recording, so a player who dies early would otherwise always fail.
   - Agents still uploading the previous round are left out of the next one.
   - Rooms: the player who creates a room is its only host and is left out of its ready checks; there is no per-player stop without a game server, so everyone records the whole round. Match ids start with the room's code.
   - Ready check: 5 s countdown, at least 2 players; a cancelled round's number is used again.
