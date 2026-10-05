@@ -159,6 +159,9 @@ public static class MultiplayerSession
                 ["bin_layout"] = "each .bin file is a sequence of varint length-delimited protobuf messages; the first is " +
                                  "odx.capture.v1.FileHeader, whose record_type names the type of every following message",
                 ["frames.bin"] = "odx.capture.v1.FrameRecord: one per frames.csv row, full precision, plus server_time_us",
+                ["packets.bin"] = "odx.capture.v1.PacketRecord: one per decoded game message (or per UDP/TCP payload when the " +
+                                  "game's protocol is kept raw), with server_time_us; packets.txt lists the same records as text, " +
+                                  "and capture/packets.pcapng holds the original capture",
             },
             ["vendor_tool_version"] = BuildInfo.Version,
         };
@@ -206,6 +209,7 @@ public static class MultiplayerSession
         AddFloorChecks(checks, capture, recording, rows, info, tol, player.StopReason == "permanent_death");
 
         var frameUtc = PutFramesOnServerTime(round, src, info, checks, tol);
+        AddPackets(round, player, profile, src, dst, info, checks);
         var header = new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
             ToolVersion = player.ToolVersion ?? "" };
         FramesBin.Write(Path.Combine(src, "frames.csv"), frameUtc, header, Path.Combine(dst, FramesBin.FileName));
@@ -235,6 +239,39 @@ public static class MultiplayerSession
             return copy;
         }));
         return Finish(dst, info, player.PlayerId, checks);
+    }
+
+    /// <summary>packets.bin / packets.txt from the player's packets.pcapng (spec v3 §2.3), when the game's profile asks for them.</summary>
+    private static void AddPackets(RoundRecord round, RoundPlayer player, JsonObject? profile, string src, string dst, JsonObject info,
+        List<QaCheck> checks)
+    {
+        if (profile?["network"] is not JsonObject network) return;
+        string pcapng = Path.Combine(src, PacketCaptureFiles.Pcapng);
+        if (!File.Exists(pcapng))
+        {
+            checks.Add(new QaCheck("packets.captured", "the game's network traffic was captured", false,
+                "no packets.pcapng (packet capture declined or failed on this machine)", Required: false));
+            return;
+        }
+        File.Copy(pcapng, Path.Combine(dst, "capture", PacketCaptureFiles.Pcapng), true);
+        string localPath = Path.Combine(src, PacketCaptureFiles.LocalAddresses);
+        if (File.Exists(localPath)) File.Copy(localPath, Path.Combine(dst, "capture", PacketCaptureFiles.LocalAddresses), true);
+        string protocol = (string?)network["protocol"] ?? "raw";
+        double offsetMs = info["clock_sync"]?["offset_ms"]?.GetValue<double>() ?? 0;
+        try
+        {
+            int count = PacketLog.Write(pcapng, PacketLog.ReadLocalAddresses(localPath), protocol, offsetMs,
+                new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
+                    ToolVersion = player.ToolVersion ?? "" },
+                Path.Combine(dst, PacketLog.BinFile), Path.Combine(dst, PacketLog.TextFile));
+            info["packets"] = new JsonObject { ["protocol"] = protocol, ["records"] = count, ["clock_offset_ms"] = offsetMs };
+            checks.Add(new QaCheck("packets.captured", "the game's network traffic was captured", true, $"{count} records ({protocol})",
+                Required: false));
+        }
+        catch (InvalidDataException e)
+        {
+            checks.Add(new QaCheck("packets.captured", "the game's network traffic was captured", false, e.Message, Required: false));
+        }
     }
 
     private static void AddRecordingInfo(JsonObject info, JsonObject capture, JsonObject? recording, JsonObject? profile)
