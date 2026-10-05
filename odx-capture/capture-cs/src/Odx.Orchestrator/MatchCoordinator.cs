@@ -52,6 +52,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private string _game = "";
     private int _roundNumber;
     private OpenRound? _current;
+    private ServerClock? _serverClock;
 
     public int TimePort => timePort;
 
@@ -137,6 +138,34 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         return e;
     }
 
+    /// <summary>
+    /// Measures this machine's clock against <paramref name="server"/> (time_server of odx-capture.json) every minute;
+    /// each round records the latest measurement. It never changes the Windows clock.
+    /// </summary>
+    public async Task MeasureClockAsync(string server, CancellationToken stop)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            try
+            {
+                var s = SntpClient.Query(server, TimeSpan.FromSeconds(2));
+                Volatile.Write(ref _serverClock, new ServerClock(server, s.SystemOffsetMs, s.RttMs, NtpResponder.NowUnixMs()));
+            }
+            catch (Exception e) when (e is System.Net.Sockets.SocketException or InvalidDataException)
+            {
+                log.LogWarning("time server {Server}: {Error}", server, e.Message);
+            }
+            try
+            {
+                await Task.Delay(TimeSpan.FromMinutes(1), stop);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
     /// <summary>Where an upload goes, or null when the session/player is unknown or the name is not a plain file name.</summary>
     public string? UploadPath(string sessionId, string playerId, string fileName)
     {
@@ -192,7 +221,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             log.LogWarning("{Player} is {State}, left out of {Session}", busy.Hello.PlayerId, busy.State, sid);
         int countdownMs = e["countdown_ms"]?.GetValue<int>() ?? 0;
         var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, utc + countdownMs, null, timePort,
-            ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name)).ToList(), countdownMs);
+            ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name)).ToList(), countdownMs,
+            ServerClock: Volatile.Read(ref _serverClock));
         string staging = Path.Combine(options.OutRoot, ".staging", sid);
         Directory.CreateDirectory(staging);
         _current = new OpenRound(record, staging);

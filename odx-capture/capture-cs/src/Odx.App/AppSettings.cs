@@ -17,8 +17,6 @@ public sealed class AppSettings
     public int Fps { get; set; } = 60;
     /// <summary>"en" or "vi"; null follows the Windows display language.</summary>
     public string? Language { get; set; }
-    /// <summary>Measured against during recording (odx input --ntp); empty uses the Windows clock only.</summary>
-    public string NtpServer { get; set; } = "time.windows.com";
     /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>
     public string? GameProfile { get; set; }
     public Hotkey Hotkey { get; set; } = Hotkey.Default;
@@ -28,7 +26,8 @@ public sealed class AppSettings
     /// <summary>In agent mode, the hotkey starts and ends rounds for every player (no game server plugin needed).</summary>
     public bool IsHost { get; set; }
 
-    public CaptureOptions ToCaptureOptions() => new(OutputRoot, WindowProcess, Fps, GameProfile, NtpServer);
+    /// <param name="timeServer">time_server of odx-capture.json; null uses the Windows clock only.</param>
+    public CaptureOptions ToCaptureOptions(string? timeServer) => new(OutputRoot, WindowProcess, Fps, GameProfile, timeServer);
 
     public static AppSettings Load()
     {

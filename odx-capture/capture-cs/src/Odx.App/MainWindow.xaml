@@ -21,7 +21,6 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.Resources>
             <Style TargetType="Label">
@@ -56,32 +55,28 @@
         <TextBox x:Name="OutputBox" Grid.Row="4" Grid.Column="1" Margin="0,0,0,6" VerticalContentAlignment="Center" />
         <Button x:Name="BrowseButton" Grid.Row="4" Grid.Column="2" Click="Browse_Click" />
 
-        <Label x:Name="NtpLabel" Grid.Row="5" />
-        <TextBox x:Name="NtpBox" AutomationProperties.AutomationId="NtpBox" Grid.Row="5" Grid.Column="1"
-                 Margin="0,0,0,6" VerticalContentAlignment="Center" />
-
-        <Label x:Name="OrchestratorLabel" Grid.Row="6" />
-        <TextBox x:Name="OrchestratorBox" AutomationProperties.AutomationId="OrchestratorBox" Grid.Row="6" Grid.Column="1"
+        <Label x:Name="OrchestratorLabel" Grid.Row="5" />
+        <TextBox x:Name="OrchestratorBox" AutomationProperties.AutomationId="OrchestratorBox" Grid.Row="5" Grid.Column="1"
                  Margin="0,0,0,6" VerticalContentAlignment="Center" TextChanged="Orchestrator_Changed" />
 
-        <Label x:Name="PlayerLabel" Grid.Row="7" />
-        <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
+        <Label x:Name="PlayerLabel" Grid.Row="6" />
+        <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
             <TextBox x:Name="PlayerBox" AutomationProperties.AutomationId="PlayerBox" Width="200"
                      VerticalContentAlignment="Center" />
             <CheckBox x:Name="HostBox" AutomationProperties.AutomationId="HostBox" Margin="12,0,0,0"
                       VerticalAlignment="Center" />
         </StackPanel>
 
-        <Label x:Name="HotkeyLabel" Grid.Row="8" />
-        <TextBox x:Name="HotkeyBox" AutomationProperties.AutomationId="HotkeyBox" Grid.Row="8" Grid.Column="1"
+        <Label x:Name="HotkeyLabel" Grid.Row="7" />
+        <TextBox x:Name="HotkeyBox" AutomationProperties.AutomationId="HotkeyBox" Grid.Row="7" Grid.Column="1"
                  Margin="0,0,0,6" IsReadOnly="True" IsReadOnlyCaretVisible="False" VerticalContentAlignment="Center"
                  GotKeyboardFocus="Hotkey_GotFocus" LostKeyboardFocus="Hotkey_LostFocus"
                  PreviewKeyDown="Hotkey_PreviewKeyDown" />
 
-        <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Grid.Row="9"
+        <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Grid.Row="8"
                 Grid.ColumnSpan="3" Margin="0,8,0,8" Padding="0,8" FontSize="14" Click="StartStop_Click" />
 
-        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Grid.Row="10"
+        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Grid.Row="9"
                    Grid.ColumnSpan="3" TextWrapping="Wrap" />
     </Grid>
 </Window>

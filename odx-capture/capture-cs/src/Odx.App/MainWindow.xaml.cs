@@ -31,6 +31,7 @@ public partial class MainWindow : Window
     private const int CountdownSeconds = 3;
 
     private readonly AppSettings _settings = AppSettings.Load();
+    private readonly CaptureConfig _config;
     private readonly DispatcherTimer _clock = new() { Interval = TimeSpan.FromSeconds(1) };
     private readonly Forms.NotifyIcon _tray = new();
     private readonly Forms.ToolStripMenuItem _trayStartStop = new(), _trayShow = new(), _trayExit = new();
@@ -63,9 +64,18 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _t = Strings.For(_settings.Language ?? Strings.DefaultLanguage);
+        string? configError = null;
+        try
+        {
+            _config = CaptureConfig.Load();
+        }
+        catch (InvalidDataException e)
+        {
+            _config = new CaptureConfig((string?)null);
+            configError = e.Message;
+        }
         LanguageBox.ItemsSource = Strings.Languages;
         LanguageBox.SelectedItem = Strings.Languages.First(l => l.Code == (_settings.Language ?? Strings.DefaultLanguage));
-        NtpBox.Text = _settings.NtpServer;
         FpsBox.ItemsSource = new[] { 30, 60 };
         FpsBox.SelectedItem = _settings.Fps;
         OutputBox.Text = _settings.OutputRoot;
@@ -90,6 +100,7 @@ public partial class MainWindow : Window
         };
         _tray.Visible = true;
         ApplyLanguage();
+        if (configError is not null) SetStatus(t => t.ConfigInvalid(configError));
     }
 
     private void ApplyLanguage()
@@ -99,7 +110,6 @@ public partial class MainWindow : Window
         GameLabel.Content = _t.GameProfile;
         FpsLabel.Content = _t.Fps;
         OutputLabel.Content = _t.OutputFolder;
-        NtpLabel.Content = _t.NtpServer;
         HotkeyLabel.Content = _t.Hotkey;
         OrchestratorLabel.Content = _t.Orchestrator;
         PlayerLabel.Content = _t.PlayerId;
@@ -109,7 +119,6 @@ public partial class MainWindow : Window
         RefreshButton.Content = _t.Refresh;
         BrowseButton.Content = _t.Browse;
         GameBox.ToolTip = _t.GameTooltip;
-        NtpBox.ToolTip = _t.NtpTooltip;
         HotkeyBox.ToolTip = _t.HotkeyTooltip;
         _trayShow.Text = _t.TrayShow;
         _trayExit.Text = _t.TrayExit;
@@ -232,7 +241,6 @@ public partial class MainWindow : Window
         _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
         _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
         _settings.OutputRoot = OutputBox.Text.Trim();
-        _settings.NtpServer = NtpBox.Text.Trim();
         _settings.Orchestrator = OrchestratorBox.Text.Trim();
         _settings.PlayerId = PlayerBox.Text.Trim();
         _settings.IsHost = HostBox.IsChecked == true;
@@ -275,7 +283,7 @@ public partial class MainWindow : Window
             _ => _t.TrayStop,
         };
         SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
-        NtpBox.IsEnabled = LanguageBox.IsEnabled = OrchestratorBox.IsEnabled = PlayerBox.IsEnabled = HostBox.IsEnabled = idle;
+        LanguageBox.IsEnabled = OrchestratorBox.IsEnabled = PlayerBox.IsEnabled = HostBox.IsEnabled = idle;
         RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
         _tray.Text = idle ? "Odx Capture" : _t.TrayTooltip(_trayStartStop.Text);
     }
@@ -329,7 +337,7 @@ public partial class MainWindow : Window
         CaptureRun run;
         try
         {
-            run = CaptureRun.Start(_settings.ToCaptureOptions());
+            run = CaptureRun.Start(_settings.ToCaptureOptions(_config.TimeServer));
         }
         catch (Exception ex)
         {

@@ -87,6 +87,7 @@ odx-capture/
     src/Odx.Launcher/             #   "Odx Capture.exe": NativeAOT launcher showing the splash before odx-app loads
     tests/Odx.Tests/              #   xUnit, incl. synthetic session + one mutator per validation rule
   games/                          # game profiles (session.json fields + key/button -> action bindings)
+  odx-capture.json             # deployment config copied next to the executables (time_server)
   extractor/                      # C++20 + Lua 5.4: in-game camera extractor DLL (camera_samples.csv), odx_synth, profiles
   schemas/                        # session.json JSON Schema (embedded in Odx.Session)
   tests/fixtures/                 # pinned log formats (input_events.csv, video_frames.csv)

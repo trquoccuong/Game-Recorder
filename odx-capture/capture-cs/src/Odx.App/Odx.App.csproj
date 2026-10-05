@@ -27,6 +27,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="../../../games/*.json" Link="games/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../odx-capture.json" Link="odx-capture.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <!-- Development builds copy odx next to the app, which runs `odx input` and `odx record` as child processes. A
        RID-specific publish (publish.ps1) publishes odx on its own (single file, next to odx-app), so it is left out. -->

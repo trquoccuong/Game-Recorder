@@ -28,6 +28,9 @@ public static class OrchestratorHost
         var app = builder.Build();
 
         app.Lifetime.ApplicationStarted.Register(() => _ = NtpResponder.RunAsync(udp, app.Lifetime.ApplicationStopping));
+        if (CaptureConfig.Load().TimeServer is { } timeServer)
+            app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(() =>
+                app.Services.GetRequiredService<MatchCoordinator>().MeasureClockAsync(timeServer, app.Lifetime.ApplicationStopping)));
         app.Lifetime.ApplicationStopped.Register(udp.Dispose);
 
         app.UseWebSockets();

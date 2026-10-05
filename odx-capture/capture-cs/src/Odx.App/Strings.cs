@@ -30,12 +30,10 @@ public sealed class Strings
     public required string GameProfile { get; init; }
     public required string Fps { get; init; }
     public required string OutputFolder { get; init; }
-    public required string NtpServer { get; init; }
     public required string Hotkey { get; init; }
     public required string Refresh { get; init; }
     public required string Browse { get; init; }
     public required string GameTooltip { get; init; }
-    public required string NtpTooltip { get; init; }
     public required string HotkeyTooltip { get; init; }
     public required string Orchestrator { get; init; }
     public required string OrchestratorTooltip { get; init; }
@@ -91,6 +89,7 @@ public sealed class Strings
     public required Func<string, string> UnboundKeys { get; init; }
     public required Func<string, double, double, string> ClockNtp { get; init; }
     public required string ClockSystem { get; init; }
+    public required Func<string, string> ConfigInvalid { get; init; }
     public required Func<double, string> ClockWarning { get; init; }
 
     public static readonly Strings En = new()
@@ -100,12 +99,10 @@ public sealed class Strings
         GameProfile = "Game profile",
         Fps = "FPS",
         OutputFolder = "Output folder",
-        NtpServer = "NTP server",
         Hotkey = "Start/stop hotkey",
         Refresh = "Refresh",
         Browse = "Browse…",
         GameTooltip = "Builds frames.csv + session.json after recording and validates them",
-        NtpTooltip = "Measures the clock against this server during recording; leave empty to use the Windows clock only",
         HotkeyTooltip = "Click, then press the new key combination",
         Orchestrator = "Orchestrator",
         OrchestratorTooltip = "Multiplayer: http://<host>:5180 of odx-orchestrator, which starts and stops the recordings. Leave empty to record on your own.",
@@ -159,7 +156,8 @@ public sealed class Strings
         UnboundKeys = keys => $"Keys not bound in the game profile (left out): {keys}",
         ClockNtp = (server, rtt, offset) =>
             $"Clock: NTP {server}, RTT {rtt:F0} ms; Windows clock off by {offset / 1000:+0.000;-0.000} s",
-        ClockSystem = "Clock: Windows clock only (NTP not measured — check the NTP server)",
+        ClockSystem = "Clock: Windows clock only (NTP not measured — check time_server in odx-capture.json)",
+        ConfigInvalid = error => $"Settings file not valid, the Windows clock is used: {error}",
         ClockWarning = offset => $"Warning: the Windows clock is {Math.Abs(offset) / 1000:F1} s off; fix Windows time sync.",
     };
 
@@ -170,12 +168,10 @@ public sealed class Strings
         GameProfile = "Hồ sơ game",
         Fps = "FPS",
         OutputFolder = "Thư mục lưu",
-        NtpServer = "Máy chủ NTP",
         Hotkey = "Phím tắt bắt đầu/dừng",
         Refresh = "Làm mới",
         Browse = "Chọn…",
         GameTooltip = "Sau khi ghi, tạo frames.csv + session.json và kiểm tra hợp lệ",
-        NtpTooltip = "Đo đồng hồ với máy chủ này trong khi ghi; để trống thì chỉ dùng đồng hồ Windows",
         HotkeyTooltip = "Bấm vào đây rồi nhấn tổ hợp phím mới",
         Orchestrator = "Orchestrator",
         OrchestratorTooltip = "Chơi nhiều người: địa chỉ http://<máy>:5180 của odx-orchestrator, nó tự bắt đầu và dừng ghi. Để trống để tự ghi.",
@@ -229,7 +225,8 @@ public sealed class Strings
         UnboundKeys = keys => $"Phím chưa gán trong hồ sơ game (đã bỏ qua): {keys}",
         ClockNtp = (server, rtt, offset) =>
             $"Đồng hồ: NTP {server}, RTT {rtt:F0} ms; đồng hồ Windows lệch {offset / 1000:+0.000;-0.000} giây",
-        ClockSystem = "Đồng hồ: chỉ dùng đồng hồ Windows (chưa đo được NTP — kiểm tra máy chủ NTP)",
+        ClockSystem = "Đồng hồ: chỉ dùng đồng hồ Windows (chưa đo được NTP — kiểm tra time_server trong odx-capture.json)",
+        ConfigInvalid = error => $"File cấu hình không hợp lệ, dùng đồng hồ Windows: {error}",
         ClockWarning = offset => $"Cảnh báo: đồng hồ Windows lệch {Math.Abs(offset) / 1000:F1} giây; hãy sửa đồng bộ giờ của Windows.",
     };
 

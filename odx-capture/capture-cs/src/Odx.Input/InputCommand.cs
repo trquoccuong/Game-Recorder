@@ -7,6 +7,7 @@
 // --pid: stop when that process exits. --stop-event: stop when that named event is set (Odx.App).
 // --ntp: also measure QPC -> UTC against that NTP server at start and every 15 s (<dir>/ntp_samples.csv); the
 // Windows clock in clock_samples.csv is only as good as its own time sync. NTP failures are reported, not fatal.
+// Without --ntp, the time_server of odx-capture.json next to odx is used, if set.
 // Stop with Ctrl+C.
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -21,7 +22,16 @@ public static class InputCommand
 {
     public static int Run(string[] args)
     {
-        var opts = ParseArgs(args);
+        (string OutDir, int? Pid, string? StopEvent, string? Ntp)? opts;
+        try
+        {
+            opts = ParseArgs(args);
+        }
+        catch (InvalidDataException e)
+        {
+            Console.Error.WriteLine(e.Message);
+            return 2;
+        }
         if (opts is null)
         {
             Console.Error.WriteLine("usage: odx input --out <dir> [--pid <game_pid>] [--stop-event <name>] [--ntp <server>]");
@@ -152,7 +162,7 @@ public static class InputCommand
                 }
             }
             if (outDir is null) return null;
-            return (outDir, pid, stopEvent, ntp);
+            return (outDir, pid, stopEvent, ntp ?? CaptureConfig.Load().TimeServer);
         }
     }
 }

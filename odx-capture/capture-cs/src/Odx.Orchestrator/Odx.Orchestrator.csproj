@@ -13,4 +13,7 @@
   <ItemGroup>
     <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="../../../odx-capture.json" Link="odx-capture.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
