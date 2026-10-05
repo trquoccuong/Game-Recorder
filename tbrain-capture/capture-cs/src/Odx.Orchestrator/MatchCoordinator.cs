@@ -22,6 +22,8 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
     /// <summary>ZeroTier controller API (and its token) for rooms with a virtual LAN; null: rooms have no LAN.</summary>
     public Uri? ZeroTierApi { get; init; }
     public string? ZeroTierToken { get; init; }
+    /// <summary>The CS2 dedicated server whose side of each round is recorded (spec v3 §3); null: none.</summary>
+    public Cs2ServerOptions? Cs2Server { get; init; }
 }
 
 /// <summary>
@@ -77,6 +79,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public bool Counting { get; set; }
         public bool Ended { get; set; }
         public int Finalized;
+        /// <summary>Set once the game server's side is in the staging (at once without a game server).</summary>
+        public TaskCompletionSource ServerStaged { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int IndexOf(string playerId) => Record.Players.FindIndex(p => p.PlayerId == playerId);
     }
@@ -85,6 +89,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private sealed class Effects
     {
         public List<(AgentLink, AgentMessage)> Sends { get; } = [];
+        public List<OpenRound> Started { get; } = [];
         public List<OpenRound> Ended { get; } = [];
         public List<OpenRound> Cancelled { get; } = [];
         public OpenRound? Countdown { get; set; }
@@ -104,6 +109,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private long _eventId;
     private ServerClock? _serverClock;
     private readonly ZeroTierApi? _zeroTier = options is { ZeroTierApi: { } api, ZeroTierToken: { } token } ? new ZeroTierApi(api, token) : null;
+    private readonly Cs2Server? _cs2 = options.Cs2Server is { } cs2 ? new Cs2Server(cs2, log) : null;
 
     public int TimePort => timePort;
 
@@ -540,7 +546,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         int countdownMs = e["countdown_ms"]?.GetValue<int>() ?? 0;
         var record = new RoundRecord(sid, room.MatchId!, room.Game, room.Map, room.RoundNumber, utc + countdownMs, null, timePort,
             players.Select(a => new RoundPlayer(a.Id, a.Hello.Name, ToolVersion: a.Hello.ToolVersion,
-                MachineId: a.Hello.MachineId)).ToList(), countdownMs,
+                MachineId: a.Hello.MachineId, SteamId: a.Hello.SteamId)).ToList(), countdownMs,
             ServerClock: Volatile.Read(ref _serverClock));
         // Unique per attempt: a cancelled round's number is used again while its staging may still be deleted.
         string staging = Path.Combine(options.OutRoot, ".staging", $"{sid}-{Guid.NewGuid().ToString("N")[..8]}");
@@ -551,6 +557,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         room.BetweenRounds.Clear();
         room.Current = round;
         _rounds[sid] = round;
+        effects.Started.Add(round);
         if (countdownMs == 0) ClearReady(room);
         foreach (var a in players)
         {
@@ -666,6 +673,13 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             }
         }
         foreach (string network in effects.LanDelete) await DeleteLanAsync(network);
+        if (_cs2 is not null)
+        {
+            foreach (var round in effects.Started) await _cs2.StartAsync(round.Record.SessionId, round.StagingDir);
+            foreach (var round in effects.Ended) await _cs2.StopAsync(round.Record.SessionId, round.StagingDir, keep: true);
+            foreach (var round in effects.Cancelled) await _cs2.StopAsync(round.Record.SessionId, round.StagingDir, keep: false);
+        }
+        foreach (var round in effects.Ended) round.ServerStaged.TrySetResult();
         foreach (var round in effects.Ended)
         {
             if (AllDone(round)) _ = Task.Run(() => Assemble(round));
@@ -728,6 +742,9 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private void Assemble(OpenRound round)
     {
         if (Interlocked.Exchange(ref round.Finalized, 1) == 1) return;
+        // The last upload can arrive while the game server's demo is still being stopped and staged.
+        if (!round.ServerStaged.Task.Wait(TimeSpan.FromMinutes(2)))
+            log.LogWarning("{Session}: the game server's side was not staged in time", round.Record.SessionId);
         // Stays in _rounds (pending in the status) until its report is recorded; uploads are refused from here on.
         lock (_lock)
         {

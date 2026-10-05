@@ -39,7 +39,14 @@ public static class PacketLog
             "csgo" => CsgoRecords(packets, local, spec.UdpPorts.ToHashSet(), spec.Version),
             _ => RawRecords(packets, local),
         };
+        foreach (var r in records) r.ServerTimeUs = (long)Math.Round((r.LocalTimeUs / 1000.0 + serverMinusLocalMs) * 1000);
+        WriteRecords(records, header, binPath, textPath);
+        return records.Count;
+    }
 
+    /// <summary>packets.bin and packets.txt from records that already carry their server time.</summary>
+    public static void WriteRecords(IEnumerable<PacketRecord> records, FileHeader header, string binPath, string textPath)
+    {
         using var bin = File.Create(binPath);
         header.RecordType = PacketRecord.Descriptor.FullName;
         header.WriteDelimitedTo(bin);
@@ -47,13 +54,11 @@ public static class PacketLog
         text.WriteLine(TextHeader);
         foreach (var r in records)
         {
-            r.ServerTimeUs = (long)Math.Round((r.LocalTimeUs / 1000.0 + serverMinusLocalMs) * 1000);
             r.WriteDelimitedTo(bin);
             text.WriteLine(string.Join('\t', Iso(r.LocalTimeUs), Iso(r.ServerTimeUs), r.Direction == PacketRecord.Types.Direction.Out ? "OUT" : r.Direction == PacketRecord.Types.Direction.In ? "IN" : "?",
                 r.Transport, r.LocalEndpoint, r.RemoteEndpoint, r.Payload.Length.ToString(CultureInfo.InvariantCulture), r.Message,
                 r.DecodedJson));
         }
-        return records.Count;
     }
 
     public static (FileHeader Header, List<PacketRecord> Records) Read(string binPath)
