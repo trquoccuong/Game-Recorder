@@ -8,7 +8,9 @@ namespace Odx.Session;
 /// <param name="WindowProcess">Process name passed to odx record --window; null records the primary monitor.</param>
 /// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>
 /// <param name="NtpServer">Passed to odx input --ntp; null or empty measures nothing (Windows clock only).</param>
-public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer);
+/// <param name="NtpIntervalS">Seconds between NTP samples; agents use 1 s against the orchestrator on the LAN.</param>
+public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer,
+    int NtpIntervalS = 15);
 
 /// <param name="Recording">odx record's final status (frame counts); null if it never reported one.</param>
 /// <param name="ToolErrors">stderr lines of the capture tools (warnings such as an unreachable NTP server included).</param>
@@ -66,7 +68,8 @@ public sealed class CaptureRun : ICaptureRun
         _stop = new EventWaitHandle(false, EventResetMode.ManualReset, stopName);
 
         var inputArgs = new List<string> { "--out", SessionDir, "--stop-event", stopName };
-        if (!string.IsNullOrWhiteSpace(options.NtpServer)) inputArgs.AddRange(["--ntp", options.NtpServer.Trim()]);
+        if (!string.IsNullOrWhiteSpace(options.NtpServer))
+            inputArgs.AddRange(["--ntp", options.NtpServer.Trim(), "--ntp-interval-s", options.NtpIntervalS.ToString(CultureInfo.InvariantCulture)]);
         var input = Launch("input", inputArgs);
         var recordArgs = new List<string> { "--out", SessionDir, "--fps", options.Fps.ToString(CultureInfo.InvariantCulture),
             "--stop-event", stopName, "--json-status" };

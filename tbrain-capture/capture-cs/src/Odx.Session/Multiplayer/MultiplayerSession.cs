@@ -164,13 +164,13 @@ public static class MultiplayerSession
             return Finish(dst, info, player.PlayerId, issues);
         }
         double rtt = Median(samples.Select(s => s.RttMs));
+        var best = samples.OrderBy(s => s.RttMs).Take((samples.Count + 1) / 2).ToList();
+        var map = ClockMap.Fit(best.Select(s => (s.TQpcMs, s.UtcUnixMs)).ToList());
         info["ping_ms"] = Math.Round(rtt, 1);
-        info["clock_offset_ms"] = Math.Round(Median(samples.Select(s => s.SystemOffsetMs)), 1);
+        info["clock_sync"] = ClockSync(samples, best, map);
         if (rtt > tol.MaxRttMs)
             issues.Add(Issue.Error("sync.clock", $"median RTT to the time service {rtt:F0} ms > {tol.MaxRttMs} ms"));
 
-        var best = samples.OrderBy(s => s.RttMs).Take((samples.Count + 1) / 2).ToList();
-        var map = ClockMap.Fit(best.Select(s => (s.TQpcMs, s.UtcUnixMs)).ToList());
         var frameUtc = VideoFrameLogReader.Read(Path.Combine(src, "video_frames.csv")).Select(f => map.ToUnixMs(f.TGridMs)).ToList();
         if (frameUtc.Count == 0)
         {
@@ -204,6 +204,30 @@ public static class MultiplayerSession
         WriteEvents(Path.Combine(dst, "events.jsonl"), playerEvents);
         return Finish(dst, info, player.PlayerId, issues);
     }
+
+    /// <summary>
+    /// How this player's frames were put on server time: the SNTP samples against the orchestrator's time service (offset =
+    /// server clock − player's Windows clock), the lower-RTT half fitted to a QPC → server-UTC line (drift = its QPC rate
+    /// error, only over ≥ 60 s), and jitter as the mean change of RTT between consecutive samples.
+    /// </summary>
+    private static JsonObject ClockSync(List<NtpSample> samples, List<NtpSample> best, ClockMap map) => new()
+    {
+        ["method"] = "SNTP against the orchestrator's time service; least-squares QPC -> server UTC over the lower-RTT half",
+        ["offset_definition"] = "server_clock - player_clock",
+        ["offset_ms"] = Math.Round(Median(best.Select(s => s.SystemOffsetMs)), 3),
+        ["rtt_ms"] = Math.Round(Median(samples.Select(s => s.RttMs)), 3),
+        ["jitter_ms"] = samples.Count > 1
+            ? Math.Round(samples.Zip(samples.Skip(1), (a, b) => Math.Abs(b.RttMs - a.RttMs)).Average(), 3)
+            : null,
+        ["drift_us_per_s"] = map.Slope != 1 ? Math.Round((map.Slope - 1) * 1e6, 3) : null,
+        ["sample_count"] = samples.Count,
+        ["samples"] = new JsonArray(samples.Select(s => (JsonNode)new JsonObject
+        {
+            ["utc"] = SessionBuilder.IsoUtc(s.UtcUnixMs),
+            ["offset_ms"] = Math.Round(s.SystemOffsetMs, 3),
+            ["rtt_ms"] = Math.Round(s.RttMs, 3),
+        }).ToArray()),
+    };
 
     private static PlayerReport Finish(string dst, JsonObject info, string playerId, List<Issue> issues)
     {
