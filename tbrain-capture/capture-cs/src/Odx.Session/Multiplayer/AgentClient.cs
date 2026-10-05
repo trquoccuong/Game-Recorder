@@ -1,6 +1,8 @@
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json.Nodes;
 using Odx.Core;
 
 namespace Odx.Session;
@@ -24,11 +26,16 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private string? _timeServer;
     private Arm? _armed;
     private string? _profilePath;
+    private readonly object _gate = new();
     private ICaptureRun? _run;
-    private string? _runSessionId;
+    private string? _runSessionId, _startingSessionId;
+    private CancellationTokenSource? _stopBeforeStart;
 
     /// <summary>Human-readable progress for a UI or console.</summary>
     public event Action<string>? Log;
+
+    /// <summary>A round starts after this countdown (ms); the token is cancelled if the round is stopped before it ends.</summary>
+    public event Action<int, CancellationToken>? Countdown;
 
     /// <summary>The capture in progress (odx-app shows its counters); null between sessions.</summary>
     public ICaptureRun? CurrentRun => _run;
@@ -82,7 +89,21 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             if (text is null) break;
             await HandleAsync(AgentMessage.Parse(text), stop);
         }
-        _run?.Stop();
+        StopCapture();
+    }
+
+    /// <summary>
+    /// Host control (a player in place of a game server plugin): starts a round, with a countdown on every player, when none
+    /// is running, otherwise ends it.
+    /// </summary>
+    public async Task ToggleRoundAsync(int countdownMs, CancellationToken stop)
+    {
+        var status = await _http.GetFromJsonAsync<JsonObject>("/status", stop);
+        object e = status?["current_session"] is null
+            ? new { type = GameEvents.RoundStart, countdown_ms = countdownMs, by = options.PlayerId }
+            : new { type = GameEvents.RoundEnd, by = options.PlayerId };
+        using var response = await _http.PostAsJsonAsync("/game/events", e, stop);
+        response.EnsureSuccessStatusCode();
     }
 
     private async Task HandleAsync(AgentMessage message, CancellationToken stop)
@@ -101,32 +122,68 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 Log?.Invoke($"armed for {a.SessionId}");
                 break;
             case Start s when _armed?.SessionId == s.SessionId:
+                lock (_gate)
+                {
+                    _startingSessionId = s.SessionId;
+                    _stopBeforeStart = CancellationTokenSource.CreateLinkedTokenSource(stop);
+                }
                 _ = Task.Run(() => RecordAsync(s, stop), stop);
                 break;
-            case Stop s when _runSessionId == s.SessionId:
+            case Stop s when s.SessionId == _runSessionId || s.SessionId == _startingSessionId:
                 Log?.Invoke($"stop {s.SessionId} ({s.Reason})");
-                _run?.Stop();
+                StopCapture();
                 break;
+        }
+    }
+
+    /// <summary>A Stop can arrive during the countdown or while the capture is starting; both end up here.</summary>
+    private void StopCapture()
+    {
+        lock (_gate)
+        {
+            _stopBeforeStart?.Cancel();
+            _run?.Stop();
         }
     }
 
     private async Task RecordAsync(Start s, CancellationToken stop)
     {
+        CancellationToken stopped;
+        lock (_gate) stopped = _stopBeforeStart!.Token;
+        if (s.CountdownMs > 0)
+        {
+            Countdown?.Invoke(s.CountdownMs, stopped);
+            try
+            {
+                await Task.Delay(s.CountdownMs, stopped);
+            }
+            catch (OperationCanceledException)
+            {
+                await EndWithoutCaptureAsync(s.SessionId, "stopped during the countdown", stop);
+                return;
+            }
+        }
+        ICaptureRun run;
         try
         {
-            _run = startCapture(new CaptureOptions(options.OutputRoot, options.WindowProcess, _armed!.Fps, _profilePath, _timeServer));
-            _runSessionId = s.SessionId;
+            run = startCapture(new CaptureOptions(options.OutputRoot, options.WindowProcess, _armed!.Fps, _profilePath, _timeServer));
         }
         catch (Exception e)
         {
-            await SendAsync(new AgentState("error", e.Message), stop);
-            await SendAsync(new Done(s.SessionId, false, e.Message), stop);
+            await EndWithoutCaptureAsync(s.SessionId, e.Message, stop);
             return;
         }
+        lock (_gate)
+        {
+            _run = run;
+            _runSessionId = s.SessionId;
+            _startingSessionId = null;
+            if (stopped.IsCancellationRequested) run.Stop();
+        }
         await SendAsync(new AgentState("recording", s.SessionId), stop);
-        Log?.Invoke($"recording {s.SessionId} into {_run.SessionDir}");
+        Log?.Invoke($"recording {s.SessionId} into {run.SessionDir}");
 
-        var result = await _run.Completion;
+        var result = await run.Completion;
         await SendAsync(new AgentState("uploading", s.SessionId), stop);
         string? error = null;
         try
@@ -141,8 +198,19 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Done(s.SessionId, ok, error ?? (result.CaptureOk ? null : "capture failed")), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{s.SessionId} done: {(ok ? "uploaded" : error ?? "capture failed")}");
-        _run = null;
-        _runSessionId = null;
+        lock (_gate)
+        {
+            _run = null;
+            _runSessionId = null;
+        }
+    }
+
+    private async Task EndWithoutCaptureAsync(string sessionId, string reason, CancellationToken stop)
+    {
+        lock (_gate) _startingSessionId = null;
+        await SendAsync(new Done(sessionId, false, reason), stop);
+        await SendAsync(new AgentState("idle"), stop);
+        Log?.Invoke($"{sessionId}: {reason}");
     }
 
     private async Task UploadAsync(string sessionId, string dir, CancellationToken stop)

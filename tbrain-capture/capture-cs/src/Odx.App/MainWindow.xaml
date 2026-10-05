@@ -65,8 +65,12 @@
                  Margin="0,0,0,6" VerticalContentAlignment="Center" TextChanged="Orchestrator_Changed" />
 
         <Label x:Name="PlayerLabel" Grid.Row="7" />
-        <TextBox x:Name="PlayerBox" AutomationProperties.AutomationId="PlayerBox" Grid.Row="7" Grid.Column="1"
-                 Margin="0,0,0,6" Width="200" HorizontalAlignment="Left" VerticalContentAlignment="Center" />
+        <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
+            <TextBox x:Name="PlayerBox" AutomationProperties.AutomationId="PlayerBox" Width="200"
+                     VerticalContentAlignment="Center" />
+            <CheckBox x:Name="HostBox" AutomationProperties.AutomationId="HostBox" Margin="12,0,0,0"
+                      VerticalAlignment="Center" />
+        </StackPanel>
 
         <Label x:Name="HotkeyLabel" Grid.Row="8" />
         <TextBox x:Name="HotkeyBox" AutomationProperties.AutomationId="HotkeyBox" Grid.Row="8" Grid.Column="1"

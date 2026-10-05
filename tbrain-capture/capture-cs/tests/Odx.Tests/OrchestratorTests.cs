@@ -49,6 +49,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
     private WebApplication _app = null!;
     private HttpClient _http = null!;
     private MatchCoordinator _coordinator = null!;
+    private readonly List<AgentClient> _agents = [];
 
     public async Task InitializeAsync()
     {
@@ -105,6 +106,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
                     tcs.TrySetResult();
                 }
             });
+            _agents.Add(agent);
             _ = agent.RunAsync(_stop.Token);
         }
         return started;
@@ -176,6 +178,50 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.EndsWith("-r03", report.SessionId);
         Assert.True(File.Exists(Path.Combine(dir, "session.json")));
         Assert.True(File.Exists(Path.Combine(dir, "validation.json")));
+    }
+
+    [Fact]
+    public async Task HostStartsRoundWithCountdownOnEveryPlayerAndEndsIt()
+    {
+        var started = ConnectAgents(null, "p1", "p2");
+        await WaitForAgents(2);
+        var countdowns = _agents.Select(a =>
+        {
+            var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+            a.Countdown += (ms, _) => tcs.TrySetResult(ms);
+            return tcs.Task;
+        }).ToList();
+        var session = NextSession();
+
+        await _agents[0].ToggleRoundAsync(300, default);
+        int[] countdownMs = await Task.WhenAll(countdowns).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal([300, 300], countdownMs);
+        await Task.WhenAll(started.Select(s => s.Task)).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.NotNull((await _http.GetFromJsonAsync<JsonObject>("/status"))!["current_session"]);
+        await _agents[0].ToggleRoundAsync(300, default);
+
+        var (_, report) = await session;
+        Assert.Equal(2, report.Players.Count);
+        Assert.All(report.Players, p => Assert.Contains(p.Issues, i => i.Message == "no game window"));
+    }
+
+    [Fact]
+    public async Task StopDuringTheCountdownStartsNoCapture()
+    {
+        var started = ConnectAgents(null, "p1");
+        await WaitForAgents(1);
+        var countdown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agents[0].Countdown += (_, _) => countdown.TrySetResult();
+        var session = NextSession();
+
+        await _agents[0].ToggleRoundAsync(10_000, default);
+        await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await _agents[0].ToggleRoundAsync(10_000, default);
+
+        var (_, report) = await session;
+        Assert.Contains(report.Players[0].Issues, i => i.Message == "stopped during the countdown");
+        Assert.False(started[0].Task.IsCompleted);
+        await WaitForAgents(1);
     }
 
     [Fact]

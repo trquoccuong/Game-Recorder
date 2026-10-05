@@ -25,6 +25,8 @@ public sealed class AppSettings
     /// <summary>odx-orchestrator URL (multiplayer, spec v3); empty records on its own with the hotkey.</summary>
     public string Orchestrator { get; set; } = "";
     public string PlayerId { get; set; } = Environment.MachineName.ToLowerInvariant();
+    /// <summary>In agent mode, the hotkey starts and ends rounds for every player (no game server plugin needed).</summary>
+    public bool IsHost { get; set; }
 
     public CaptureOptions ToCaptureOptions() => new(OutputRoot, WindowProcess, Fps, GameProfile, NtpServer);
 

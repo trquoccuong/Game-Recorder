@@ -13,7 +13,7 @@ namespace Odx.Session;
 public static class GameEvents
 {
     public const string MatchStart = "match_start";      // game, map
-    public const string RoundStart = "round_start";      // round
+    public const string RoundStart = "round_start";      // round, countdown_ms (host-started rounds)
     public const string RoundEnd = "round_end";          // round, winner?
     public const string Kill = "kill";                   // attacker, victim, weapon
     public const string PlayerDeath = "player_death";    // player, permanent (cannot respawn this round)
@@ -62,10 +62,11 @@ public sealed record Welcome(int TimePort) : AgentMessage;
 public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;
 
 /// <summary>
-/// Orchestrator → agent: start capturing now. Not scheduled for a common instant: capture start-up takes 0.5–3.5 s, and
-/// every frame is put on server time afterwards anyway.
+/// Orchestrator → agent: start capturing after <paramref name="CountdownMs"/> (the countdown players see when a host starts
+/// the round; 0 when the game server does). Not scheduled for a common instant: capture start-up takes 0.5–3.5 s, and every
+/// frame is put on server time afterwards anyway.
 /// </summary>
-public sealed record Start(string SessionId) : AgentMessage;
+public sealed record Start(string SessionId, int CountdownMs = 0) : AgentMessage;
 
 /// <summary>Orchestrator → agent: stop capturing ("round_end", "permanent_death", "abort").</summary>
 public sealed record Stop(string SessionId, string Reason) : AgentMessage;
