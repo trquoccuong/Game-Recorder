@@ -16,7 +16,7 @@ public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name
 /// </summary>
 public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICaptureRun> startCapture)
 {
-    private static readonly TimeSpan NtpTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan NtpTimeout = TimeSpan.FromSeconds(2), Retry = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly HttpClient _http = new() { BaseAddress = options.Orchestrator, Timeout = TimeSpan.FromMinutes(30) };
@@ -32,6 +32,35 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
 
     /// <summary>The capture in progress (odx-app shows its counters); null between sessions.</summary>
     public ICaptureRun? CurrentRun => _run;
+
+    /// <summary>Runs until <paramref name="stop"/>, reconnecting every 5 s while the orchestrator is unreachable.</summary>
+    public async Task RunUntilStoppedAsync(CancellationToken stop)
+    {
+        while (!stop.IsCancellationRequested)
+        {
+            try
+            {
+                await RunAsync(stop);
+                if (!stop.IsCancellationRequested) Log?.Invoke("orchestrator closed the connection");
+            }
+            catch (Exception e) when (e is WebSocketException or HttpRequestException)
+            {
+                Log?.Invoke($"{options.Orchestrator}: {e.Message}");
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            try
+            {
+                await Task.Delay(Retry, stop);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
 
     public async Task RunAsync(CancellationToken stop)
     {

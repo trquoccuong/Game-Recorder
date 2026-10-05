@@ -37,6 +37,9 @@ public sealed class Strings
     public required string GameTooltip { get; init; }
     public required string NtpTooltip { get; init; }
     public required string HotkeyTooltip { get; init; }
+    public required string Orchestrator { get; init; }
+    public required string OrchestratorTooltip { get; init; }
+    public required string PlayerId { get; init; }
 
     public required string PrimaryMonitor { get; init; }
     public required Func<string, string> NotRunning { get; init; }
@@ -51,6 +54,8 @@ public sealed class Strings
     public required string TrayExit { get; init; }
     public required string TrayCancel { get; init; }
     public required string TrayStop { get; init; }
+    public required string Connect { get; init; }
+    public required string Disconnect { get; init; }
 
     public required string Ready { get; init; }
     public required Func<int, string> CountdownStatus { get; init; }
@@ -61,6 +66,9 @@ public sealed class Strings
     public required Func<string, string> CouldNotStart { get; init; }
     public required Func<string, string> HotkeyInUse { get; init; }
     public required string PressKeys { get; init; }
+    public required string InvalidOrchestrator { get; init; }
+    public required Func<string, string, string> AgentStatus { get; init; }
+    public required string Disconnected { get; init; }
     public required Func<string, string> TrayTooltip { get; init; }
     public required string EndOverlay { get; init; }
     public required string NotifySavedPass { get; init; }
@@ -95,6 +103,9 @@ public sealed class Strings
         GameTooltip = "Builds frames.csv + session.json after recording and validates them",
         NtpTooltip = "Measures the clock against this server during recording; leave empty to use the Windows clock only",
         HotkeyTooltip = "Click, then press the new key combination",
+        Orchestrator = "Orchestrator",
+        OrchestratorTooltip = "Multiplayer: http://<host>:5180 of odx-orchestrator, which starts and stops the recordings. Leave empty to record on your own.",
+        PlayerId = "Player ID",
         PrimaryMonitor = "Primary monitor",
         NotRunning = exe => $"{exe} (not running)",
         NoGameProfile = "None (keep raw capture only)",
@@ -107,6 +118,8 @@ public sealed class Strings
         TrayExit = "Exit",
         TrayCancel = "Cancel",
         TrayStop = "Stop recording",
+        Connect = "Connect to orchestrator",
+        Disconnect = "Disconnect",
         Ready = "Ready",
         CountdownStatus = n => $"Recording starts in {n}…",
         Cancelled = "Cancelled",
@@ -117,6 +130,9 @@ public sealed class Strings
         CouldNotStart = error => $"Could not start: {error}",
         HotkeyInUse = hotkey => $"Hotkey {hotkey} is already used by another application; choose another one.",
         PressKeys = "Press a key combination…",
+        InvalidOrchestrator = "Orchestrator must be an address like http://192.168.1.10:5180, and Player ID must not be empty.",
+        AgentStatus = (url, log) => $"Orchestrator {url}: recordings start and stop with the game's rounds.\n{log}",
+        Disconnected = "Disconnected from the orchestrator",
         TrayTooltip = state => $"Odx Capture: {state}",
         EndOverlay = "END",
         NotifySavedPass = "Recording saved · validation PASS",
@@ -153,6 +169,9 @@ public sealed class Strings
         GameTooltip = "Sau khi ghi, tạo frames.csv + session.json và kiểm tra hợp lệ",
         NtpTooltip = "Đo đồng hồ với máy chủ này trong khi ghi; để trống thì chỉ dùng đồng hồ Windows",
         HotkeyTooltip = "Bấm vào đây rồi nhấn tổ hợp phím mới",
+        Orchestrator = "Orchestrator",
+        OrchestratorTooltip = "Chơi nhiều người: địa chỉ http://<máy>:5180 của odx-orchestrator, nó tự bắt đầu và dừng ghi. Để trống để tự ghi.",
+        PlayerId = "Mã người chơi",
         PrimaryMonitor = "Màn hình chính",
         NotRunning = exe => $"{exe} (không chạy)",
         NoGameProfile = "Không có (chỉ giữ dữ liệu thô)",
@@ -165,6 +184,8 @@ public sealed class Strings
         TrayExit = "Thoát",
         TrayCancel = "Hủy",
         TrayStop = "Dừng ghi",
+        Connect = "Kết nối orchestrator",
+        Disconnect = "Ngắt kết nối",
         Ready = "Sẵn sàng",
         CountdownStatus = n => $"Bắt đầu ghi sau {n}…",
         Cancelled = "Đã hủy",
@@ -175,6 +196,9 @@ public sealed class Strings
         CouldNotStart = error => $"Không thể bắt đầu: {error}",
         HotkeyInUse = hotkey => $"Phím tắt {hotkey} đang được ứng dụng khác dùng; hãy chọn phím khác.",
         PressKeys = "Nhấn tổ hợp phím…",
+        InvalidOrchestrator = "Orchestrator phải là địa chỉ dạng http://192.168.1.10:5180 và mã người chơi không được để trống.",
+        AgentStatus = (url, log) => $"Orchestrator {url}: tự ghi theo từng round của game.\n{log}",
+        Disconnected = "Đã ngắt kết nối orchestrator",
         TrayTooltip = state => $"Odx Capture: {state}",
         EndOverlay = "KẾT THÚC",
         NotifySavedPass = "Đã lưu bản ghi · Kiểm tra ĐẠT",

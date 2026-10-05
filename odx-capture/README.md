@@ -119,6 +119,8 @@ odx agent --orchestrator http://<host>:5180 --player p1 --out C:/odx_capture [--
 odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--rounds 2] [--round-s 20] [--match sim]
 ```
 
+In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine name) turns the main button into Connect/Disconnect. The orchestrator then starts and stops recordings (no countdown, hotkey ignored), and the game profile and FPS come from the orchestrator.
+
 `simulate-game` plays scripted rounds: each has a kill and a permanent death halfway through. It waits for uploads between rounds, prints each session's gate result and exits 1 if any session fails. Run on one machine (orchestrator + two agents recording the monitor + simulator), three 10 s rounds all pass; first frames arrive 0.75–0.93 s after `round_start`.
 
 - **Time service:** an SNTP responder on UDP `--time-port`. Every player's capture measures QPC against it (`ntp_samples.csv`), so all players share one clock.

@@ -49,9 +49,14 @@ public partial class MainWindow : Window
     /// <summary>Windows that can be recorded, listed off the UI thread (~200 ms) once the window is up and on Refresh.</summary>
     private List<SourceItem> _windows = [];
     private bool _windowsListed;
+    private CancellationTokenSource? _agentStop;
+    private string _agentLog = "";
 
-    /// <summary>Idle → Countdown → Starting (odx record warming up) → Recording → Stopping (incl. build + validate) → Idle.</summary>
-    private enum RunState { Idle, Countdown, Starting, Recording, Stopping }
+    /// <summary>
+    /// Idle → Countdown → Starting (odx record warming up) → Recording → Stopping (incl. build + validate) → Idle.
+    /// With an orchestrator: Idle → Agent (the orchestrator starts and stops recordings) → Idle, or Stopping if recording.
+    /// </summary>
+    private enum RunState { Idle, Countdown, Starting, Recording, Stopping, Agent }
 
     public MainWindow()
     {
@@ -64,6 +69,8 @@ public partial class MainWindow : Window
         FpsBox.SelectedItem = _settings.Fps;
         OutputBox.Text = _settings.OutputRoot;
         HotkeyBox.Text = _settings.Hotkey.ToString();
+        OrchestratorBox.Text = _settings.Orchestrator;
+        PlayerBox.Text = _settings.PlayerId;
         Loaded += async (_, _) => await RefreshWindowsAsync();
         _clock.Tick += (_, _) => ShowRecordingStatus();
 
@@ -92,6 +99,9 @@ public partial class MainWindow : Window
         OutputLabel.Content = _t.OutputFolder;
         NtpLabel.Content = _t.NtpServer;
         HotkeyLabel.Content = _t.Hotkey;
+        OrchestratorLabel.Content = _t.Orchestrator;
+        PlayerLabel.Content = _t.PlayerId;
+        OrchestratorBox.ToolTip = _t.OrchestratorTooltip;
         RefreshButton.Content = _t.Refresh;
         BrowseButton.Content = _t.Browse;
         GameBox.ToolTip = _t.GameTooltip;
@@ -140,6 +150,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         if (_state == RunState.Countdown) CancelCountdown();
+        if (_state == RunState.Agent) Disconnect();
         if (_run is not null)
         {
             e.Cancel = true;
@@ -162,7 +173,7 @@ public partial class MainWindow : Window
     {
         if (msg == WM_HOTKEY && wParam.ToInt32() == HotkeyId)
         {
-            Toggle();
+            if (!AgentMode) Toggle();
             handled = true;
         }
         return IntPtr.Zero;
@@ -217,6 +228,8 @@ public partial class MainWindow : Window
         _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
         _settings.OutputRoot = OutputBox.Text.Trim();
         _settings.NtpServer = NtpBox.Text.Trim();
+        _settings.Orchestrator = OrchestratorBox.Text.Trim();
+        _settings.PlayerId = PlayerBox.Text.Trim();
         _settings.Save();
     }
 
@@ -224,7 +237,9 @@ public partial class MainWindow : Window
     {
         switch (_state)
         {
+            case RunState.Idle when AgentMode: Connect(); break;
             case RunState.Idle: BeginCountdown(); break;
+            case RunState.Agent: Disconnect(); break;
             case RunState.Countdown: CancelCountdown(); break;
             case RunState.Starting or RunState.Recording: StopRecording(); break;
         }
@@ -238,7 +253,8 @@ public partial class MainWindow : Window
         bool idle = state == RunState.Idle;
         StartStopButton.Content = state switch
         {
-            RunState.Idle => _t.Start,
+            RunState.Idle => AgentMode ? _t.Connect : _t.Start,
+            RunState.Agent => _t.Disconnect,
             RunState.Countdown => _t.Cancel(_settings.Hotkey.ToString()),
             RunState.Stopping => _t.Stopping,
             _ => _t.Stop(_settings.Hotkey.ToString()),
@@ -246,13 +262,14 @@ public partial class MainWindow : Window
         StartStopButton.IsEnabled = _trayStartStop.Enabled = state != RunState.Stopping;
         _trayStartStop.Text = state switch
         {
-            RunState.Idle => _t.Start,
+            RunState.Idle => AgentMode ? _t.Connect : _t.Start,
+            RunState.Agent => _t.Disconnect,
             RunState.Countdown => _t.TrayCancel,
             RunState.Stopping => _t.Stopping,
             _ => _t.TrayStop,
         };
         SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
-        NtpBox.IsEnabled = LanguageBox.IsEnabled = idle;
+        NtpBox.IsEnabled = LanguageBox.IsEnabled = OrchestratorBox.IsEnabled = PlayerBox.IsEnabled = idle;
         RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
         _tray.Text = idle ? "Odx Capture" : _t.TrayTooltip(_trayStartStop.Text);
     }
@@ -361,12 +378,85 @@ public partial class MainWindow : Window
 
     private void ShowRecordingStatus()
     {
-        if (_run is null || _state != RunState.Recording) return;
+        if (_run is null || _state is not (RunState.Recording or RunState.Agent)) return;
         var elapsed = DateTime.Now - _runStarted;
         var status = _run.LastStatus;
         string dir = _run.SessionDir;
         SetStatus(t => t.RecordingStatus(elapsed, status, dir));
         _tray.Text = _t.TrayTooltip($"{elapsed:hh\\:mm\\:ss}");
+    }
+
+    private bool AgentMode => OrchestratorBox.Text.Trim().Length > 0;
+
+    private void Orchestrator_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    {
+        if (IsLoaded && _state == RunState.Idle) SetState(RunState.Idle);
+    }
+
+    private void Connect()
+    {
+        SaveSettings();
+        if (!Uri.TryCreate(_settings.Orchestrator, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") ||
+            _settings.PlayerId.Length == 0)
+        {
+            SetStatus(t => t.InvalidOrchestrator);
+            return;
+        }
+        _agentStop = new CancellationTokenSource();
+        var agent = new AgentClient(new AgentOptions(uri, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
+            _settings.WindowProcess), StartAgentCapture);
+        agent.Log += line => Dispatcher.BeginInvoke(() =>
+        {
+            _agentLog = $"{DateTime.Now:HH:mm:ss} {line}";
+            if (_run is null && _state == RunState.Agent) ShowAgentStatus();
+        });
+        _agentLog = "";
+        SetState(RunState.Agent);
+        ShowAgentStatus();
+        _ = agent.RunUntilStoppedAsync(_agentStop.Token);
+    }
+
+    private void Disconnect()
+    {
+        _agentStop?.Cancel();
+        _agentStop = null;
+        if (_run is null) SetState(RunState.Idle, t => t.Disconnected);
+        else StopRecording();
+    }
+
+    private void ShowAgentStatus()
+    {
+        string url = _settings.Orchestrator, log = _agentLog;
+        SetStatus(t => t.AgentStatus(url, log));
+    }
+
+    /// <summary>AgentClient calls this off the UI thread when the orchestrator starts a round.</summary>
+    private ICaptureRun StartAgentCapture(CaptureOptions options)
+    {
+        var run = CaptureRun.Start(options);
+        Dispatcher.Invoke(() =>
+        {
+            _run = run;
+            _runStarted = DateTime.Now;
+            _clock.Start();
+            ShowRecordingStatus();
+        });
+        run.CaptureStopped.ContinueWith(_ => Dispatcher.Invoke(ShowEndBadge), TaskContinuationOptions.OnlyOnRanToCompletion);
+        run.Completion.ContinueWith(t => Dispatcher.Invoke(() => OnAgentRunCompleted(t.Result)),
+            TaskContinuationOptions.OnlyOnRanToCompletion);
+        return run;
+    }
+
+    private void OnAgentRunCompleted(RunResult result)
+    {
+        _run = null;
+        _clock.Stop();
+        _lastSessionDir = result.SessionDir;
+        var (title, body) = _t.Notification(result);
+        _tray.ShowBalloonTip(10_000, title, body, result.Ok ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+        if (_state == RunState.Stopping) SetState(RunState.Idle, t => t.Disconnected);
+        else ShowAgentStatus();
+        if (_closeWhenIdle) Close();
     }
 
     private void StartStop_Click(object sender, RoutedEventArgs e) => Toggle();
