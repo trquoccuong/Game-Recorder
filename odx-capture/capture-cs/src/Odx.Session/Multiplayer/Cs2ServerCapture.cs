@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using DemoFile;
@@ -16,6 +17,8 @@ namespace Odx.Session;
 /// <item><c>demo.dem</c>: the round's SourceTV demo (tv_record / tv_stoprecord over RCON): server_state.bin, events.</item>
 /// <item><c>netmessages.jsonl</c>: what the odx_netlog plugin logged during the round (cs2-plugin/README.md):
 /// packets.bin / packets.txt, and the server tick ↔ UTC of each line, which put the demo's ticks on the clock.</item>
+/// <item><c>senddata.jsonl</c>: the already serialized buffers the plugin saw sent (each joining client's signon data):
+/// split into messages for packets.bin, and the game event list, which a demo recorded mid-map does not carry.</item>
 /// <item><c>recording.json</c>: when tv_record was sent, the fallback for the demo's first tick without a log.</item>
 /// </list>
 /// The plugin stamps messages with the game server machine's clock; the orchestrator runs on that machine, so its times are
@@ -23,7 +26,8 @@ namespace Odx.Session;
 /// </summary>
 public static class Cs2ServerCapture
 {
-    public const string DemoFile = "demo.dem", NetLogFile = "netmessages.jsonl", RecordingFile = "recording.json";
+    public const string DemoFile = "demo.dem", NetLogFile = "netmessages.jsonl", SendDataFile = "senddata.jsonl";
+    public const string RecordingFile = "recording.json";
     public const string StateFile = "server_state.bin";
 
     /// <param name="Events">For events.jsonl, with utc_ms; "source": "demo".</param>
@@ -40,24 +44,39 @@ public static class Cs2ServerCapture
         var events = new List<JsonObject>();
         var lines = ReadNetLog(Path.Combine(stagingServerDir, NetLogFile));
         var clock = TickClock.Fit(lines);
+        string recordingPath = Path.Combine(stagingServerDir, RecordingFile);
+        double? recordingStartMs = File.Exists(recordingPath)
+            ? JsonNode.Parse(File.ReadAllText(recordingPath))?["tv_record_utc_ms"]?.GetValue<double>()
+            : null;
+        // The staged signon data spans the server's run (clients join before rounds); this round's packets keep only what
+        // was sent during it, the event list is the newest one.
+        var signon = ReadNetLog(Path.Combine(stagingServerDir, SendDataFile))
+            .SelectMany(l => SplitSendData(l).Select(m => (Line: l, m.Id, m.Payload))).ToList();
+        var eventList = signon.LastOrDefault(m => m.Id == GameEventListId) is { Payload: { } listBytes }
+            ? CMsgSource1LegacyGameEventList.Parser.ParseFrom(listBytes)
+            : null;
 
-        if (lines.Count > 0)
+        var records = lines.Select(PacketOf)
+            .Concat(signon.Where(m => m.Line.UtcUs >= (recordingStartMs ?? 0) * 1000).Select(m => SignonPacketOf(m.Line, m.Id, m.Payload)))
+            .OrderBy(r => r.ServerTimeUs).ToList();
+        if (records.Count > 0)
         {
-            var records = lines.Select(PacketOf).ToList();
             PacketLog.WriteRecords(records, header.Clone(), Path.Combine(sessionServerDir, PacketLog.BinFile),
                 Path.Combine(sessionServerDir, PacketLog.TextFile));
-            File.Copy(Path.Combine(stagingServerDir, NetLogFile), Path.Combine(sessionServerDir, "capture", NetLogFile), true);
             info["packets"] = new JsonObject { ["source"] = "odx_netlog plugin", ["records"] = records.Count };
         }
+        foreach (string file in new[] { NetLogFile, SendDataFile }.Where(f => File.Exists(Path.Combine(stagingServerDir, f))))
+            File.Copy(Path.Combine(stagingServerDir, file), Path.Combine(sessionServerDir, "capture", file), true);
 
         string demo = Path.Combine(stagingServerDir, DemoFile);
         if (File.Exists(demo))
         {
-            clock ??= TickClock.FromRecordingStart(Path.Combine(stagingServerDir, RecordingFile), demo);
+            clock ??= TickClock.FromRecordingStart(recordingStartMs, demo);
             if (clock is not null)
             {
-                int states = WriteState(demo, clock, header.Clone(), Path.Combine(sessionServerDir, StateFile), events);
+                var (states, eventNames) = WriteState(demo, clock, eventList, header.Clone(), Path.Combine(sessionServerDir, StateFile), events);
                 info["server_state"] = new JsonObject { ["source"] = "SourceTV demo", ["records"] = states };
+                info["game_event_names"] = eventNames;
             }
             File.Copy(demo, Path.Combine(sessionServerDir, "capture", DemoFile), true);
         }
@@ -67,8 +86,9 @@ public static class Cs2ServerCapture
 
     /// <summary>One line of the plugin's log (cs2-plugin/src/plugin.cpp writes them).</summary>
     /// <param name="Tick">The server tick the line was written in.</param>
+    /// <param name="Data">SendData lines: the buffer as sent, <paramref name="Bits"/> long.</param>
     internal sealed record NetLogLine(long UtcUs, int Tick, string Direction, int Slot, string SteamId, string Address, string Message,
-        int Id, int Buf, string Text);
+        int Id, int Buf, string Text, int Bits = 0, byte[]? Data = null);
 
     internal static List<NetLogLine> ReadNetLog(string path)
     {
@@ -89,7 +109,8 @@ public static class Cs2ServerCapture
             lines.Add(new NetLogLine(o["utc_us"]!.GetValue<long>(), o["tick"]?.GetValue<int>() ?? -1, o["direction"]!.GetValue<string>(),
                 o["slot"]!.GetValue<int>(),
                 o["steamid"]!.GetValue<string>(), o["address"]!.GetValue<string>(), o["message"]!.GetValue<string>(),
-                o["id"]!.GetValue<int>(), o["buf"]!.GetValue<int>(), o["text"]!.GetValue<string>()));
+                o["id"]!.GetValue<int>(), o["buf"]!.GetValue<int>(), o["text"]!.GetValue<string>(), o["bits"]?.GetValue<int>() ?? 0,
+                o["data"] is JsonValue data ? Convert.FromBase64String(data.GetValue<string>()) : null));
         }
         return lines;
     }
@@ -107,10 +128,94 @@ public static class Cs2ServerCapture
         PeerId = l.SteamId,
     };
 
+    /// <summary>A serialized message stream: each message is its id (UBitVar), its size (varint) and its protobuf bytes.</summary>
+    internal static List<(int Id, byte[] Payload)> SplitSendData(NetLogLine line)
+    {
+        var messages = new List<(int, byte[])>();
+        if (line.Data is null) return messages;
+        var reader = new SourceBitReader(line.Data);
+        int padding = line.Data.Length * 8 - line.Bits;
+        try
+        {
+            while (reader.BitsLeft - padding >= 8)
+            {
+                int id = (int)reader.UBitVar();
+                int size = (int)reader.VarInt32();
+                messages.Add((id, reader.Bytes(size)));
+            }
+        }
+        catch (EndOfStreamException)
+        {
+        }
+        return messages;
+    }
+
+    private static PacketRecord SignonPacketOf(NetLogLine l, int id, byte[] payload)
+    {
+        var record = new PacketRecord
+        {
+            ServerTimeUs = l.UtcUs,
+            LocalTimeUs = l.UtcUs,
+            Direction = PacketRecord.Types.Direction.Out,
+            Transport = "netmessage",
+            LocalEndpoint = "server",
+            RemoteEndpoint = l.Address,
+            Message = $"#{id}",
+            Payload = ByteString.CopyFrom(payload),
+            PeerId = l.SteamId,
+        };
+        if (Messages.Value.TryGetValue(id, out var type))
+        {
+            record.Message = type.Name;
+            try
+            {
+                record.DecodedJson = JsonFormatter.Default.Format(type.Parser.ParseFrom(payload));
+            }
+            catch (InvalidProtocolBufferException)
+            {
+            }
+        }
+        return record;
+    }
+
+    private static int GameEventListId => Messages.Value.First(m => m.Value.Name == nameof(CMsgSource1LegacyGameEventList)).Key;
+
+    /// <summary>
+    /// Net message id → protobuf class, from the id enums DemoFile generates from the game's .proto files: their original
+    /// value names (svc_ServerInfo, net_Tick, GE_…, UM_…, CS_UM_…) name the message classes.
+    /// </summary>
+    private static readonly Lazy<Dictionary<int, (string Name, MessageParser Parser)>> Messages = new(() =>
+    {
+        var assemblies = new[] { typeof(CsDemoParser).Assembly, typeof(DemoParser<>).Assembly };
+        var classes = assemblies.SelectMany(a => a.GetTypes()).Where(t => typeof(IMessage).IsAssignableFrom(t) && !t.IsAbstract)
+            .GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase).ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        (string Prefix, string Class)[] prefixes =
+            [("svc_", "CSVCMsg_"), ("net_", "CNETMsg_"), ("clc_", "CCLCMsg_"), ("CS_UM_", "CCSUsrMsg_"), ("UM_", "CUserMessage"),
+             ("GE_", "CMsg"), ("EM_", "CEntityMessage")];
+        var map = new Dictionary<int, (string, MessageParser)>();
+        foreach (var e in assemblies.SelectMany(a => a.GetTypes()).Where(t => t.IsEnum &&
+                     t.Name is "SVC_Messages" or "NET_Messages" or "CLC_Messages" or "EBaseGameEvents" or "EBaseUserMessages" or
+                         "ECstrike15UserMessages" or "EBaseEntityMessages"))
+            foreach (var field in e.GetFields(BindingFlags.Public | BindingFlags.Static))
+            {
+                string? original = field.GetCustomAttribute<Google.Protobuf.Reflection.OriginalNameAttribute>()?.Name;
+                var prefix = prefixes.FirstOrDefault(p => original?.StartsWith(p.Prefix, StringComparison.Ordinal) == true);
+                if (prefix.Prefix is null || !classes.TryGetValue(prefix.Class + original![prefix.Prefix.Length..], out var type)) continue;
+                if (type.GetProperty("Parser", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) is MessageParser parser)
+                    map.TryAdd(Convert.ToInt32(field.GetValue(null), CultureInfo.InvariantCulture), (type.Name, parser));
+            }
+        return map;
+    });
+
     /// <summary>"CNETMsg_Tick [4]" → "CNETMsg_Tick".</summary>
     private static string MessageName(string bound) => bound.IndexOf(" [", StringComparison.Ordinal) is var i and > 0 ? bound[..i] : bound;
 
-    private static int WriteState(string demoPath, TickClock clock, FileHeader header, string binPath, List<JsonObject> events)
+    /// <param name="eventList">Names the demo's game events; a list in the demo itself replaces it (a demo recorded
+    /// mid-map does not always carry one).</param>
+    /// <returns>The records written, and where the game event names came from (null: none, so only the round events the
+    /// game rules entity tells are in <paramref name="events"/>).</returns>
+    private static (int Records, string? EventNames) WriteState(string demoPath, TickClock clock, CMsgSource1LegacyGameEventList? eventList, FileHeader header,
+        string binPath, List<JsonObject> events)
     {
         var demo = new CsDemoParser();
         using var bin = File.Create(binPath);
@@ -118,40 +223,57 @@ public static class Cs2ServerCapture
         header.WriteDelimitedTo(bin);
         int count = 0, lastTick = int.MinValue;
 
-        void Event(string type, JsonObject fields)
+        var descriptors = eventList?.Descriptors.ToDictionary(d => d.Eventid) ?? [];
+        string? eventNames = eventList is null ? null : $"{descriptors.Count} game events, from the signon data the plugin logged";
+        demo.BaseGameEvents.Source1LegacyGameEventList += list =>
+        {
+            descriptors = list.Descriptors.ToDictionary(d => d.Eventid);
+            eventNames = $"{descriptors.Count} game events, from the demo";
+        };
+        demo.BaseGameEvents.Source1LegacyGameEvent += e =>
+        {
+            if (!descriptors.TryGetValue(e.Eventid, out var descriptor) || IsNoise(descriptor.Name)) return;
+            int tick = (int)demo.CurrentGameTick.Value;
+            var fields = new JsonObject
+            {
+                ["type"] = "game_event",
+                ["name"] = descriptor.Name,
+                ["utc_ms"] = Math.Round(clock.UtcUs(tick) / 1000.0, 3),
+                ["tick"] = tick,
+                ["source"] = "demo",
+            };
+            // A pawn key ("userid_pawn") repeats the player key next to it ("userid"); alone (bomb_pickup) it names the player.
+            var playerKeys = descriptor.Keys.Where(k => k.Type == PlayerSlot).Select(k => k.Name).ToHashSet();
+            foreach (var (key, value) in descriptor.Keys.Zip(e.Keys))
+            {
+                if (key.Type == PawnHandle && key.Name.EndsWith("_pawn", StringComparison.Ordinal) && playerKeys.Contains(key.Name[..^5]))
+                    continue;
+                fields[key.Name] = Value(demo, key.Type, value);
+            }
+            events.Add(fields);
+        };
+
+        // CS2 does not send round_start / round_freeze_end / round_end as game events to SourceTV; DemoFile tells them from
+        // the game rules entity.
+        void FromGameRules(string name, JsonObject fields)
         {
             int tick = (int)demo.CurrentGameTick.Value;
-            fields["type"] = type;
+            if (events.Any(x => x["name"]?.GetValue<string>() == name && x["tick"]?.GetValue<int>() == tick)) return;
+            fields["type"] = "game_event";
+            fields["name"] = name;
             fields["utc_ms"] = Math.Round(clock.UtcUs(tick) / 1000.0, 3);
             fields["tick"] = tick;
             fields["source"] = "demo";
+            fields["from"] = "game_rules";
             events.Add(fields);
         }
-
-        demo.Source1GameEvents.PlayerDeath += e => Event(GameEvents.Kill, new JsonObject
+        demo.Source1GameEvents.RoundStart += _ => FromGameRules("round_start", []);
+        demo.Source1GameEvents.RoundFreezeEnd += _ => FromGameRules("round_freeze_end", []);
+        demo.Source1GameEvents.RoundEnd += e => FromGameRules("round_end", new JsonObject
         {
-            ["attacker"] = Player(e.Attacker),
-            ["victim"] = Player(e.Player),
-            ["assister"] = Player(e.Assister),
-            ["weapon"] = e.Weapon,
-            ["headshot"] = e.Headshot,
-        });
-        demo.Source1GameEvents.RoundStart += _ => Event("game_round_start", []);
-        demo.Source1GameEvents.RoundFreezeEnd += _ => Event("game_round_freeze_end", []);
-        demo.Source1GameEvents.RoundEnd += e => Event("game_round_end", new JsonObject
-        {
-            ["winner"] = Team(e.Winner),
+            ["winner"] = e.Winner,
             ["reason"] = e.Reason,
             ["message"] = e.Message,
-        });
-        demo.Source1GameEvents.BombPlanted += e => Event("bomb_planted", new JsonObject { ["player"] = Player(e.Player), ["site"] = e.Site });
-        demo.Source1GameEvents.BombDefused += e => Event("bomb_defused", new JsonObject { ["player"] = Player(e.Player), ["site"] = e.Site });
-        demo.Source1GameEvents.BombExploded += e => Event("bomb_exploded", new JsonObject { ["site"] = e.Site });
-        demo.Source1GameEvents.PlayerConnectFull += e => Event(GameEvents.PlayerConnect, new JsonObject { ["player"] = Player(e.Player) });
-        demo.Source1GameEvents.PlayerDisconnect += e => Event(GameEvents.PlayerDisconnect, new JsonObject
-        {
-            ["player"] = Player(e.Player),
-            ["reason"] = e.Reason,
         });
 
         demo.OnCommandFinishPersistent += () =>
@@ -231,15 +353,60 @@ public static class Cs2ServerCapture
 
         using var stream = File.OpenRead(demoPath);
         DemoFileReader.Create(demo, stream).ReadAllAsync().AsTask().GetAwaiter().GetResult();
-        return count;
+        return (count, eventNames);
     }
 
     private static Vec3 Vec(Vector v) => new() { X = v.X, Y = v.Y, Z = v.Z };
 
-    private static JsonObject? Player(CCSPlayerController? p) =>
-        p is null ? null : new JsonObject { ["steam_id"] = p.SteamID.ToString(CultureInfo.InvariantCulture), ["name"] = p.PlayerName };
+    // Game event key types (CMsgSource1LegacyGameEventList descriptors).
+    private const int PawnHandle = 8, PlayerSlot = 9;
 
-    private static string Team(int team) => team switch { 2 => "terrorists", 3 => "counter_terrorists", _ => team.ToString(CultureInfo.InvariantCulture) };
+    private static JsonNode? Value(CsDemoParser demo, int type, CMsgSource1LegacyGameEvent.Types.key_t value) => type switch
+    {
+        1 => value.ValString,
+        2 => value.ValFloat,
+        3 => value.ValLong,
+        4 => value.ValShort,
+        5 => value.ValByte,
+        6 => value.ValBool,
+        7 => value.ValUint64.ToString(CultureInfo.InvariantCulture),
+        PlayerSlot => Player(demo, (short)value.ValShort),  // "nobody" is -1, sent as 65535
+        PawnHandle => PlayerOfPawn(demo, value.ValLong),
+        _ => value.ToString(),
+    };
+
+    /// <summary>A player slot as the player: the controller's entity is slot + 1. Null for "nobody" (-1, e.g. no attacker).</summary>
+    private static JsonObject? Player(CsDemoParser demo, int slot)
+    {
+        if (slot < 0) return null;
+        var controller = demo.Players.FirstOrDefault(p => p.EntityIndex.Value == slot + 1);
+        return new JsonObject
+        {
+            ["slot"] = slot,
+            ["steam_id"] = controller?.SteamID.ToString(CultureInfo.InvariantCulture),
+            ["name"] = controller?.PlayerName,
+        };
+    }
+
+    /// <summary>The player whose pawn an entity handle names (its low 15 bits are the entity index); null for none.</summary>
+    private static JsonObject? PlayerOfPawn(CsDemoParser demo, long handle)
+    {
+        var pawn = demo.Entities.OfType<CCSPlayerPawn>().FirstOrDefault(p => p.EntityIndex.Value == (handle & 0x7FFF));
+        return pawn?.Controller is { } controller ? Player(demo, (int)controller.EntityIndex.Value - 1) : null;
+    }
+
+    /// <summary>
+    /// Events left out of events.jsonl, which holds the events that pace the game (spec v3 §3.2): per-shot, per-step and
+    /// UI/SourceTV events. Everything they record is in server_state.bin and the demo.
+    /// </summary>
+    private static bool IsNoise(string name) =>
+        name.StartsWith("hltv_", StringComparison.Ordinal) || name.StartsWith("instructor_", StringComparison.Ordinal) ||
+        name.StartsWith("gameinstructor_", StringComparison.Ordinal) || name.StartsWith("buymenu_", StringComparison.Ordinal) ||
+        name is "player_footstep" or "player_jump" or "player_sound" or "player_shoot" or "weapon_fire" or "weapon_fire_on_empty"
+            or "weapon_reload" or "weapon_zoom" or "weapon_zoom_rifle" or "weaponhud_selection" or "inspect_weapon" or "item_equip"
+            or "item_pickup_slerp" or "bullet_impact" or "bullet_damage" or "add_bullet_hit_marker" or "grenade_bounce" or "bomb_beep"
+            or "player_ping" or "player_ping_stop" or "player_full_update" or "player_info" or "cs_round_start_beep"
+            or "cs_round_final_beep";
 
     /// <summary>
     /// Server tick → UTC. Each line of the plugin's log carries the server tick it was written in; the earliest line of a tick
@@ -292,11 +459,10 @@ public static class Cs2ServerCapture
             return knots.Count == 0 ? null : new TickClock(knots, "earliest plugin log line of each server tick, interpolated between");
         }
 
-        public static TickClock? FromRecordingStart(string recordingPath, string demoPath)
+        public static TickClock? FromRecordingStart(double? startMs, string demoPath)
         {
-            if (!File.Exists(recordingPath)) return null;
-            double startMs = JsonNode.Parse(File.ReadAllText(recordingPath))?["tv_record_utc_ms"]?.GetValue<double>() ?? 0;
-            return new TickClock([(FirstTick(demoPath), (long)Math.Round(startMs * 1000))],
+            if (startMs is null) return null;
+            return new TickClock([(FirstTick(demoPath), (long)Math.Round(startMs.Value * 1000))],
                 "first demo tick = when tv_record was sent, then 64 ticks/s (no plugin log)");
         }
 

@@ -421,6 +421,19 @@ public sealed class SourceBitReader(byte[] data, int startByte = 0)
         return result;
     }
 
+    /// <summary>Source 2's message id: 6 bits, the top two of which say how many bits follow (0, 4, 8 or 28).</summary>
+    public uint UBitVar()
+    {
+        uint value = Bits(6);
+        return (value >> 4) switch
+        {
+            0 => value,
+            1 => (value & 15) | (Bits(4) << 4),
+            2 => (value & 15) | (Bits(8) << 4),
+            _ => (value & 15) | (Bits(28) << 4),
+        };
+    }
+
     public uint VarInt32()
     {
         uint value = 0;

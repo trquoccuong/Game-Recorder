@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json.Nodes;
+using Google.Protobuf;
 using Microsoft.Extensions.Logging.Abstractions;
 using Odx.Core;
 using Odx.Orchestrator;
@@ -45,7 +46,10 @@ public sealed class ProtobufTextTests
 internal static class Cs2Fixtures
 {
     public static string NetLog => Path.Combine(AppContext.BaseDirectory, "fixtures", "cs2_netmessages.jsonl");
+    /// <summary>12 s of 20 bots on de_dust2 across a round restart (tv_record mid-map; this one carries the game event list).</summary>
     public static string Demo => Path.Combine(AppContext.BaseDirectory, "fixtures", "cs2_demo.dem");
+    /// <summary>The game event list (CMsgSource1LegacyGameEventList) of the build that recorded <see cref="Demo"/> (14188).</summary>
+    public static string GameEvents => Path.Combine(AppContext.BaseDirectory, "fixtures", "cs2_gameevents.bin");
 
     public static string TempDir()
     {
@@ -112,12 +116,12 @@ public sealed class Cs2ServerCaptureTests
         var states = new List<ServerStateRecord>();
         while (bin.Position < bin.Length) states.Add(ServerStateRecord.Parser.ParseDelimitedFrom(bin));
         Assert.Equal(states.Count, result.Info["server_state"]!["records"]!.GetValue<int>());
-        Assert.InRange(states.Count, 8 * 64 - 32, 8 * 64 + 32);  // about 8 s at 64 ticks/s
+        Assert.InRange(states.Count, 12 * 64 - 64, 12 * 64 + 64);  // about 12 s at 64 ticks/s
         Assert.Equal((long)Math.Round(recordStartMs * 1000), states[0].ServerTimeUs);
         Assert.True(states.Zip(states.Skip(1)).Count(p => p.Second.Tick - p.First.Tick == 1) >= states.Count * 0.95);
 
         var last = states[^1];
-        Assert.Equal(2, last.Players.Count);
+        Assert.Equal(20, last.Players.Count);
         Assert.All(last.Players, p =>
         {
             Assert.Contains(p.Team, new[] { 2, 3 });
@@ -125,9 +129,84 @@ public sealed class Cs2ServerCaptureTests
             Assert.True(p.Alive);
             Assert.Equal(100, p.Health);
             Assert.NotEqual(0, p.Position.X);
-            Assert.StartsWith("CWeapon", p.ActiveWeapon);
+            Assert.NotEmpty(p.ActiveWeapon);
         });
+        Assert.Contains(last.Entities, e => e.ClassName == "CC4");
         Assert.True(File.Exists(Path.Combine(session, "capture", Cs2ServerCapture.DemoFile)));
+        Assert.StartsWith("271 game events, from the demo", result.Info["game_event_names"]!.GetValue<string>());
+        Assert.Contains(result.Events, e => e["name"]!.GetValue<string>() == "bomb_pickup");
+    }
+
+    [Fact]
+    public void Signon_data_gives_the_demo_its_game_events_and_its_messages_go_to_the_packets()
+    {
+        string staging = Cs2Fixtures.TempDir(), session = Cs2Fixtures.TempDir();
+        File.Copy(Cs2Fixtures.Demo, Path.Combine(staging, Cs2ServerCapture.DemoFile));
+        const double recordStartMs = 1_791_191_292_846.408;
+        File.WriteAllText(Path.Combine(staging, Cs2ServerCapture.RecordingFile), $"{{\"tv_record_utc_ms\": {recordStartMs.ToString(System.Globalization.CultureInfo.InvariantCulture)}}}");
+        byte[] eventList = File.ReadAllBytes(Cs2Fixtures.GameEvents);
+        byte[] tick = new CNETMsg_Tick { Tick = 1234 }.ToByteArray();
+        long before = (long)(recordStartMs * 1000) - 60_000_000, during = (long)(recordStartMs * 1000) + 1_000_000;
+        File.WriteAllLines(Path.Combine(staging, Cs2ServerCapture.SendDataFile),
+        [
+            SendDataLine(before, (205, eventList), (4, tick)),  // a player joined before the round
+            SendDataLine(during, (4, tick)),
+        ]);
+
+        var result = Cs2ServerCapture.Write(staging, session, new FileHeader { SessionId = "s1" });
+
+        Assert.StartsWith("271 game events", result.Info["game_event_names"]!.GetValue<string>());
+        Assert.All(result.Events, e => Assert.Equal("game_event", GameEvents.Type(e)));
+        var pickup = Assert.Single(result.Events, e => e["name"]!.GetValue<string>() == "bomb_pickup");
+        Assert.Equal("demo", pickup["source"]!.GetValue<string>());
+        Assert.NotEmpty(pickup["userid_pawn"]!["name"]!.GetValue<string>());  // its only key: the pawn, named after its player
+        Assert.InRange(GameEvents.UtcMs(pickup), recordStartMs, recordStartMs + 13_000);
+        var spawn = result.Events.First(e => e["name"]!.GetValue<string>() == "player_spawn");
+        Assert.NotNull(spawn["userid"]!["slot"]);
+        Assert.Null(spawn["userid_pawn"]);  // the same player as userid
+        Assert.DoesNotContain(result.Events, e => e["name"]!.GetValue<string>() is "item_equip" or "player_footstep");
+
+        var (_, records) = PacketLog.Read(Path.Combine(session, PacketLog.BinFile));
+        var signon = Assert.Single(records);  // only what was sent during the round
+        Assert.Equal("CNETMsg_Tick", signon.Message);
+        Assert.Equal(during, signon.ServerTimeUs);
+        Assert.Equal(tick, signon.Payload.ToByteArray());
+        Assert.Equal(1234, JsonNode.Parse(signon.DecodedJson)!["tick"]!.GetValue<int>());
+        Assert.True(File.Exists(Path.Combine(session, "capture", Cs2ServerCapture.SendDataFile)));
+    }
+
+    /// <summary>A SendData line as the plugin writes it: messages as UBitVar id, varint size, bytes, LSB first.</summary>
+    private static string SendDataLine(long utcUs, params (int Id, byte[] Payload)[] messages)
+    {
+        var bits = new List<bool>();
+        void Put(long value, int count)
+        {
+            for (int i = 0; i < count; i++) bits.Add((value >> i & 1) != 0);
+        }
+        foreach (var (id, payload) in messages)
+        {
+            if (id < 16) Put(id, 6);
+            else
+            {
+                Put(id & 15 | 2 << 4, 6);
+                Put(id >> 4, 8);
+            }
+            for (int size = payload.Length; ; size >>= 7)
+            {
+                Put(size & 0x7F | (size >= 0x80 ? 0x80 : 0), 8);
+                if (size < 0x80) break;
+            }
+            foreach (byte b in payload) Put(b, 8);
+        }
+        byte[] data = new byte[(bits.Count + 7) / 8];
+        for (int i = 0; i < bits.Count; i++)
+            if (bits[i]) data[i >> 3] |= (byte)(1 << (i & 7));
+        return new JsonObject
+        {
+            ["utc_us"] = utcUs, ["tick"] = 1, ["direction"] = "out", ["slot"] = 0, ["steamid"] = "76561197960265729",
+            ["address"] = "127.0.0.1:27005", ["message"] = "SendData", ["id"] = -1, ["buf"] = 1, ["text"] = "", ["bits"] = bits.Count,
+            ["data"] = Convert.ToBase64String(data),
+        }.ToJsonString();
     }
 }
 

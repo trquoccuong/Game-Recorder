@@ -8,6 +8,9 @@ each client, decoded by the engine itself.
   `networksystem.dll`). Entity snapshots, signon data and string tables do not go through it and are not logged; the
   world state comes from the server's SourceTV demo instead (odx-capture README, "CS2 game server").
 - Incoming: an `INetworkMessageProcessingPreFilter` installed on each channel (`InstallMessageFilter`, slot 73).
+- Already serialized buffers: `SendData` (slot 40), the signon data each joining client gets (server info, string tables,
+  the game event list…), saved as bytes (`data`, base64, `bits` long) to `odx-netlog/senddata/<UTC start>.jsonl`; only
+  the buffer is read, nothing is called on the engine.
 - Output: `<game>/csgo/odx-netlog/<UTC start>.jsonl`, one object per message: `utc_us` (server Windows clock),
   `tick` (the server tick it was logged in; it puts the demo's ticks on the clock), `direction`, `slot`, `steamid`,
   `address`, `message`, `id`, `buf`, `text` (protobuf text format from the engine's binding; bytes fields such as
