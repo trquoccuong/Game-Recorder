@@ -8,10 +8,9 @@ using Odx.Session;
 namespace Odx.Orchestrator;
 
 /// <param name="OutRoot">Sessions go to &lt;OutRoot&gt;/&lt;vendor&gt;/…; uploads are staged in &lt;OutRoot&gt;/.staging/&lt;session&gt;/.</param>
-/// <param name="LeadMs">Start is sent for now + LeadMs so every agent gets it before the start time.</param>
 /// <param name="DoneTimeout">How long after a round ends to wait for uploads before assembling with what arrived.</param>
 public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath, string Vendor = "odx", int HttpPort = 5180,
-    int TimePort = 12300, double LeadMs = 1500, int Fps = 30)
+    int TimePort = 12300, int Fps = 30)
 {
     public SyncTolerances Tolerances { get; init; } = SyncTolerances.Default;
     public TimeSpan DoneTimeout { get; init; } = TimeSpan.FromMinutes(15);
@@ -190,8 +189,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         var ready = _agents.Values.Where(a => a.State is "idle" or "armed").ToList();
         foreach (var busy in _agents.Values.Except(ready))
             log.LogWarning("{Player} is {State}, left out of {Session}", busy.Hello.PlayerId, busy.State, sid);
-        double startAt = utc + options.LeadMs;
-        var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, startAt, null, timePort,
+        var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, utc, null, timePort,
             ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name)).ToList());
         string staging = Path.Combine(options.OutRoot, ".staging", sid);
         Directory.CreateDirectory(staging);
@@ -201,9 +199,9 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             a.State = "starting";
             sends.Add((a, new Arm(sid, _profileJson, options.Fps)));
-            sends.Add((a, new Start(sid, startAt)));
+            sends.Add((a, new Start(sid)));
         }
-        log.LogInformation("round {Session}: {Count} player(s), start at {Start}", sid, ready.Count, SessionBuilder.IsoUtc(startAt));
+        log.LogInformation("round {Session}: {Count} player(s)", sid, ready.Count);
     }
 
     private void StopPlayer(OpenRound round, string playerId, double utc, string reason, List<(AgentLink, AgentMessage)> sends)

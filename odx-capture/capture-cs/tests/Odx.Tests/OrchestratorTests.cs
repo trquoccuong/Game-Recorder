@@ -59,7 +59,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {"W": "Forward"}}
             """);
         _app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(_root, "out"), profile, HttpPort: 0, TimePort: 0,
-            LeadMs: 200, Fps: SessionFixtures.Fps), "127.0.0.1");
+            Fps: SessionFixtures.Fps), "127.0.0.1");
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         _coordinator = _app.Services.GetRequiredService<MatchCoordinator>();

@@ -1,5 +1,5 @@
 // odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] [--time-port 12300]
-//                  [--lead-ms 1500] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
+//                  [--fps 30] [--min-valid K] [--max-rtt-ms 100]
 // Runs next to the game server; agents connect to ws://<host>:<http-port>/agents, the game server plugin posts events.
 using System.Globalization;
 using Odx.Orchestrator;
@@ -19,7 +19,6 @@ for (int i = 0; i < args.Length; i++)
         case "--vendor": options = options with { Vendor = Next() }; break;
         case "--http-port": options = options with { HttpPort = NextInt() }; break;
         case "--time-port": options = options with { TimePort = NextInt() }; break;
-        case "--lead-ms": options = options with { LeadMs = NextInt() }; break;
         case "--fps": options = options with { Fps = NextInt() }; break;
         case "--min-valid": tolerances = tolerances with { MinValidPlayers = NextInt() }; break;
         case "--max-rtt-ms": tolerances = tolerances with { MaxRttMs = NextInt() }; break;
@@ -29,7 +28,7 @@ for (int i = 0; i < args.Length; i++)
 if (outRoot is null || profile is null)
 {
     Console.Error.WriteLine("usage: odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] " +
-                            "[--time-port 12300] [--lead-ms 1500] [--fps 30] [--min-valid K] [--max-rtt-ms 100]");
+                            "[--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100]");
     return 2;
 }
 
