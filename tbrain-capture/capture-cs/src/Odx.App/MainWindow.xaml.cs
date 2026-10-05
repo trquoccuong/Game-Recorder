@@ -438,7 +438,7 @@ public partial class MainWindow : Window
         }
         _agentStop = new CancellationTokenSource();
         var agent = new AgentClient(new AgentOptions(orchestrator, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
-            _settings.WindowProcess, RoomCode: code, CreateRoom: code is null), StartAgentCapture);
+            _settings.WindowProcess, RoomCode: code, CreateRoom: code is null, AccessKey: _config.AccessKey), StartAgentCapture);
         agent.Countdown += (ms, cancelled) => Dispatcher.BeginInvoke(() => ShowAgentCountdown(ms, cancelled));
         agent.Log += line => Dispatcher.BeginInvoke(() =>
         {
