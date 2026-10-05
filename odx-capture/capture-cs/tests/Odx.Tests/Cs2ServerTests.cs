@@ -333,9 +333,8 @@ public sealed class Cs2ServerTests
         using var rcon = new FakeRcon("pw");
         rcon.Reply = c =>
         {
-            if (c != "tv_stoprecord") return "";
-            File.WriteAllText(Path.Combine(game, "replays", "m-r01.dem"), "demo");
-            return "Completed SourceTV demo \"replays/m-r01.dem\"";
+            if (c == "tv_record replays/m-r01") File.WriteAllText(Path.Combine(game, "replays", "m-r01.dem"), "demo");
+            return c == "tv_stoprecord" ? "Completed SourceTV demo \"replays/m-r01.dem\"" : "";
         };
         var server = new Cs2Server(new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), NullLogger.Instance);
 
@@ -352,6 +351,24 @@ public sealed class Cs2ServerTests
         Assert.Equal("during 1\nduring 2\n", File.ReadAllText(Path.Combine(staged, Cs2ServerCapture.NetLogFile)));
         double started = JsonNode.Parse(File.ReadAllText(Path.Combine(staged, Cs2ServerCapture.RecordingFile)))!["tv_record_utc_ms"]!.GetValue<double>();
         Assert.InRange(started, before, NtpResponder.NowUnixMs());
+        Assert.Empty(Cs2ServerCapture.Problems(staged));
+    }
+
+    [Fact]
+    public async Task A_sourcetv_that_does_not_record_is_reported_for_the_session()
+    {
+        string game = Cs2Fixtures.TempDir(), staging = Cs2Fixtures.TempDir();
+        Directory.CreateDirectory(Path.Combine(game, "replays"));
+        using var rcon = new FakeRcon("pw");  // answers tv_record but writes no demo, like a server whose SourceTV was kicked
+        var server = new Cs2Server(new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), NullLogger.Instance);
+
+        await server.StartAsync("m-r03", staging);
+        await server.StopAsync("m-r03", staging, keep: true);
+
+        string staged = Path.Combine(staging, "server");
+        Assert.True(Cs2ServerCapture.IsStaged(staged));
+        var problem = Assert.Single(Cs2ServerCapture.Problems(staged));
+        Assert.StartsWith("SourceTV is not recording", problem);
     }
 
     [Fact]
@@ -362,7 +379,7 @@ public sealed class Cs2ServerTests
         using var rcon = new FakeRcon("pw");
         rcon.Reply = c =>
         {
-            if (c == "tv_stoprecord") File.WriteAllText(Path.Combine(game, "replays", "m-r02.dem"), "demo");
+            if (c == "tv_record replays/m-r02") File.WriteAllText(Path.Combine(game, "replays", "m-r02.dem"), "demo");
             return "";
         };
         var server = new Cs2Server(new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), NullLogger.Instance);

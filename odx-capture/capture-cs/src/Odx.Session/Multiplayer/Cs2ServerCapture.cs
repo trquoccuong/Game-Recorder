@@ -41,7 +41,17 @@ public static class Cs2ServerCapture
     public sealed record CameraSample(long UtcUs, Core.Vec3 Eye, double Pitch, double Yaw, double FovDeg, bool Alive);
 
     public static bool IsStaged(string stagingServerDir) =>
-        File.Exists(Path.Combine(stagingServerDir, DemoFile)) || File.Exists(Path.Combine(stagingServerDir, NetLogFile));
+        File.Exists(Path.Combine(stagingServerDir, DemoFile)) || File.Exists(Path.Combine(stagingServerDir, NetLogFile)) ||
+        File.Exists(Path.Combine(stagingServerDir, RecordingFile));
+
+    /// <summary>What went wrong recording the server's side, as the orchestrator noted it in recording.json.</summary>
+    public static List<string> Problems(string stagingServerDir)
+    {
+        string path = Path.Combine(stagingServerDir, RecordingFile);
+        return File.Exists(path) && JsonNode.Parse(File.ReadAllText(path))?["problems"] is JsonArray problems
+            ? problems.Select(p => p!.GetValue<string>()).ToList()
+            : [];
+    }
 
     /// <param name="playerIds">SteamID64 → the session's player id, for the players of the round.</param>
     public static Result Write(string stagingServerDir, string sessionServerDir, FileHeader header,

@@ -104,6 +104,7 @@ public static class MultiplayerSession
         string stagedServer = Path.Combine(stagingDir, "server");
         JsonObject? serverInfo = null;
         string? serverError = null;
+        List<string> serverProblems = [];
         IReadOnlyDictionary<string, List<Cs2ServerCapture.CameraSample>> cameras = new Dictionary<string, List<Cs2ServerCapture.CameraSample>>();
         // A Steam account several players share (two agents on one machine) names none of them.
         var playerIds = round.Players.Where(p => p.SteamId is not null).GroupBy(p => p.SteamId!).Where(g => g.Count() == 1)
@@ -119,6 +120,8 @@ public static class MultiplayerSession
                 events = events.Concat(server.Events).OrderBy(GameEvents.UtcMs).ToList();
                 serverInfo = server.Info;
                 cameras = server.Cameras;
+                serverProblems = Cs2ServerCapture.Problems(stagedServer);
+                if (serverProblems.Count > 0) serverInfo["problems"] = new JsonArray(serverProblems.Select(p => (JsonNode)p).ToArray());
             }
             catch (Exception e)
             {
@@ -138,6 +141,7 @@ public static class MultiplayerSession
         if (valid < required)
             issues.Add(Issue.Error("session.min_players", $"{valid} of {round.Players.Count} player streams valid, {required} required"));
         if (serverError is not null) issues.Add(Issue.Warning("server.capture", $"the game server's capture could not be read: {serverError}"));
+        foreach (string problem in serverProblems) issues.Add(Issue.Warning("server.capture", problem));
         var report = new SessionReport(round.SessionId, issues.All(i => i.Severity != Issue.ErrorSeverity), valid, required, issues, reports);
 
         var session = new JsonObject
