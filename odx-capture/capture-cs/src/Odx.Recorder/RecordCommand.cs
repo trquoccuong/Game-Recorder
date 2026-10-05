@@ -1,4 +1,4 @@
-// odx record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder x264|nvenc] [--ffmpeg <path>]
+// odx record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder auto|x264|nvenc] [--ffmpeg <path>]
 //            [--cursor] [--seconds N] [--stop-event <name>] [--json-status]
 //
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
@@ -29,7 +29,7 @@ public static class RecordCommand
         if (opts is null)
         {
             Console.Error.WriteLine("usage: odx record --out <dir> (--window <process name> | --monitor) [--fps 60] " +
-                                    "[--encoder x264|nvenc] [--ffmpeg <path>] [--cursor] [--seconds N] [--stop-event <name>] [--json-status]");
+                                    "[--encoder auto|x264|nvenc] [--ffmpeg <path>] [--cursor] [--seconds N] [--stop-event <name>] [--json-status]");
             return 2;
         }
         if (!GraphicsCaptureSession.IsSupported())
@@ -38,6 +38,7 @@ public static class RecordCommand
             return 1;
         }
 
+        var encoderName = Task.Run(() => FfmpegEncoder.Resolve(opts.Ffmpeg, opts.Encoder));
         CaptureInterop.UsePhysicalPixels();
         GraphicsCaptureItem item;
         IntPtr monitor;
@@ -74,7 +75,7 @@ public static class RecordCommand
         try { session.IsBorderRequired = false; } catch (Exception) { /* not available before Windows 11 */ }
 
         using var encoder = new FfmpegEncoder(opts.Ffmpeg, Path.Combine(opts.OutDir, "video.mp4"), width, height, opts.Fps,
-            opts.Encoder);
+            encoderName.Result);
         using var frameLog = new VideoFrameLogWriter(new StreamWriter(Path.Combine(opts.OutDir, "video_frames.csv")));
         var resampler = new GridResampler(opts.Fps);
 
@@ -200,7 +201,7 @@ public static class RecordCommand
             ["screen_width"] = screenWidth,
             ["screen_height"] = screenHeight,
             ["fps"] = opts.Fps,
-            ["encoder"] = opts.Encoder,
+            ["encoder"] = encoderName.Result,
             ["source"] = opts.Window is null ? "monitor:primary" : $"window:{opts.Window}",
             ["cursor"] = opts.Cursor,
             ["started_utc"] = startUtc.ToString("yyyy-MM-ddTHH:mm:ss.fffZ"),
@@ -241,7 +242,7 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
 {
     public static Options? Parse(string[] args)
     {
-        string? outDir = null, window = null, encoder = "x264", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null;
+        string? outDir = null, window = null, encoder = "auto", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null;
         bool monitor = false, cursor = false, jsonStatus = false;
         double fps = 60;
         double? seconds = null;
