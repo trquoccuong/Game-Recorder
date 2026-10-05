@@ -135,18 +135,22 @@ In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine
 
   ```
   <out>/<vendor>/<mm-dd-yyyy>/<game>/<match>-rNN/
-    session.json  validation.json  server/events.jsonl
-    players/<pid>/ player.json frames.csv video.mp4 events.jsonl capture/
+    session.json  validation.json  schema.bin.gz  server/events.jsonl
+    players/<pid>/ player.json frames.csv frames.bin video.mp4 events.jsonl capture/
   ```
 
-  - `player.json` holds the ping (median NTP RTT), clock offset, first/last frame UTC, `round_start_frame` / `round_start_video_time_ms`, stop reason and validity. `session.json` carries `spec_version` 3.1, `round_index`, `countdown_ms` and `end_reason`.
-  - `events.jsonl` holds the server events inside the player's recording, each with the `frame_index` on screen at that moment.
+  - `session.json`: `spec_version` 3.1, `round_index`, `countdown_ms`, `end_reason`, the players (id, name, machine id, tool version, stop reason, validity), the orchestrator's own NTP measurement (`server_clock`), and how to decode the `.bin` files.
+  - `player.json`: ping, `clock_sync` (offset = server − player clock, RTT, jitter, drift, every sample), first/last frame UTC, `round_start_frame` / `round_start_video_time_ms`, recording details (fps, sizes, encoder, capture source, duplicated/dropped frames), frame stats, key bindings, stop reason, and `qa` (every check with its result).
+  - `frames.bin` (spec v3 §2.2): `frames.csv` at full precision plus each frame's `server_time_us`, as length-delimited protobuf `odx.capture.v1.FrameRecord` after a `FileHeader`; `schema.bin.gz` is the schema (`capture.proto`) as a gzip-compressed `FileDescriptorSet`.
+  - Every server event carries `event_id`, `utc`, `server_time_us`, `session_id` and `round_index`. A player's `events.jsonl` holds every event of the round with its `video_time_ms` in that player's video (negative before the first frame) and the `frame_index` on screen at that moment (null outside the video).
   - `capture/` holds the v2 `session.json` and the raw logs.
-- **Gate** (`validation.json`):
+- **Gate** (`validation.json`, per-player checks in `player.json` → `qa`; `GateTolerances`):
   - each player passes v2 §1.5;
+  - floors: ≥ 30 fps, ≥ 1280x720 (spec v3 §2), ≥ 10 s, camera on ≥ 90 % of frames when there is camera data;
   - `sync.clock`: median RTT ≤ 100 ms;
   - `sync.start`: first frame ≤ 3 s after `round_start` + `countdown_ms`;
   - `sync.end`: last frame ≥ stop − 1 s;
+  - `capture.window` (advisory): only the game window is captured;
   - the session needs K of N valid players (K = N up to 3 players, else N − 1).
 
 ## Decisions pending with the client
@@ -158,7 +162,7 @@ In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine
 - **Multiplayer (provisional):**
   - One round = one session (`<match>-rNN`).
   - Ping is the median NTP RTT to the orchestrator.
-  - The sync tolerances above (`SyncTolerances`) and the K-of-N rule are proposals (v3 §4 leaves them open).
+  - The sync tolerances above (`GateTolerances`) and the K-of-N rule are proposals (v3 §4 leaves them open); the 10 s and 90 % camera floors come from the client's sample delivery, not the spec.
   - Agents still uploading the previous round are left out of the next one.
   - Host control: any player who ticks Host can start and end rounds (no exclusive host). There is no per-player stop without a game server, so everyone records the whole round.
-  - `frames.bin`, network packets, `server_state.bin` and `schema.bin.gz` are not produced yet.
+  - Network packets and `server_state.bin` are not produced yet (they need a game server plugin); `schema.bin.gz` so far describes `frames.bin` only.

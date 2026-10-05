@@ -53,7 +53,8 @@ public abstract record AgentMessage
 }
 
 /// <summary>Agent → orchestrator, first message.</summary>
-public sealed record Hello(string PlayerId, string Name, string ToolVersion) : AgentMessage;
+/// <param name="MachineId">Stable per machine but not the machine name (a hash of it).</param>
+public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null) : AgentMessage;
 
 /// <summary>Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder).</summary>
 public sealed record Welcome(int TimePort) : AgentMessage;

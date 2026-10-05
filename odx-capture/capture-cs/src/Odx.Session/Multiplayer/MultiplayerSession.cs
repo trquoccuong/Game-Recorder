@@ -2,17 +2,18 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Odx.Core;
+using Odx.Session.Proto;
 
 namespace Odx.Session;
 
-/// <param name="StopReason">"round_end", "permanent_death" or "abort"; null while recording.</param>
-/// <param name="StopUtcMs">Server UTC when this player's recording was stopped.</param>
 /// <summary>The orchestrator's own clock against the configured NTP server (spec v3 §4 baseline: players and server).</summary>
 /// <param name="OffsetMs">NTP time − orchestrator clock.</param>
 public sealed record ServerClock(string Server, double OffsetMs, double RttMs, double MeasuredAtUtcMs);
 
+/// <param name="StopReason">"round_end", "permanent_death" or "abort"; null while recording.</param>
+/// <param name="StopUtcMs">Server UTC when this player's recording was stopped.</param>
 public sealed record RoundPlayer(string PlayerId, string Name, string? StopReason = null, double? StopUtcMs = null,
-    bool Done = false, bool UploadOk = false, string? Error = null);
+    bool Done = false, bool UploadOk = false, string? Error = null, string? ToolVersion = null, string? MachineId = null);
 
 /// <summary>
 /// One round as the orchestrator saw it (staging round.json). One round = one session (spec v3 §1: task boundaries are
@@ -24,7 +25,7 @@ public sealed record RoundRecord(string SessionId, string MatchId, string Game, 
     double? EndUtcMs, int TimePort, List<RoundPlayer> Players, int CountdownMs = 0, string? EndReason = null,
     ServerClock? ServerClock = null)
 {
-    public const string FileName = "round.json", EventsFileName = "server_events.jsonl";
+    public const string FileName = "round.json", EventsFileName = "server_events.jsonl", ProfileFileName = "game_profile.json";
 
     public static RoundRecord Load(string stagingDir) =>
         JsonSerializer.Deserialize<RoundRecord>(File.ReadAllText(Path.Combine(stagingDir, FileName)), AgentMessage.Json)
@@ -36,10 +37,13 @@ public sealed record RoundRecord(string SessionId, string MatchId, string Game, 
     internal static readonly JsonSerializerOptions PrettyJson = new(AgentMessage.Json) { WriteIndented = true };
 }
 
-/// <summary>Limits of the v3 sync gate (spec v3 §4: "more prototyping is needed to decide what a good tolerance is").</summary>
-public sealed record SyncTolerances
+/// <summary>
+/// Limits of the session gate. The sync limits are proposals (spec v3 §4: "more prototyping is needed to decide what a good
+/// tolerance is"); the floors are spec v3 §2 (720p/30 floor) and the client's sample delivery (10 s, camera on 90%).
+/// </summary>
+public sealed record GateTolerances
 {
-    public static readonly SyncTolerances Default = new();
+    public static readonly GateTolerances Default = new();
 
     /// <summary>The clock offset is known to ±RTT/2; above this the player's timestamps are not trusted.</summary>
     public double MaxRttMs { get; init; } = 100;
@@ -49,7 +53,16 @@ public sealed record SyncTolerances
     public double EndGraceMs { get; init; } = 1000;
     /// <summary>K of the "K of N player streams valid" rule; null: N for up to 3 players, else N−1 (plan Q6 proposal).</summary>
     public int? MinValidPlayers { get; init; }
+    public double MinFps { get; init; } = 30;
+    public int MinWidth { get; init; } = 1280;
+    public int MinHeight { get; init; } = 720;
+    public double MinDurationMs { get; init; } = 10_000;
+    /// <summary>Share of frames with a camera, when the capture has camera data at all (C2W is "where extractable").</summary>
+    public double MinCameraCoverage { get; init; } = 0.9;
 }
+
+/// <param name="Required">A failed required check makes the player stream invalid; the others are reported only.</param>
+public sealed record QaCheck(string Id, string Check, bool Pass, string Detail, bool Required = true);
 
 public sealed record PlayerReport(string PlayerId, bool Pass, List<Issue> Issues);
 
@@ -57,15 +70,15 @@ public sealed record SessionReport(string SessionId, bool Pass, int ValidPlayers
     List<PlayerReport> Players);
 
 /// <summary>
-/// Turns a staged round (round.json, server_events.jsonl, players/&lt;id&gt;/ with each agent's uploaded capture) into the
-/// spec v3 tree and checks it:
+/// Turns a staged round (round.json, server_events.jsonl, game_profile.json, players/&lt;id&gt;/ with each agent's uploaded
+/// capture) into the spec v3 tree and checks it:
 /// <code>
 /// &lt;vendor&gt;/&lt;mm-dd-yyyy&gt;/&lt;game&gt;/&lt;session-id&gt;/
-///   session.json  validation.json  server/events.jsonl
-///   players/&lt;id&gt;/ player.json frames.csv video.mp4 events.jsonl capture/(v2 session.json, raw logs)
+///   session.json  validation.json  schema.bin.gz  server/events.jsonl
+///   players/&lt;id&gt;/ player.json frames.csv frames.bin video.mp4 events.jsonl capture/(v2 session.json, raw logs)
 /// </code>
 /// Every frame gets a server UTC from the player's samples against the orchestrator's time service, so player
-/// events.jsonl carry the frame index at which each server event happened in that player's video.
+/// events.jsonl carry the time and frame at which each server event happened in that player's video.
 /// </summary>
 public static class MultiplayerSession
 {
@@ -76,17 +89,20 @@ public static class MultiplayerSession
     public const string SpecVersion = "3.1";
 
     public static (string Dir, SessionReport Report) Assemble(string stagingDir, string outRoot, string vendor,
-        SyncTolerances? tolerances = null)
+        GateTolerances? tolerances = null)
     {
-        var tol = tolerances ?? SyncTolerances.Default;
+        var tol = tolerances ?? GateTolerances.Default;
         var round = RoundRecord.Load(stagingDir);
         var events = ReadEvents(Path.Combine(stagingDir, RoundRecord.EventsFileName));
+        string profilePath = Path.Combine(stagingDir, RoundRecord.ProfileFileName);
+        var profile = File.Exists(profilePath) ? JsonNode.Parse(File.ReadAllText(profilePath))?.AsObject() : null;
         string dir = Path.Combine(outRoot, vendor, DateTime.UtcNow.ToString("MM-dd-yyyy", CultureInfo.InvariantCulture),
             Slug(round.Game), round.SessionId);
         Directory.CreateDirectory(Path.Combine(dir, "server"));
         WriteEvents(Path.Combine(dir, "server", "events.jsonl"), events);
+        FramesBin.WriteSchema(Path.Combine(dir, FramesBin.SchemaFileName));
 
-        var reports = round.Players.Select(p => AssemblePlayer(round, p, events, stagingDir, dir, tol)).ToList();
+        var reports = round.Players.Select(p => AssemblePlayer(round, p, events, profile, stagingDir, dir, tol)).ToList();
         int valid = reports.Count(r => r.Pass);
         int required = tol.MinValidPlayers ?? (round.Players.Count <= 3 ? round.Players.Count : round.Players.Count - 1);
         var issues = new List<Issue>();
@@ -111,7 +127,15 @@ public static class MultiplayerSession
             ["created_at_utc"] = SessionBuilder.IsoUtc(round.StartUtcMs),
             ["ended_at_utc"] = round.EndUtcMs is double end ? SessionBuilder.IsoUtc(end) : null,
             ["duration_ms"] = round.EndUtcMs is double e2 ? e2 - round.StartUtcMs : null,
-            ["players"] = new JsonArray(round.Players.Select(p => (JsonNode?)JsonValue.Create(p.PlayerId)).ToArray()),
+            ["players"] = new JsonArray(round.Players.Select(p => (JsonNode)new JsonObject
+            {
+                ["player_id"] = p.PlayerId,
+                ["name"] = p.Name,
+                ["machine_id"] = p.MachineId,
+                ["tool_version"] = p.ToolVersion,
+                ["stop_reason"] = p.StopReason,
+                ["valid"] = reports.First(r => r.PlayerId == p.PlayerId).Pass,
+            }).ToArray()),
             ["valid_players"] = valid,
             ["time_service_port"] = round.TimePort,
             ["server_clock"] = round.ServerClock is { } c
@@ -123,6 +147,19 @@ public static class MultiplayerSession
                     ["measured_at_utc"] = SessionBuilder.IsoUtc(c.MeasuredAtUtcMs),
                 }
                 : null,
+            ["files"] = new JsonObject
+            {
+                ["schema"] = FramesBin.SchemaFileName,
+                ["server_events"] = "server/events.jsonl",
+                ["players_root"] = "players/<player-id>/",
+            },
+            ["decoding"] = new JsonObject
+            {
+                ["schema_format"] = "gzip-compressed google.protobuf.FileDescriptorSet for package odx.capture.v1",
+                ["bin_layout"] = "each .bin file is a sequence of varint length-delimited protobuf messages; the first is " +
+                                 "odx.capture.v1.FileHeader, whose record_type names the type of every following message",
+                ["frames.bin"] = "odx.capture.v1.FrameRecord: one per frames.csv row, full precision, plus server_time_us",
+            },
             ["vendor_tool_version"] = BuildInfo.Version,
         };
         File.WriteAllText(Path.Combine(dir, "session.json"), session.ToJsonString(RoundRecord.PrettyJson));
@@ -130,79 +167,156 @@ public static class MultiplayerSession
         return (dir, report);
     }
 
-    private static PlayerReport AssemblePlayer(RoundRecord round, RoundPlayer player, List<JsonObject> events, string stagingDir,
-        string sessionDir, SyncTolerances tol)
+    private static PlayerReport AssemblePlayer(RoundRecord round, RoundPlayer player, List<JsonObject> events, JsonObject? profile,
+        string stagingDir, string sessionDir, GateTolerances tol)
     {
         string src = Path.Combine(stagingDir, "players", player.PlayerId);
         string dst = Path.Combine(sessionDir, "players", player.PlayerId);
         Directory.CreateDirectory(Path.Combine(dst, "capture"));
-        var issues = new List<Issue>();
-        var info = new JsonObject { ["player_id"] = player.PlayerId, ["name"] = player.Name, ["is_bot"] = false,
-            ["stop_reason"] = player.StopReason };
-
-        if (!File.Exists(Path.Combine(src, "frames.csv")) || !File.Exists(Path.Combine(src, "video_frames.csv")))
+        var checks = new List<QaCheck>();
+        var info = new JsonObject
         {
-            issues.Add(Issue.Error("player.missing", player.Error ?? "no built capture was uploaded"));
-            return Finish(dst, info, player.PlayerId, issues);
-        }
-        var v2 = SessionValidator.ValidateSession(src).Where(i => i.Severity == Issue.ErrorSeverity).ToList();
-        if (v2.Count > 0)
-            issues.Add(Issue.Error("player.v2", $"{v2.Count} spec v2 error(s): {string.Join(", ", v2.Select(i => i.Rule).Distinct())}"));
+            ["player_id"] = player.PlayerId,
+            ["name"] = player.Name,
+            ["is_bot"] = false,
+            ["machine_id"] = player.MachineId,
+            ["tool_version"] = player.ToolVersion,
+            ["stop_reason"] = player.StopReason,
+        };
 
-        File.Copy(Path.Combine(src, "frames.csv"), Path.Combine(dst, "frames.csv"), true);
-        if (File.Exists(Path.Combine(src, "video.mp4"))) File.Copy(Path.Combine(src, "video.mp4"), Path.Combine(dst, "video.mp4"), true);
+        bool uploaded = File.Exists(Path.Combine(src, "frames.csv")) && File.Exists(Path.Combine(src, "video_frames.csv")) &&
+                        File.Exists(Path.Combine(src, "session.json"));
+        checks.Add(new QaCheck("player.missing", "the player's built capture was uploaded", uploaded,
+            uploaded ? "frames.csv, video_frames.csv, session.json" : player.Error ?? "no built capture was uploaded"));
+        if (!uploaded) return Finish(dst, info, player.PlayerId, checks);
+
         foreach (string f in CaptureFiles.Where(f => File.Exists(Path.Combine(src, f))))
             File.Copy(Path.Combine(src, f), Path.Combine(dst, "capture", f), true);
+        File.Copy(Path.Combine(src, "frames.csv"), Path.Combine(dst, "frames.csv"), true);
+        if (File.Exists(Path.Combine(src, "video.mp4"))) File.Copy(Path.Combine(src, "video.mp4"), Path.Combine(dst, "video.mp4"), true);
 
+        var v2 = SessionValidator.ValidateSession(src).Where(i => i.Severity == Issue.ErrorSeverity).ToList();
+        checks.Add(new QaCheck("player.v2", "spec v2 §1.5 vendor checks", v2.Count == 0,
+            v2.Count == 0 ? "no errors" : $"{v2.Count} error(s): {string.Join(", ", v2.Select(i => i.Rule).Distinct())}"));
+        var capture = JsonNode.Parse(File.ReadAllText(Path.Combine(src, "session.json")))!.AsObject();
+        string recordingPath = Path.Combine(src, "recording.json");
+        var recording = File.Exists(recordingPath) ? JsonNode.Parse(File.ReadAllText(recordingPath))!.AsObject() : null;
+        AddRecordingInfo(info, capture, recording, profile);
+        var (_, rows) = Csv.ReadFile(Path.Combine(src, "frames.csv"));
+        AddFloorChecks(checks, capture, recording, rows, info, tol);
+
+        var frameUtc = PutFramesOnServerTime(round, src, info, checks, tol);
+        var header = new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
+            ToolVersion = player.ToolVersion ?? "" };
+        FramesBin.Write(Path.Combine(src, "frames.csv"), frameUtc, header, Path.Combine(dst, FramesBin.FileName));
+        if (frameUtc is null) return Finish(dst, info, player.PlayerId, checks);
+
+        info["first_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[0]);
+        info["last_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[^1]);
+        int roundStartFrame = frameUtc.FindIndex(t => t >= round.StartUtcMs);
+        info["round_start_frame"] = roundStartFrame < 0 ? null : roundStartFrame;
+        info["round_start_video_time_ms"] = Math.Round(round.StartUtcMs - frameUtc[0], 1);
+
+        double lateStart = frameUtc[0] - round.StartUtcMs;
+        checks.Add(new QaCheck("sync.start", $"first frame at most {tol.StartGraceMs} ms after round_start",
+            lateStart <= tol.StartGraceMs, $"first frame {lateStart:F0} ms after round_start"));
+        if ((player.StopUtcMs ?? round.EndUtcMs) is double stopAt)
+            checks.Add(new QaCheck("sync.end", $"last frame at most {tol.EndGraceMs} ms before the player's stop",
+                stopAt - frameUtc[^1] <= tol.EndGraceMs, $"last frame {stopAt - frameUtc[^1]:F0} ms before the stop"));
+
+        WriteEvents(Path.Combine(dst, "events.jsonl"), events.Select(e =>
+        {
+            double t = GameEvents.UtcMs(e);
+            var copy = (JsonObject)e.DeepClone();
+            copy["video_time_ms"] = Math.Round(t - frameUtc[0], 1);
+            int index = frameUtc.BinarySearch(t);
+            if (index < 0) index = ~index - 1;  // the frame on screen when the event happened
+            copy["frame_index"] = t >= frameUtc[0] && t <= frameUtc[^1] ? index : null;
+            return copy;
+        }));
+        return Finish(dst, info, player.PlayerId, checks);
+    }
+
+    private static void AddRecordingInfo(JsonObject info, JsonObject capture, JsonObject? recording, JsonObject? profile)
+    {
+        info["recording"] = new JsonObject
+        {
+            ["fps"] = capture["fps"]?.DeepClone(),
+            ["frame_count"] = capture["frame_count"]?.DeepClone(),
+            ["duration_ms"] = capture["duration_ms"]?.DeepClone(),
+            ["record_width_px"] = capture["record_width_px"]?.DeepClone(),
+            ["record_height_px"] = capture["record_height_px"]?.DeepClone(),
+            ["screen_width_px"] = capture["screen_width_px"]?.DeepClone(),
+            ["screen_height_px"] = capture["screen_height_px"]?.DeepClone(),
+            ["encoder"] = recording?["encoder"]?.DeepClone(),
+            ["capture_source"] = recording?["source"]?.DeepClone(),
+            ["duplicate_frames"] = recording?["duplicate_frames"]?.DeepClone(),
+            ["dropped_source_frames"] = recording?["dropped_source_frames"]?.DeepClone(),
+            ["first_frame_capture_latency_ms"] = recording?["first_frame_capture_latency_ms"]?.DeepClone(),
+        };
+        info["input_mouse_convention"] = capture["input_mouse_convention"]?.DeepClone();
+        info["key_bindings"] = profile?["bindings"]?.DeepClone();
+    }
+
+    /// <summary>Spec v3 §2 floors (720p/30) and the sample delivery's 10 s / camera-coverage checks; window-only capture is advisory.</summary>
+    private static void AddFloorChecks(List<QaCheck> checks, JsonObject capture, JsonObject? recording,
+        List<Dictionary<string, string>> rows, JsonObject info, GateTolerances tol)
+    {
+        double fps = capture["fps"]?.GetValue<double>() ?? 0;
+        int width = capture["record_width_px"]?.GetValue<int>() ?? 0, height = capture["record_height_px"]?.GetValue<int>() ?? 0;
+        double durationMs = capture["duration_ms"]?.GetValue<double>() ?? 0;
+        checks.Add(new QaCheck("floor.fps", $"at least {tol.MinFps} fps", fps >= tol.MinFps, $"{fps} fps"));
+        checks.Add(new QaCheck("floor.resolution", $"at least {tol.MinWidth}x{tol.MinHeight}",
+            width >= tol.MinWidth && height >= tol.MinHeight, $"{width}x{height}"));
+        checks.Add(new QaCheck("floor.duration", $"at least {tol.MinDurationMs / 1000} s", durationMs >= tol.MinDurationMs,
+            $"{durationMs / 1000:F1} s"));
+
+        int withCamera = rows.Count(r => r[Frames.C2wColumns[0]] != Frames.Null);
+        int withKeys = rows.Count(r => r["input_keys"] != Frames.Null);
+        int withMouse = rows.Count(r => r["input_mouse_dx"] is not ("0.0" or "null") || r["input_mouse_dy"] is not ("0.0" or "null"));
+        info["frame_stats"] = new JsonObject
+        {
+            ["frames"] = rows.Count,
+            ["frames_with_camera"] = withCamera,
+            ["frames_with_keys"] = withKeys,
+            ["frames_with_mouse"] = withMouse,
+        };
+        double coverage = rows.Count == 0 ? 0 : withCamera / (double)rows.Count;
+        checks.Add(new QaCheck("floor.camera", $"camera on at least {tol.MinCameraCoverage:P0} of frames when captured",
+            withCamera == 0 || coverage >= tol.MinCameraCoverage,
+            withCamera == 0 ? "no camera data (camera columns are optional)" : $"{coverage:P1}"));
+
+        string source = recording?["source"]?.GetValue<string>() ?? "unknown";
+        checks.Add(new QaCheck("capture.window", "only the game window is captured (no other windows or notifications)",
+            source.StartsWith("window:", StringComparison.Ordinal), source, Required: false));
+    }
+
+    /// <summary>Server UTC of each video frame, from the samples against the orchestrator's time service; null without them.</summary>
+    private static List<double>? PutFramesOnServerTime(RoundRecord round, string src, JsonObject info, List<QaCheck> checks,
+        GateTolerances tol)
+    {
         string ntpPath = Path.Combine(src, "ntp_samples.csv");
         var samples = File.Exists(ntpPath)
             ? NtpSampleReader.Read(ntpPath).Where(s => s.Server.EndsWith($":{round.TimePort}", StringComparison.Ordinal)).ToList()
             : [];
         if (samples.Count == 0)
         {
-            issues.Add(Issue.Error("sync.clock", $"no clock samples against the time service (port {round.TimePort})"));
-            return Finish(dst, info, player.PlayerId, issues);
+            checks.Add(new QaCheck("sync.clock", "clock measured against the orchestrator's time service", false,
+                $"no clock samples against the time service (port {round.TimePort})"));
+            return null;
         }
         double rtt = Median(samples.Select(s => s.RttMs));
         var best = samples.OrderBy(s => s.RttMs).Take((samples.Count + 1) / 2).ToList();
         var map = ClockMap.Fit(best.Select(s => (s.TQpcMs, s.UtcUnixMs)).ToList());
         info["ping_ms"] = Math.Round(rtt, 1);
         info["clock_sync"] = ClockSync(samples, best, map);
-        if (rtt > tol.MaxRttMs)
-            issues.Add(Issue.Error("sync.clock", $"median RTT to the time service {rtt:F0} ms > {tol.MaxRttMs} ms"));
+        checks.Add(new QaCheck("sync.clock", $"median RTT to the time service at most {tol.MaxRttMs} ms", rtt <= tol.MaxRttMs,
+            $"median RTT {rtt:F1} ms over {samples.Count} samples"));
 
         var frameUtc = VideoFrameLogReader.Read(Path.Combine(src, "video_frames.csv")).Select(f => map.ToUnixMs(f.TGridMs)).ToList();
-        if (frameUtc.Count == 0)
-        {
-            issues.Add(Issue.Error("player.missing", "no video frames"));
-            return Finish(dst, info, player.PlayerId, issues);
-        }
-        info["first_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[0]);
-        info["last_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[^1]);
-        info["frame_count"] = frameUtc.Count;
-        int roundStartFrame = frameUtc.FindIndex(t => t >= round.StartUtcMs);
-        info["round_start_frame"] = roundStartFrame < 0 ? null : roundStartFrame;
-        info["round_start_video_time_ms"] = Math.Round(round.StartUtcMs - frameUtc[0], 1);
-
-        double lateStart = frameUtc[0] - round.StartUtcMs;
-        if (lateStart > tol.StartGraceMs)
-            issues.Add(Issue.Error("sync.start", $"first frame {lateStart:F0} ms after round_start (> {tol.StartGraceMs} ms)"));
-        if ((player.StopUtcMs ?? round.EndUtcMs) is double stopAt && stopAt - frameUtc[^1] > tol.EndGraceMs)
-            issues.Add(Issue.Error("sync.end", $"last frame {stopAt - frameUtc[^1]:F0} ms before the player's stop (> {tol.EndGraceMs} ms)"));
-
-        var playerEvents = new List<JsonObject>();
-        foreach (var e in events)
-        {
-            double t = GameEvents.UtcMs(e);
-            if (t < frameUtc[0] || t > frameUtc[^1]) continue;
-            int index = frameUtc.BinarySearch(t);
-            if (index < 0) index = ~index - 1;  // the frame on screen when the event happened
-            var copy = (JsonObject)e.DeepClone();
-            copy["frame_index"] = index;
-            playerEvents.Add(copy);
-        }
-        WriteEvents(Path.Combine(dst, "events.jsonl"), playerEvents);
-        return Finish(dst, info, player.PlayerId, issues);
+        if (frameUtc.Count > 0) return frameUtc;
+        checks.Add(new QaCheck("player.frames", "the video has frames", false, "no video frames"));
+        return null;
     }
 
     /// <summary>
@@ -229,11 +343,18 @@ public static class MultiplayerSession
         }).ToArray()),
     };
 
-    private static PlayerReport Finish(string dst, JsonObject info, string playerId, List<Issue> issues)
+    private static PlayerReport Finish(string dst, JsonObject info, string playerId, List<QaCheck> checks)
     {
-        bool pass = issues.All(i => i.Severity != Issue.ErrorSeverity);
+        bool pass = checks.All(c => c.Pass || !c.Required);
         info["valid"] = pass;
+        info["qa"] = new JsonObject
+        {
+            ["stream_valid"] = pass,
+            ["checks"] = JsonSerializer.SerializeToNode(checks, AgentMessage.Json),
+        };
         File.WriteAllText(Path.Combine(dst, "player.json"), info.ToJsonString(RoundRecord.PrettyJson));
+        var issues = checks.Where(c => !c.Pass)
+            .Select(c => c.Required ? Issue.Error(c.Id, c.Detail) : Issue.Warning(c.Id, c.Detail)).ToList();
         return new PlayerReport(playerId, pass, issues);
     }
 

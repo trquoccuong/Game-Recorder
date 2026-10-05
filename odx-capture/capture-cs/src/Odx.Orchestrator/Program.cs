@@ -7,7 +7,7 @@ using Odx.Session;
 
 string? outRoot = null, profile = null;
 var options = new OrchestratorOptions("", "");
-var tolerances = SyncTolerances.Default;
+var tolerances = GateTolerances.Default;
 for (int i = 0; i < args.Length; i++)
 {
     string Next() => i + 1 < args.Length ? args[++i] : throw new ArgumentException($"{args[i]} needs a value");

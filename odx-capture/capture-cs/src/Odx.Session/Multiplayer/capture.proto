@@ -1,0 +1,36 @@
+// Records of the binary files in a spec v3 session. schema.bin.gz is this file as a gzip-compressed
+// google.protobuf.FileDescriptorSet. Each .bin file is a sequence of varint length-delimited messages: a FileHeader, then
+// messages of the type it names.
+syntax = "proto3";
+
+package odx.capture.v1;
+
+option csharp_namespace = "Odx.Session.Proto";
+
+message FileHeader {
+  string record_type = 1;  // full name of every following message, e.g. "odx.capture.v1.FrameRecord"
+  string spec_version = 2;
+  string session_id = 3;
+  string player_id = 4;
+  string tool_version = 5;
+}
+
+// One frames.csv row (spec v3 §2.2) at full double precision, plus when the frame was captured on the orchestrator's
+// clock. Unset optional fields and empty repeated fields are null in frames.csv.
+message FrameRecord {
+  int64 frame_id = 1;
+  int64 timestamp_ms = 2;
+  int64 server_time_us = 3;  // UTC microseconds since the Unix epoch; 0 when the player has no clock samples
+  repeated double c2w = 4;   // C2W_M00..C2W_M33, row-major
+  optional string camera_model = 5;
+  optional double camera_fx = 6;
+  optional double camera_fy = 7;
+  optional double camera_cx = 8;
+  optional double camera_cy = 9;
+  repeated double distortion = 10;  // camera_radial_k1..k6, camera_tangential_p1, p2
+  optional string input_keys = 11;
+  optional string input_actions = 12;
+  optional string input_mouse_buttons = 13;
+  double input_mouse_dx = 14;
+  double input_mouse_dy = 15;
+}

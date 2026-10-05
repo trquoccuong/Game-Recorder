@@ -12,7 +12,7 @@ namespace Odx.Orchestrator;
 public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath, string Vendor = "odx", int HttpPort = 5180,
     int TimePort = 12300, int Fps = 30)
 {
-    public SyncTolerances Tolerances { get; init; } = SyncTolerances.Default;
+    public GateTolerances Tolerances { get; init; } = GateTolerances.Default;
     public TimeSpan DoneTimeout { get; init; } = TimeSpan.FromMinutes(15);
 }
 
@@ -51,6 +51,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private string? _matchId, _map;
     private string _game = "";
     private int _roundNumber;
+    private long _eventId;
     private OpenRound? _current;
     private ServerClock? _serverClock;
 
@@ -112,6 +113,9 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         OpenRound? ended = null;
         lock (_lock)
         {
+            e["event_id"] = ++_eventId;
+            e["utc"] = SessionBuilder.IsoUtc(utc);
+            e["server_time_us"] = (long)Math.Round(utc * 1000);
             switch (type)
             {
                 case GameEvents.MatchStart:
@@ -128,7 +132,12 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                     StopPlayer(_current, player, utc, "permanent_death", sends);
                     break;
             }
-            _current?.Events.Add(e);
+            if (_current is { } round)
+            {
+                e["session_id"] = round.Record.SessionId;
+                e["round_index"] = round.Record.Round;
+                round.Events.Add(e);
+            }
             if (type is GameEvents.RoundEnd or GameEvents.MatchEnd && _current is not null)
                 ended = EndRound(utc, "round_end", EndReason(e), sends);
             if (type == GameEvents.MatchEnd) _matchId = null;
@@ -221,10 +230,12 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             log.LogWarning("{Player} is {State}, left out of {Session}", busy.Hello.PlayerId, busy.State, sid);
         int countdownMs = e["countdown_ms"]?.GetValue<int>() ?? 0;
         var record = new RoundRecord(sid, _matchId!, _game, _map, _roundNumber, utc + countdownMs, null, timePort,
-            ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name)).ToList(), countdownMs,
+            ready.Select(a => new RoundPlayer(a.Hello.PlayerId, a.Hello.Name, ToolVersion: a.Hello.ToolVersion,
+                MachineId: a.Hello.MachineId)).ToList(), countdownMs,
             ServerClock: Volatile.Read(ref _serverClock));
         string staging = Path.Combine(options.OutRoot, ".staging", sid);
         Directory.CreateDirectory(staging);
+        File.WriteAllText(Path.Combine(staging, RoundRecord.ProfileFileName), _profileJson);
         _current = new OpenRound(record, staging);
         _rounds[sid] = _current;
         foreach (var a in ready)

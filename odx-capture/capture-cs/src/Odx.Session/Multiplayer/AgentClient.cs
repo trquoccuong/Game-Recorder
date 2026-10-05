@@ -82,7 +82,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             Path = "/agents",
         }.Uri;
         await socket.ConnectAsync(wsUri, stop);
-        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version), stop);
+        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId), stop);
         Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
 
         var buffer = new byte[64 * 1024];
@@ -108,6 +108,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         using var response = await _http.PostAsJsonAsync("/game/events", e, stop);
         response.EnsureSuccessStatusCode();
     }
+
+    private static string MachineId =>
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(Environment.MachineName)))[..16]
+            .ToLowerInvariant();
 
     private async Task HandleAsync(AgentMessage message, CancellationToken stop)
     {

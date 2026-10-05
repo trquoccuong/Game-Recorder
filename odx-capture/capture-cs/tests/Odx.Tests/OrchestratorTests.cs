@@ -60,7 +60,11 @@ public sealed class OrchestratorTests : IAsyncLifetime
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {"W": "Forward"}}
             """);
         _app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(_root, "out"), profile, HttpPort: 0, TimePort: 0,
-            Fps: SessionFixtures.Fps), "127.0.0.1");
+            Fps: SessionFixtures.Fps)
+        {
+            // The fixture session is 320x180 and 2 s long.
+            Tolerances = GateTolerances.Default with { MinWidth = SessionFixtures.Width, MinHeight = SessionFixtures.Height, MinDurationMs = 1000 },
+        }, "127.0.0.1");
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         _coordinator = _app.Services.GetRequiredService<MatchCoordinator>();
@@ -161,8 +165,33 @@ public sealed class OrchestratorTests : IAsyncLifetime
         {
             Assert.True(File.Exists(Path.Combine(dir, "players", p, "video.mp4")));
             Assert.True(File.Exists(Path.Combine(dir, "players", p, "capture", "session.json")));
-            var kill = MultiplayerSession.ReadEvents(Path.Combine(dir, "players", p, "events.jsonl")).Single(e => GameEvents.Type(e) == "kill");
+            var events = MultiplayerSession.ReadEvents(Path.Combine(dir, "players", p, "events.jsonl"));
+            var kill = events.Single(e => GameEvents.Type(e) == "kill");
             Assert.InRange(kill["frame_index"]!.GetValue<int>(), 0, SessionFixtures.NFrames - 1);
+            Assert.Equal("m1-r01", (string?)kill["session_id"]);
+            Assert.NotNull(kill["event_id"]);
+            var roundStart = events.Single(e => GameEvents.Type(e) == "round_start");
+            Assert.Null(roundStart["frame_index"]);  // before the first frame: kept, with a negative video time
+            Assert.True((double)roundStart["video_time_ms"]! < 0);
+
+            var (header, frames) = FramesBin.Read(Path.Combine(dir, "players", p, FramesBin.FileName));
+            Assert.Equal("odx.capture.v1.FrameRecord", header.RecordType);
+            Assert.Equal(SessionFixtures.NFrames, frames.Count);
+            var (_, rows) = Csv.ReadFile(Path.Combine(dir, "players", p, "frames.csv"));
+            Assert.Equal(Frames.ParseDouble(rows[40]["C2W_M03"]), frames[40].C2W[3]);
+            Assert.True(frames[1].ServerTimeUs > frames[0].ServerTimeUs);
+
+            var player = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", p, "player.json")))!;
+            Assert.True((bool)player["qa"]!["stream_valid"]!);
+            Assert.Contains(player["qa"]!["checks"]!.AsArray(), c => (string?)c!["id"] == "floor.fps" && (bool)c["pass"]!);
+            Assert.Equal("Forward", (string?)player["key_bindings"]!["W"]);
+        }
+        using (var gzip = new System.IO.Compression.GZipStream(File.OpenRead(Path.Combine(dir, FramesBin.SchemaFileName)),
+                   System.IO.Compression.CompressionMode.Decompress))
+        {
+            var schema = Google.Protobuf.Reflection.FileDescriptorSet.Parser.ParseFrom(gzip);
+            Assert.Equal("odx.capture.v1", schema.File.Single().Package);
+            Assert.Contains(schema.File.Single().MessageType, m => m.Name == "FrameRecord");
         }
     }
 
