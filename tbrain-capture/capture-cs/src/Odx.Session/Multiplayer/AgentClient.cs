@@ -26,6 +26,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private string? _timeServer;
     private Arm? _armed;
     private string? _profilePath;
+    private string? _profileWindow;
     private readonly object _gate = new();
     private ICaptureRun? _run;
     private string? _runSessionId, _startingSessionId;
@@ -123,6 +124,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 break;
             case Arm a:
                 _armed = a;
+                _profileWindow = JsonNode.Parse(a.GameProfileJson)?["window_process"]?.GetValue<string>();
                 _profilePath = Path.Combine(Path.GetTempPath(), $"odx-agent-{options.PlayerId}-{a.SessionId}.json");
                 await File.WriteAllTextAsync(_profilePath, a.GameProfileJson, stop);
                 await SendAsync(new AgentState("armed", a.SessionId), stop);
@@ -143,6 +145,21 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         }
     }
 
+    /// <summary>
+    /// The player's choice, else the game's window from the profile when it is running, else the primary monitor (the
+    /// session's capture.window check then flags it).
+    /// </summary>
+    private string? WindowToRecord()
+    {
+        if (options.WindowProcess is not null || _profileWindow is null) return options.WindowProcess;
+        var running = System.Diagnostics.Process.GetProcessesByName(_profileWindow);
+        bool open = running.Any(p => p.MainWindowHandle != IntPtr.Zero);
+        foreach (var p in running) p.Dispose();
+        if (open) return _profileWindow;
+        Log?.Invoke($"{_profileWindow} is not running: recording the primary monitor");
+        return null;
+    }
+
     /// <summary>A Stop can arrive during the countdown or while the capture is starting; both end up here.</summary>
     private void StopCapture()
     {
@@ -161,7 +178,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         ICaptureRun run;
         try
         {
-            run = startCapture(new CaptureOptions(options.OutputRoot, options.WindowProcess, _armed!.Fps, _profilePath, _timeServer,
+            run = startCapture(new CaptureOptions(options.OutputRoot, WindowToRecord(), _armed!.Fps, _profilePath, _timeServer,
                 NtpIntervalS: 1));
         }
         catch (Exception e)

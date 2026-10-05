@@ -18,7 +18,7 @@ public sealed record SourceItem(string Label, string? Process)
     public override string ToString() => Label;  // what screen readers announce
 }
 
-public sealed record GameItem(string Label, string? Path)
+public sealed record GameItem(string Label, string? Path, string? WindowProcess = null)
 {
     public override string ToString() => Label;
 }
@@ -221,7 +221,8 @@ public partial class MainWindow : Window
             {
                 try
                 {
-                    items.Add(new GameItem(GameProfile.Load(file).GameTitle, file));
+                    var profile = GameProfile.Load(file);
+                    items.Add(new GameItem(profile.GameTitle, file, profile.WindowProcess));
                 }
                 catch (Exception e) when (e is IOException or FormatException or System.Text.Json.JsonException)
                 {
@@ -513,6 +514,16 @@ public partial class MainWindow : Window
         if (_state == RunState.Stopping) SetState(RunState.Idle, t => t.Disconnected);
         else ShowAgentStatus();
         if (_closeWhenIdle) Close();
+    }
+
+    /// <summary>Picking a game whose window is open switches the source from the monitor to that window.</summary>
+    private void Game_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        if (!IsLoaded || _state != RunState.Idle || GameBox.SelectedItem is not GameItem { WindowProcess: { } process } ||
+            SourceBox.SelectedItem is not SourceItem { Process: null } || !_windows.Any(w => w.Process == process))
+            return;
+        _settings.WindowProcess = process;
+        LoadSources();
     }
 
     private void StartStop_Click(object sender, RoutedEventArgs e) => Toggle();

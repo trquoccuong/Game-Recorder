@@ -1,0 +1,36 @@
+{
+  "game_title": "Counter-Strike 2",
+  "platform": "PC",
+  "localization": "en-US",
+  "window_process": "cs2",
+  "input_mouse_convention": {
+    "maps_to": "camera_look_velocity",
+    "dx_positive": "right",
+    "dx_negative": "left",
+    "dy_positive": "down",
+    "dy_negative": "up"
+  },
+  "bindings": {
+    "W": "Forward",
+    "S": "Backward",
+    "A": "Strafe Left",
+    "D": "Strafe Right",
+    "Space": "Jump",
+    "Ctrl": "Crouch",
+    "Shift": "Walk",
+    "R": "Reload",
+    "E": "Use",
+    "G": "Drop",
+    "F": "Inspect",
+    "B": "Buy Menu",
+    "Q": "Last Weapon",
+    "1": "Primary Weapon",
+    "2": "Secondary Weapon",
+    "3": "Knife",
+    "4": "Grenade",
+    "5": "Bomb",
+    "Tab": "Scoreboard",
+    "Left": "Shoot",
+    "Right": "Aim"
+  }
+}
