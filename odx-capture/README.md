@@ -51,7 +51,8 @@ Run `odx input` and `odx record` into the same `--out` folder. Grid times (`t_gr
 - English / Vietnamese UI (all texts in `src/Odx.App/Strings.cs`; defaults to the Windows display language, switchable at any time). Validator issue messages stay in English.
 - Source (primary monitor or a window), FPS, output folder and NTP server (default `time.windows.com`, passed to `odx input --ntp`; the result shows the measured RTT and Windows clock offset and warns above 1 s); settings saved in `%APPDATA%\Odx\odx-app.json`.
 - Global start/stop hotkey, default `F10`; click the hotkey box and press a new combination to change it. While the app runs, other programs (and the game) do not receive that key. It is still recorded in `input_events.csv`; `odx build` leaves it out of `input_keys` as long as the game profile does not bind it.
-- Start shows a 3-second countdown overlay (click-through, never takes focus); capture begins after it closes, so it is not in the video. Start/hotkey again during the countdown cancels.
+- Start shows a 3-second countdown overlay (click-through, never takes focus); capture begins after it closes, so it is not in the video. Start/hotkey again during the countdown cancels. Stopping shows an "END" badge once both capture tools have exited (also never in the video), then a Windows notification with the result; clicking it opens the session folder.
+- One instance only: starting it again brings the running window back from the tray.
 - Minimizing hides it to the tray; the hotkey keeps working.
 
 ```bash

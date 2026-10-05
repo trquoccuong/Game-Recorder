@@ -45,6 +45,7 @@ public partial class MainWindow : Window
     private int _countdownLeft;
     private DateTime _runStarted;
     private bool _closeWhenIdle;
+    private string? _lastSessionDir;
     /// <summary>Windows that can be recorded, listed off the UI thread (~200 ms) once the window is up and on Refresh.</summary>
     private List<SourceItem> _windows = [];
     private bool _windowsListed;
@@ -74,6 +75,10 @@ public partial class MainWindow : Window
         _trayExit.Click += (_, _) => Close();
         _tray.ContextMenuStrip.Items.AddRange([_trayStartStop, _trayShow, _trayExit]);
         _tray.DoubleClick += (_, _) => RestoreFromTray();
+        _tray.BalloonTipClicked += (_, _) =>
+        {
+            if (_lastSessionDir is not null && Directory.Exists(_lastSessionDir)) Process.Start("explorer.exe", _lastSessionDir);
+        };
         _tray.Visible = true;
         ApplyLanguage();
     }
@@ -163,7 +168,8 @@ public partial class MainWindow : Window
         return IntPtr.Zero;
     }
 
-    private void RestoreFromTray()
+    /// <summary>Also called when the app is started a second time (App: single instance).</summary>
+    public void RestoreFromTray()
     {
         Show();
         WindowState = WindowState.Normal;
@@ -318,8 +324,23 @@ public partial class MainWindow : Window
             _clock.Start();
             ShowRecordingStatus();
         }), TaskContinuationOptions.OnlyOnRanToCompletion);
+        // Shown only once both capture tools have exited, so the badge never ends up in the video.
+        run.CaptureStopped.ContinueWith(_ => Dispatcher.Invoke(ShowEndBadge), TaskContinuationOptions.OnlyOnRanToCompletion);
         run.Completion.ContinueWith(t => Dispatcher.Invoke(() => OnRunCompleted(t.Result)),
             TaskContinuationOptions.OnlyOnRanToCompletion);
+    }
+
+    private void ShowEndBadge()
+    {
+        var badge = new CountdownOverlay { Text = _t.EndOverlay };
+        badge.Show();
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1.5) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            badge.Close();
+        };
+        timer.Start();
     }
 
     private void StopRecording()
@@ -331,7 +352,10 @@ public partial class MainWindow : Window
     private void OnRunCompleted(RunResult result)
     {
         _run = null;
+        _lastSessionDir = result.SessionDir;
         SetState(RunState.Idle, t => t.Describe(result));
+        var (title, body) = _t.Notification(result);
+        _tray.ShowBalloonTip(10_000, title, body, result.Ok ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
         if (_closeWhenIdle) Close();
     }
 

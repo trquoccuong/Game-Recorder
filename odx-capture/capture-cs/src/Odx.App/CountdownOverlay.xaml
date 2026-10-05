@@ -4,7 +4,7 @@
         Title="Odx Capture countdown" WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         Topmost="True" ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize"
         SizeToContent="WidthAndHeight" WindowStartupLocation="CenterScreen" IsHitTestVisible="False">
-    <Border Background="#B0000000" CornerRadius="24" Width="180" Height="180">
+    <Border Background="#B0000000" CornerRadius="24" MinWidth="180" Height="180" Padding="32,0">
         <TextBlock x:Name="Number" Foreground="White" FontSize="110" FontWeight="SemiBold"
                    HorizontalAlignment="Center" VerticalAlignment="Center" />
     </Border>

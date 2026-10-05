@@ -62,6 +62,11 @@ public sealed class Strings
     public required Func<string, string> HotkeyInUse { get; init; }
     public required string PressKeys { get; init; }
     public required Func<string, string> TrayTooltip { get; init; }
+    public required string EndOverlay { get; init; }
+    public required string NotifySavedPass { get; init; }
+    public required string NotifySavedRaw { get; init; }
+    public required string NotifyFailed { get; init; }
+    public required string OpenFolderHint { get; init; }
 
     public required Func<string, string> Saved { get; init; }
     public required Func<string, string> StoppedWithErrors { get; init; }
@@ -113,6 +118,11 @@ public sealed class Strings
         HotkeyInUse = hotkey => $"Hotkey {hotkey} is already used by another application; choose another one.",
         PressKeys = "Press a key combination…",
         TrayTooltip = state => $"Odx Capture: {state}",
+        EndOverlay = "END",
+        NotifySavedPass = "Recording saved · validation PASS",
+        NotifySavedRaw = "Recording saved (raw capture)",
+        NotifyFailed = "Recording stopped with errors",
+        OpenFolderHint = "Click to open the folder.",
         Saved = dir => $"Saved: {dir}",
         StoppedWithErrors = dir => $"Stopped with errors: {dir}",
         FramesSummary = (frames, w, h, fps, duplicates, dropped) =>
@@ -166,6 +176,11 @@ public sealed class Strings
         HotkeyInUse = hotkey => $"Phím tắt {hotkey} đang được ứng dụng khác dùng; hãy chọn phím khác.",
         PressKeys = "Nhấn tổ hợp phím…",
         TrayTooltip = state => $"Odx Capture: {state}",
+        EndOverlay = "KẾT THÚC",
+        NotifySavedPass = "Đã lưu bản ghi · Kiểm tra ĐẠT",
+        NotifySavedRaw = "Đã lưu bản ghi (dữ liệu thô)",
+        NotifyFailed = "Bản ghi có lỗi",
+        OpenFolderHint = "Bấm để mở thư mục.",
         Saved = dir => $"Đã lưu: {dir}",
         StoppedWithErrors = dir => $"Đã dừng nhưng có lỗi: {dir}",
         FramesSummary = (frames, w, h, fps, duplicates, dropped) =>
@@ -181,6 +196,10 @@ public sealed class Strings
         ClockSystem = "Đồng hồ: chỉ dùng đồng hồ Windows (chưa đo được NTP — kiểm tra máy chủ NTP)",
         ClockWarning = offset => $"Cảnh báo: đồng hồ Windows lệch {Math.Abs(offset) / 1000:F1} giây; hãy sửa đồng bộ giờ của Windows.",
     };
+
+    /// <summary>Title and text of the Windows notification shown when a recording is finished.</summary>
+    public (string Title, string Body) Notification(RunResult r) =>
+        (!r.Ok ? NotifyFailed : r.Build is null ? NotifySavedRaw : NotifySavedPass, $"{r.SessionDir}\n{OpenFolderHint}");
 
     /// <summary>Multi-line result of one recording in this language.</summary>
     public string Describe(RunResult r)
