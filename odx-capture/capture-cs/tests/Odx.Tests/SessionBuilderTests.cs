@@ -215,3 +215,21 @@ public class SessionBuilderTests
         if (SessionFixtures.HasFfmpeg) SessionFixtures.MakeVideo(Path.Combine(dir, "video.mp4"));
     }
 }
+
+public class GameProfileTests
+{
+    private static readonly string GamesDir =
+        Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "games"));
+
+    [Fact]
+    public void Every_shipped_profile_loads()
+    {
+        var files = Directory.GetFiles(GamesDir, "*.json");
+        Assert.NotEmpty(files);
+        Assert.All(files, f => Assert.NotEmpty(GameProfile.Load(f).Bindings));
+    }
+
+    [Fact]
+    public void Cs2_profile_names_the_game_window() =>
+        Assert.Equal("cs2", GameProfile.Load(Path.Combine(GamesDir, "cs2.json")).WindowProcess);
+}

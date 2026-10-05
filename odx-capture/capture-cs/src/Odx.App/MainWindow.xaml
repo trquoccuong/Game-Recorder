@@ -45,6 +45,7 @@
 
         <Label x:Name="GameLabel" Grid.Row="2" />
         <ComboBox x:Name="GameBox" AutomationProperties.AutomationId="GameBox" Grid.Row="2" Grid.Column="1"
+                  SelectionChanged="Game_Changed"
                   Margin="0,0,0,6" DisplayMemberPath="Label" />
 
         <Label x:Name="FpsLabel" Grid.Row="3" />
