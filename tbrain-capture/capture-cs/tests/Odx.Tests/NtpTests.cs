@@ -91,3 +91,28 @@ public class NtpTests
         Assert.Equal(Utc2026 + 3_600_000 * (1 + ppm), map.ToUnixMs(3_600_000), 0.01);
     }
 }
+
+public class NtpResponderTests
+{
+    [Fact]
+    public async Task Answers_sntp_queries_from_this_clock()
+    {
+        using var udp = NtpResponder.Bind(0);
+        int port = ((System.Net.IPEndPoint)udp.Client.LocalEndPoint!).Port;
+        using var stop = new CancellationTokenSource();
+        var server = NtpResponder.RunAsync(udp, stop.Token);
+
+        var samples = Enumerable.Range(0, 5).Select(_ => SntpClient.Query($"127.0.0.1:{port}", TimeSpan.FromSeconds(2))).ToList();
+
+        Assert.All(samples, s => Assert.InRange(s.RttMs, 0, 50));
+        Assert.All(samples, s => Assert.InRange(s.SystemOffsetMs, -5, 5));  // same machine, same clock
+        Assert.All(samples, s => Assert.Equal($"127.0.0.1:{port}", s.Server));
+        stop.Cancel();
+        await server;
+    }
+
+    [Fact]
+    public void Ignores_packets_that_are_not_client_requests() =>
+        Assert.Null(NtpResponder.Reply(new byte[48] { 0x24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }, 0, 0));
+}
