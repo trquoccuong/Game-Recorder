@@ -38,6 +38,7 @@ public static class GameEvents
 [JsonDerivedType(typeof(Stop), "stop")]
 [JsonDerivedType(typeof(AgentState), "state")]
 [JsonDerivedType(typeof(Done), "done")]
+[JsonDerivedType(typeof(Ready), "ready")]
 public abstract record AgentMessage
 {
     public static readonly JsonSerializerOptions Json = new()
@@ -54,7 +55,9 @@ public abstract record AgentMessage
 
 /// <summary>Agent → orchestrator, first message.</summary>
 /// <param name="MachineId">Stable per machine but not the machine name (a hash of it).</param>
-public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null) : AgentMessage;
+/// <param name="IsHost">This player starts and ends rounds; the ready check counts the other players only.</param>
+public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null, bool IsHost = false)
+    : AgentMessage;
 
 /// <summary>Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder).</summary>
 public sealed record Welcome(int TimePort) : AgentMessage;
@@ -69,7 +72,7 @@ public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : Ag
 /// </summary>
 public sealed record Start(string SessionId, int CountdownMs = 0) : AgentMessage;
 
-/// <summary>Orchestrator → agent: stop capturing ("round_end", "permanent_death", "abort").</summary>
+/// <summary>Orchestrator → agent: stop capturing ("round_end", "permanent_death", "abort", or "cancelled": discard).</summary>
 public sealed record Stop(string SessionId, string Reason) : AgentMessage;
 
 /// <summary>Agent → orchestrator: idle, armed, recording, building, uploading, error.</summary>
@@ -77,3 +80,6 @@ public sealed record AgentState(string State, string? Detail = null) : AgentMess
 
 /// <summary>Agent → orchestrator: the session's files are uploaded (or why not).</summary>
 public sealed record Done(string SessionId, bool Ok, string? Error = null) : AgentMessage;
+
+/// <summary>Agent → orchestrator: the player is (not) ready; when every player is, a round starts after a countdown.</summary>
+public sealed record Ready(bool IsReady) : AgentMessage;

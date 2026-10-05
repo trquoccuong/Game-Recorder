@@ -1,5 +1,5 @@
 // odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] [--time-port 12300]
-//                  [--fps 30] [--min-valid K] [--max-rtt-ms 100]
+//                  [--fps 30] [--min-valid K] [--max-rtt-ms 100] [--ready-countdown-ms 5000] [--min-ready 2]
 // Runs next to the game server; agents connect to ws://<host>:<http-port>/agents, the game server plugin posts events.
 using System.Globalization;
 using Odx.Orchestrator;
@@ -22,13 +22,15 @@ for (int i = 0; i < args.Length; i++)
         case "--fps": options = options with { Fps = NextInt() }; break;
         case "--min-valid": tolerances = tolerances with { MinValidPlayers = NextInt() }; break;
         case "--max-rtt-ms": tolerances = tolerances with { MaxRttMs = NextInt() }; break;
+        case "--ready-countdown-ms": options = options with { ReadyCountdownMs = NextInt() }; break;
+        case "--min-ready": options = options with { MinReadyPlayers = NextInt() }; break;
         default: outRoot = null; i = args.Length; break;
     }
 }
 if (outRoot is null || profile is null)
 {
     Console.Error.WriteLine("usage: odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] " +
-                            "[--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100]");
+                            "[--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100] [--ready-countdown-ms 5000] [--min-ready 2]");
     return 2;
 }
 

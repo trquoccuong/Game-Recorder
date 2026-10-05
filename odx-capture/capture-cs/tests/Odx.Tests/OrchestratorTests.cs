@@ -50,6 +50,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
     private HttpClient _http = null!;
     private MatchCoordinator _coordinator = null!;
     private readonly List<AgentClient> _agents = [];
+    private const int ReadyCountdownMs = 1500;
 
     public async Task InitializeAsync()
     {
@@ -64,6 +65,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         {
             // The fixture session is 320x180 and 2 s long.
             Tolerances = GateTolerances.Default with { MinWidth = SessionFixtures.Width, MinHeight = SessionFixtures.Height, MinDurationMs = 1000 },
+            ReadyCountdownMs = ReadyCountdownMs,
         }, "127.0.0.1");
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
@@ -143,6 +145,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         await Task.WhenAll(started.Select(s => s.Task)).WaitAsync(TimeSpan.FromSeconds(10));
         await Post(new { type = "kill", attacker = "p1", victim = "p2", weapon = "ak47" });
         await Post(new { type = "player_death", player = "p2", permanent = true });
+        await Task.Delay(1200);  // past the 1 s countdown: a round_end during it would cancel the round
         await Post(new { type = "round_end", winner = "t" });
 
         var (dir, report) = await session;
@@ -152,7 +155,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.EndsWith(Path.Combine("odx", DateTime.UtcNow.ToString("MM-dd-yyyy", CultureInfo.InvariantCulture), "synthetic", "m1-r01"), dir);
 
         var serverEvents = MultiplayerSession.ReadEvents(Path.Combine(dir, "server", "events.jsonl")).Select(GameEvents.Type);
-        Assert.Equal(["round_start", "kill", "player_death", "round_end"], serverEvents);
+        Assert.Equal(["match_start", "round_countdown", "kill", "player_death", "round_start", "round_end"], serverEvents);
         Assert.Equal("permanent_death", (string?)JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", "p2", "player.json")))!["stop_reason"]);
         var p1 = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", "p1", "player.json")))!;
         Assert.Equal("round_end", (string?)p1["stop_reason"]);
@@ -170,9 +173,12 @@ public sealed class OrchestratorTests : IAsyncLifetime
             Assert.InRange(kill["frame_index"]!.GetValue<int>(), 0, SessionFixtures.NFrames - 1);
             Assert.Equal("m1-r01", (string?)kill["session_id"]);
             Assert.NotNull(kill["event_id"]);
+            var countdown = events.Single(e => GameEvents.Type(e) == "round_countdown");
+            Assert.Null(countdown["frame_index"]);  // before the first frame: kept, with a negative video time
+            Assert.True((double)countdown["video_time_ms"]! < 0);
+            var player = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", p, "player.json")))!;
             var roundStart = events.Single(e => GameEvents.Type(e) == "round_start");
-            Assert.Null(roundStart["frame_index"]);  // before the first frame: kept, with a negative video time
-            Assert.True((double)roundStart["video_time_ms"]! < 0);
+            Assert.Equal((int)player["round_start_frame"]!, (int)roundStart["frame_index"]! + 1);
 
             var (header, frames) = FramesBin.Read(Path.Combine(dir, "players", p, FramesBin.FileName));
             Assert.Equal("odx.capture.v1.FrameRecord", header.RecordType);
@@ -181,7 +187,6 @@ public sealed class OrchestratorTests : IAsyncLifetime
             Assert.Equal(Frames.ParseDouble(rows[40]["C2W_M03"]), frames[40].C2W[3]);
             Assert.True(frames[1].ServerTimeUs > frames[0].ServerTimeUs);
 
-            var player = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "players", p, "player.json")))!;
             Assert.True((bool)player["qa"]!["stream_valid"]!);
             Assert.Contains(player["qa"]!["checks"]!.AsArray(), c => (string?)c!["id"] == "floor.fps" && (bool)c["pass"]!);
             Assert.Equal("Forward", (string?)player["key_bindings"]!["W"]);
@@ -233,6 +238,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.Equal([300, 300], countdownMs);
         await Task.WhenAll(started.Select(s => s.Task)).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.NotNull((await _http.GetFromJsonAsync<JsonObject>("/status"))!["current_session"]);
+        await Task.Delay(600);  // past the countdown: ending during it would cancel the round
         await _agents[0].ToggleRoundAsync(300, default);
 
         var (_, report) = await session;
@@ -241,26 +247,76 @@ public sealed class OrchestratorTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CaptureStartsWithTheCountdownAndStopsWhenTheRoundEndsDuringIt()
+    public async Task StoppingDuringTheCountdownCancelsTheRoundAndItsNumberIsUsedAgain()
     {
         var started = ConnectAgents(null, "p1");
         await WaitForAgents(1);
-        var countdown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _agents[0].Countdown += (_, _) => countdown.TrySetResult();
-        var session = NextSession();
+        var cancelled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _coordinator.RoundCancelled += sid => cancelled.TrySetResult(sid);
 
         await _agents[0].ToggleRoundAsync(10_000, default);
-        await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await started[0].Task.WaitAsync(TimeSpan.FromSeconds(5));
         await _agents[0].ToggleRoundAsync(10_000, default);
+        string cancelledId = await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitForAgents(1);
+        var status = (await _http.GetFromJsonAsync<JsonObject>("/status"))!;
+        Assert.Null(status["current_session"]);
+        Assert.Empty(status["pending_sessions"]!.AsArray());
 
+        var session = NextSession();
+        await _agents[0].ToggleRoundAsync(200, default);
+        await Task.Delay(600);
+        await _agents[0].ToggleRoundAsync(200, default);
         var (dir, report) = await session;
-        Assert.Contains(report.Players[0].Issues, i => i.Message == "no game window");
+        Assert.Equal(cancelledId, report.SessionId);
         var json = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "session.json")))!;
         Assert.Equal("3.1", (string?)json["spec_version"]);
-        Assert.Equal(10_000, (int)json["countdown_ms"]!);
+        Assert.Equal(200, (int)json["countdown_ms"]!);
         Assert.Equal("player_stop:p1", (string?)json["end_reason"]);
-        await WaitForAgents(1);
+        var types = MultiplayerSession.ReadEvents(Path.Combine(dir, "server", "events.jsonl")).Select(GameEvents.Type).ToList();
+        Assert.Equal(["round_cancelled", "round_countdown", "round_start", "round_end"], types);
+    }
+
+    [Fact]
+    public async Task EveryPlayerReadyStartsARoundAfterTheCountdown()
+    {
+        ConnectAgents(null, "p1", "p2");
+        await WaitForAgents(2);
+        var countdown = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agents[0].Countdown += (ms, _) => countdown.TrySetResult(ms);
+        var session = NextSession();
+
+        await _agents[0].SetReadyAsync(true, default);
+        await Task.Delay(300);
+        Assert.Null((await _http.GetFromJsonAsync<JsonObject>("/status"))!["current_session"]);
+        await _agents[1].SetReadyAsync(true, default);
+        Assert.Equal(ReadyCountdownMs, await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        await Task.Delay(ReadyCountdownMs + 300);
+        await Post(new { type = "round_end" });
+
+        var (dir, _) = await session;
+        var types = MultiplayerSession.ReadEvents(Path.Combine(dir, "server", "events.jsonl")).Select(GameEvents.Type).ToList();
+        Assert.Equal(["player_ready", "player_ready", "round_countdown", "round_start", "round_end"], types);
+        Assert.False(_agents[0].IsReady);
+    }
+
+    [Fact]
+    public async Task UnreadyDuringTheCountdownCancelsTheRound()
+    {
+        ConnectAgents(null, "p1", "p2");
+        await WaitForAgents(2);
+        var countdown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _agents[0].Countdown += (_, _) => countdown.TrySetResult();
+        var cancelled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _coordinator.RoundCancelled += sid => cancelled.TrySetResult(sid);
+
+        await _agents[0].SetReadyAsync(true, default);
+        await _agents[1].SetReadyAsync(true, default);
+        await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await _agents[1].SetReadyAsync(false, default);
+
+        Assert.EndsWith("-r01", await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Null((await _http.GetFromJsonAsync<JsonObject>("/status"))!["current_session"]);
     }
 
     [Fact]

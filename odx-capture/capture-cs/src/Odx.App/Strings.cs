@@ -70,6 +70,8 @@ public sealed class Strings
     public required Func<string, string, string> AgentStatus { get; init; }
     public required string Disconnected { get; init; }
     public required Func<string, string> HostHint { get; init; }
+    public required Func<string, string> ReadyHint { get; init; }
+    public required Func<string, string> ReadyOn { get; init; }
     public required Func<string, string> RoundToggleFailed { get; init; }
     public required Func<string, string> TrayTooltip { get; init; }
     public required string EndOverlay { get; init; }
@@ -137,6 +139,8 @@ public sealed class Strings
         AgentStatus = (url, log) => $"Orchestrator {url}: recordings start and stop with the game's rounds.\n{log}",
         Disconnected = "Disconnected from the orchestrator",
         HostHint = hotkey => $"Host: press {hotkey} to start or end the round for everyone.",
+        ReadyHint = hotkey => $"Press {hotkey} when you are ready; the round starts when everyone is.",
+        ReadyOn = hotkey => $"READY: waiting for the others ({hotkey} to cancel).",
         RoundToggleFailed = error => $"Could not start/end the round: {error}",
         TrayTooltip = state => $"Odx Capture: {state}",
         EndOverlay = "END",
@@ -206,6 +210,8 @@ public sealed class Strings
         AgentStatus = (url, log) => $"Orchestrator {url}: tự ghi theo từng round của game.\n{log}",
         Disconnected = "Đã ngắt kết nối orchestrator",
         HostHint = hotkey => $"Host: nhấn {hotkey} để bắt đầu hoặc kết thúc round cho mọi người.",
+        ReadyHint = hotkey => $"Nhấn {hotkey} khi bạn sẵn sàng; round bắt đầu khi mọi người đều sẵn sàng.",
+        ReadyOn = hotkey => $"ĐÃ SẴN SÀNG: đang chờ người khác (nhấn {hotkey} để hủy).",
         RoundToggleFailed = error => $"Không bắt đầu/kết thúc được round: {error}",
         TrayTooltip = state => $"Odx Capture: {state}",
         EndOverlay = "KẾT THÚC",
