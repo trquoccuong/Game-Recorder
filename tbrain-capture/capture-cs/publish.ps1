@@ -35,7 +35,7 @@ $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PAT
 # (odx record took ~3 s cold without it).
 $publishes = @(
     @{ Project = 'Odx.App'; Out = $bin; Framework = $null },
-    @{ Project = 'Odx.Cli'; Out = $bin; Framework = 'net8.0-windows10.0.22621.0' },
+    @{ Project = 'Odx.Cli'; Out = $bin; Framework = 'net10.0-windows10.0.22621.0' },
     @{ Project = 'Odx.Orchestrator'; Out = $bin; Framework = $null }
 )
 foreach ($p in $publishes) {

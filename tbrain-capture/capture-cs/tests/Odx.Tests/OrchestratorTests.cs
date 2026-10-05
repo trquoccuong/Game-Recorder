@@ -496,7 +496,7 @@ public sealed class RoomLanTests
         _ = host.RunUntilStoppedAsync(stop.Token);
 
         var state = await lan.Task.WaitAsync(TimeSpan.FromSeconds(60));
-        Assert.Equal("ok", state.Status);
+        Assert.True(state.Status == "ok", $"{state.Status}: {state.Address}");
         Assert.StartsWith("10.147.20.", state.Address);
         Assert.Equal(host.Room!.LanNetworkId, state.NetworkId);
 
