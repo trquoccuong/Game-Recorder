@@ -5,8 +5,8 @@ using System.Windows.Threading;
 namespace Odx.App;
 
 /// <summary>
-/// A notice in the top right corner of the main screen that closes by itself (<see cref="Overlay"/>): Windows hides tray
-/// notifications while a game runs full screen, so a saved recording would go unnoticed.
+/// A notice in the top right corner of the main screen that closes by itself (<see cref="Overlay"/>), in place of tray
+/// notifications, which Windows hides while a game runs full screen.
 /// </summary>
 public partial class ToastOverlay : Window
 {

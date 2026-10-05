@@ -8,7 +8,7 @@
 # -Orchestrator / -AccessKey preset the package's bin/odx-capture.json for a deployed orchestrator (deploy/up.sh prints
 # both), so players only type a room's invite code; without them the repository's odx-capture.json is shipped.
 #
-# Output: dist/odx-capture-<version>-win-x64/ and dist/odx-capture-<version>-win-x64.zip
+# Output: dist/odx-capture-<version>-win-x64/ (its data\ is kept across rebuilds) and dist/odx-capture-<version>-win-x64.zip
 param([string]$Version = "0.1.0", [string]$Orchestrator = "", [string]$AccessKey = "")
 $ErrorActionPreference = 'Stop'
 
@@ -29,12 +29,12 @@ New-Item -ItemType Directory -Force $out, $bin, $cache, (Join-Path $out 'data\ca
 $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 
 # Layout: "Odx Capture.exe" (launcher) at the root; odx-app.exe, odx.exe, odx-orchestrator.exe, ffmpeg/ and games/ in bin/.
-# The launcher is NativeAOT (~2 MB): Windows Defender scans a new executable before it runs, which takes 12-27 s for
-# the 240 MB odx-app.exe on its first launch; the launcher is scanned at once and shows the splash meanwhile.
+# The launcher is NativeAOT (~2 MB): Windows Defender scans a new executable before its first run (12-27 s for the
+# 240 MB odx-app.exe); the launcher is scanned at once and shows the splash meanwhile.
 # Single-file: each executable embeds its own .NET runtime and libraries (WPF's native libraries are extracted at first
-# run), so the two never share or overwrite files; no .pdb files. Not compressed: decompressing on every start took
-# odx-app ~10 s to show its window, and the zip is compressed anyway. ReadyToRun avoids most JIT work at startup
-# (odx record took ~3 s cold without it).
+# run), so the two never share or overwrite files; no .pdb files. Not compressed: decompressing on every start delays
+# odx-app's window by ~10 s, and the zip is compressed anyway. ReadyToRun avoids most JIT work at startup (~3 s for a
+# cold odx record).
 $publishes = @(
     @{ Project = 'Odx.App'; Out = $bin; Framework = $null },
     @{ Project = 'Odx.Cli'; Out = $bin; Framework = 'net10.0-windows10.0.22621.0' },
