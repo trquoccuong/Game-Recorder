@@ -32,13 +32,23 @@ public static class Cs2ServerCapture
 
     /// <param name="Events">For events.jsonl, with utc_ms; "source": "demo".</param>
     /// <param name="Info">For session.json "server".</param>
-    public sealed record Result(List<JsonObject> Events, JsonObject Info);
+    /// <param name="Cameras">Each player's camera at every tick, by SteamID64, for their frames.</param>
+    public sealed record Result(List<JsonObject> Events, JsonObject Info, IReadOnlyDictionary<string, List<CameraSample>> Cameras);
+
+    /// <summary>A player's camera at one server tick, in the game's world (CS2: right-handed, Z up, inches).</summary>
+    /// <param name="FovDeg">Horizontal field of view at 4:3, as CS2 defines it.</param>
+    /// <param name="Alive">False while dead: the screen shows someone else's view then.</param>
+    public sealed record CameraSample(long UtcUs, Core.Vec3 Eye, double Pitch, double Yaw, double FovDeg, bool Alive);
 
     public static bool IsStaged(string stagingServerDir) =>
         File.Exists(Path.Combine(stagingServerDir, DemoFile)) || File.Exists(Path.Combine(stagingServerDir, NetLogFile));
 
-    public static Result Write(string stagingServerDir, string sessionServerDir, FileHeader header)
+    /// <param name="playerIds">SteamID64 → the session's player id, for the players of the round.</param>
+    public static Result Write(string stagingServerDir, string sessionServerDir, FileHeader header,
+        IReadOnlyDictionary<string, string>? playerIds = null)
     {
+        playerIds ??= new Dictionary<string, string>();
+        var cameras = new Dictionary<string, List<CameraSample>>();
         Directory.CreateDirectory(Path.Combine(sessionServerDir, "capture"));
         var info = new JsonObject();
         var events = new List<JsonObject>();
@@ -59,6 +69,7 @@ public static class Cs2ServerCapture
         var records = lines.Select(PacketOf)
             .Concat(signon.Where(m => m.Line.UtcUs >= (recordingStartMs ?? 0) * 1000).Select(m => SignonPacketOf(m.Line, m.Id, m.Payload)))
             .OrderBy(r => r.ServerTimeUs).ToList();
+        foreach (var r in records) r.PeerPlayerId = playerIds.GetValueOrDefault(r.PeerId, "");
         if (records.Count > 0)
         {
             PacketLog.WriteRecords(records, header.Clone(), Path.Combine(sessionServerDir, PacketLog.BinFile),
@@ -74,14 +85,16 @@ public static class Cs2ServerCapture
             clock ??= TickClock.FromRecordingStart(recordingStartMs, demo);
             if (clock is not null)
             {
-                var (states, eventNames) = WriteState(demo, clock, eventList, header.Clone(), Path.Combine(sessionServerDir, StateFile), events);
+                var (states, eventNames, demoInfo) = WriteState(demo, clock, eventList, playerIds, header.Clone(),
+                    Path.Combine(sessionServerDir, StateFile), events, cameras);
                 info["server_state"] = new JsonObject { ["source"] = "SourceTV demo", ["records"] = states };
                 info["game_event_names"] = eventNames;
+                foreach (var (key, value) in demoInfo) info[key] = value?.DeepClone();
             }
             File.Copy(demo, Path.Combine(sessionServerDir, "capture", DemoFile), true);
         }
         info["tick_clock"] = clock?.Describe();
-        return new Result(events, info);
+        return new Result(events, info, cameras);
     }
 
     /// <summary>One line of the plugin's log (cs2-plugin/src/plugin.cpp writes them).</summary>
@@ -214,10 +227,13 @@ public static class Cs2ServerCapture
     /// mid-map does not always carry one).</param>
     /// <returns>The records written, and where the game event names came from (null: none, so only the round events the
     /// game rules entity tells are in <paramref name="events"/>).</returns>
-    private static (int Records, string? EventNames) WriteState(string demoPath, TickClock clock, CMsgSource1LegacyGameEventList? eventList, FileHeader header,
-        string binPath, List<JsonObject> events)
+    /// <returns>… and the server's build, tick rate, map and ticks for session.json.</returns>
+    private static (int Records, string? EventNames, JsonObject Info) WriteState(string demoPath, TickClock clock,
+        CMsgSource1LegacyGameEventList? eventList, IReadOnlyDictionary<string, string> playerIds, FileHeader header, string binPath,
+        List<JsonObject> events, Dictionary<string, List<CameraSample>> cameras)
     {
         var demo = new CsDemoParser();
+        int firstTick = 0;
         using var bin = File.Create(binPath);
         header.RecordType = ServerStateRecord.Descriptor.FullName;
         header.WriteDelimitedTo(bin);
@@ -248,7 +264,7 @@ public static class Cs2ServerCapture
             {
                 if (key.Type == PawnHandle && key.Name.EndsWith("_pawn", StringComparison.Ordinal) && playerKeys.Contains(key.Name[..^5]))
                     continue;
-                fields[key.Name] = Value(demo, key.Type, value);
+                fields[key.Name] = Value(demo, playerIds, key.Type, value);
             }
             events.Add(fields);
         };
@@ -281,6 +297,7 @@ public static class Cs2ServerCapture
             int tick = (int)demo.CurrentGameTick.Value;
             if (tick == lastTick || tick <= 0) return;
             lastTick = tick;
+            if (firstTick == 0) firstTick = tick;
             // demo.GameRules throws until the game rules entity has arrived.
             var rules = demo.Entities.OfType<CCSGameRulesProxy>().FirstOrDefault()?.GameRules;
             var record = new ServerStateRecord
@@ -291,10 +308,24 @@ public static class Cs2ServerCapture
                 FreezePeriod = rules?.FreezePeriod ?? false,
                 RoundsPlayed = rules?.TotalRoundsPlayed ?? 0,
             };
+            if (rules is not null)
+            {
+                double tickSeconds = demo.ServerInfo?.TickInterval is > 0 and var interval ? interval : 1.0 / 64;
+                record.Phase = rules.WarmupPeriod ? "warmup" : rules.FreezePeriod ? "freeze" : rules.RoundWinStatus != 0 ? "over" : "live";
+                record.BombPlanted = rules.BombPlanted;
+                record.RoundSeconds = rules.RoundTime;
+                if (rules.RoundStartTime.Value > 0)
+                {
+                    record.RoundStartUs = clock.UtcUs((int)Math.Round(rules.RoundStartTime.Value / tickSeconds));
+                    record.SecondsLeft = Math.Max(0, rules.RoundTime - (demo.CurrentGameTime.Value - rules.RoundStartTime.Value));
+                }
+            }
             foreach (var controller in demo.Players)
             {
                 if (controller.CSTeamNum is not (CSTeamNumber.Terrorist or CSTeamNumber.CounterTerrorist)) continue;
                 var pawn = controller.PlayerPawn;
+                string steamId = controller.SteamID.ToString(CultureInfo.InvariantCulture);
+                var stats = controller.ActionTrackingServices?.MatchStats;
                 var state = new PlayerState
                 {
                     SteamId = controller.SteamID,
@@ -302,6 +333,13 @@ public static class Cs2ServerCapture
                     Team = (int)controller.CSTeamNum,
                     Alive = controller.PawnIsAlive,
                     Slot = (int)controller.EntityIndex.Value - 1,
+                    PlayerId = controller.SteamID == 0 ? "" : playerIds.GetValueOrDefault(steamId, ""),
+                    PingMs = (int)controller.Ping,
+                    Kills = stats?.Kills ?? 0,
+                    Deaths = stats?.Deaths ?? 0,
+                    Assists = stats?.Assists ?? 0,
+                    Connected = controller.Connected == PlayerConnectedState.Connected,
+                    IsBot = controller.SteamID == 0,
                 };
                 if (pawn is not null)
                 {
@@ -315,6 +353,16 @@ public static class Cs2ServerCapture
                     state.Ducking = pawn.MovementServices is CCSPlayer_MovementServices m && (m.Ducked || m.Ducking);
                     state.Scoped = pawn.IsScoped;
                     state.Walking = pawn.IsWalking;
+                    var eye = new Core.Vec3(pawn.Origin.X + pawn.ViewOffset.X, pawn.Origin.Y + pawn.ViewOffset.Y,
+                        pawn.Origin.Z + pawn.ViewOffset.Z);
+                    state.EyePosition = new Vec3 { X = eye.X, Y = eye.Y, Z = eye.Z };
+                    // CameraServices.FOV is 0 unless a scope zooms.
+                    state.FovDeg = (pawn.CameraServices as CCSPlayer_CameraServices)?.FOV is > 0 and var fov ? fov : DefaultFovDeg;
+                    if (!state.IsBot)
+                    {
+                        if (!cameras.TryGetValue(steamId, out var track)) cameras[steamId] = track = [];
+                        track.Add(new CameraSample(record.ServerTimeUs, eye, state.Pitch, state.Yaw, state.FovDeg, state.Alive));
+                    }
                 }
                 record.Players.Add(state);
             }
@@ -353,15 +401,29 @@ public static class Cs2ServerCapture
 
         using var stream = File.OpenRead(demoPath);
         DemoFileReader.Create(demo, stream).ReadAllAsync().AsTask().GetAwaiter().GetResult();
-        return (count, eventNames);
+        double interval = demo.ServerInfo?.TickInterval is > 0 and var i ? i : 1.0 / 64;
+        var info = new JsonObject
+        {
+            ["build"] = demo.FileHeader is { } h
+                ? new JsonObject { ["network_protocol"] = h.NetworkProtocol, ["build_num"] = h.BuildNum, ["server_name"] = h.ServerName }
+                : null,
+            ["map"] = demo.ServerInfo?.MapName,
+            ["tick_rate_hz"] = Math.Round(1 / interval, 3),
+            ["ticks"] = new JsonObject { ["first"] = firstTick, ["last"] = lastTick == int.MinValue ? null : lastTick },
+        };
+        return (count, eventNames, info);
     }
+
+    /// <summary>CS2's default field of view: horizontal, at 4:3.</summary>
+    public const double DefaultFovDeg = 90;
 
     private static Vec3 Vec(Vector v) => new() { X = v.X, Y = v.Y, Z = v.Z };
 
     // Game event key types (CMsgSource1LegacyGameEventList descriptors).
     private const int PawnHandle = 8, PlayerSlot = 9;
 
-    private static JsonNode? Value(CsDemoParser demo, int type, CMsgSource1LegacyGameEvent.Types.key_t value) => type switch
+    private static JsonNode? Value(CsDemoParser demo, IReadOnlyDictionary<string, string> playerIds, int type,
+        CMsgSource1LegacyGameEvent.Types.key_t value) => type switch
     {
         1 => value.ValString,
         2 => value.ValFloat,
@@ -370,29 +432,37 @@ public static class Cs2ServerCapture
         5 => value.ValByte,
         6 => value.ValBool,
         7 => value.ValUint64.ToString(CultureInfo.InvariantCulture),
-        PlayerSlot => Player(demo, (short)value.ValShort),  // "nobody" is -1, sent as 65535
-        PawnHandle => PlayerOfPawn(demo, value.ValLong),
+        PlayerSlot => Player(demo, playerIds, (short)value.ValShort),  // "nobody" is -1, sent as 65535
+        PawnHandle => PlayerOfPawn(demo, playerIds, value.ValLong),
         _ => value.ToString(),
     };
 
     /// <summary>A player slot as the player: the controller's entity is slot + 1. Null for "nobody" (-1, e.g. no attacker).</summary>
-    private static JsonObject? Player(CsDemoParser demo, int slot)
+    /// <summary>
+    /// A player slot as the player, where they were at that moment, and their id in the session when they are one of its
+    /// players: the controller's entity is slot + 1. Null for "nobody" (-1, e.g. no attacker).
+    /// </summary>
+    private static JsonObject? Player(CsDemoParser demo, IReadOnlyDictionary<string, string> playerIds, int slot)
     {
         if (slot < 0) return null;
         var controller = demo.Players.FirstOrDefault(p => p.EntityIndex.Value == slot + 1);
+        string? steamId = controller?.SteamID.ToString(CultureInfo.InvariantCulture);
+        var origin = controller?.PlayerPawn?.Origin;
         return new JsonObject
         {
             ["slot"] = slot,
-            ["steam_id"] = controller?.SteamID.ToString(CultureInfo.InvariantCulture),
+            ["player_id"] = steamId is null ? null : playerIds.GetValueOrDefault(steamId),
+            ["steam_id"] = steamId,
             ["name"] = controller?.PlayerName,
+            ["position"] = origin is { } o ? new JsonArray(o.X, o.Y, o.Z) : null,
         };
     }
 
     /// <summary>The player whose pawn an entity handle names (its low 15 bits are the entity index); null for none.</summary>
-    private static JsonObject? PlayerOfPawn(CsDemoParser demo, long handle)
+    private static JsonObject? PlayerOfPawn(CsDemoParser demo, IReadOnlyDictionary<string, string> playerIds, long handle)
     {
         var pawn = demo.Entities.OfType<CCSPlayerPawn>().FirstOrDefault(p => p.EntityIndex.Value == (handle & 0x7FFF));
-        return pawn?.Controller is { } controller ? Player(demo, (int)controller.EntityIndex.Value - 1) : null;
+        return pawn?.Controller is { } controller ? Player(demo, playerIds, (int)controller.EntityIndex.Value - 1) : null;
     }
 
     /// <summary>

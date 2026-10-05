@@ -19,7 +19,7 @@ public static class PacketLog
     public const string BinFile = "packets.bin", TextFile = "packets.txt";
 
     public const string TextHeader =
-        "# capture_time_utc\tserver_time_utc\tdirection\ttransport\tlocal_endpoint\tremote_endpoint\tbytes\tmessage\tdecoded_json";
+        "# capture_time_utc\tserver_time_utc\tdirection\ttransport\tlocal_endpoint\tremote_endpoint\tpeer\tbytes\tmessage\tdecoded_json";
 
     /// <param name="serverMinusLocalMs">Orchestrator clock − this machine's Windows clock (player.json clock_sync.offset_ms).</param>
     /// <returns>How many records were written.</returns>
@@ -56,10 +56,14 @@ public static class PacketLog
         {
             r.WriteDelimitedTo(bin);
             text.WriteLine(string.Join('\t', Iso(r.LocalTimeUs), Iso(r.ServerTimeUs), r.Direction == PacketRecord.Types.Direction.Out ? "OUT" : r.Direction == PacketRecord.Types.Direction.In ? "IN" : "?",
-                r.Transport, r.LocalEndpoint, r.RemoteEndpoint, r.Payload.Length.ToString(CultureInfo.InvariantCulture), r.Message,
+                r.Transport, r.LocalEndpoint, r.RemoteEndpoint, Peer(r), r.Payload.Length.ToString(CultureInfo.InvariantCulture), r.Message,
                 r.DecodedJson));
         }
     }
+
+    /// <summary>The other side as a session player id, else its SteamID64 ("steam:…"); empty on a player's own capture.</summary>
+    private static string Peer(PacketRecord r) =>
+        r.PeerPlayerId.Length > 0 ? r.PeerPlayerId : r.PeerId.Length > 0 ? "steam:" + r.PeerId : "";
 
     public static (FileHeader Header, List<PacketRecord> Records) Read(string binPath)
     {

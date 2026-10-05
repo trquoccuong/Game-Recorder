@@ -766,9 +766,9 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             _ = TellPlayersAsync(round, report);
             SessionAssembled?.Invoke(dir, report);
         }
-        catch (Exception e) when (e is IOException or InvalidDataException or FormatException or System.Text.Json.JsonException)
+        catch (Exception e)  // runs on its own task: anything uncaught would leave the round pending forever, unlogged
         {
-            log.LogError("cannot assemble {Session}: {Error} (staged in {Dir})", round.Record.SessionId, e.Message, round.StagingDir);
+            log.LogError(e, "cannot assemble {Session}: {Error} (staged in {Dir})", round.Record.SessionId, e.Message, round.StagingDir);
             lock (_lock) _rounds.Remove(round.Record.SessionId);
         }
     }

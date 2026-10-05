@@ -1,6 +1,15 @@
 {
   "game_title": "Counter-Strike: Global Offensive",
   "platform": "PC",
+  "engine": "Source",
+  "coordinate_system": {
+    "axes": "right-handed, Z up: X east, Y north (the spec's RFU)",
+    "units": "inch",
+    "units_per_meter": 39.37
+  },
+  "rules": {
+    "respawn_allowed": false
+  },
   "localization": "en-US",
   "window_process": "csgo",
   "network": {

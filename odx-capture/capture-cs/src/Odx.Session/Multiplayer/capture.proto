@@ -50,6 +50,7 @@ message PacketRecord {
   bytes payload = 8;         // the message's bytes as sent on the wire (raw: the transport payload)
   string decoded_json = 9;   // the decoded fields, as in packets.txt; empty when kept raw
   string peer_id = 10;       // server side: the client's SteamID64 ("0" until Steam authenticated it)
+  string peer_player_id = 11;  // server side: the client's player id in this session, when it is one of the players
 
   enum Direction {
     DIRECTION_UNKNOWN = 0;
@@ -68,6 +69,11 @@ message ServerStateRecord {
   bool warmup = 5;
   bool freeze_period = 6;    // round start freeze: players cannot move yet
   int32 rounds_played = 7;
+  string phase = 8;          // "warmup", "freeze", "live" or "over" (between a round's end and the next)
+  int64 round_start_us = 9;  // when the game's current round started (UTC microseconds); 0 before any
+  int32 round_seconds = 10;  // the game's round length
+  double seconds_left = 11;  // on the game's round timer (round_seconds from round_start_us)
+  bool bomb_planted = 12;
 }
 
 message Vec3 {
@@ -93,6 +99,15 @@ message PlayerState {
   bool scoped = 13;
   bool walking = 14;
   int32 slot = 15;      // player slot on the server
+  string player_id = 16;     // the player's id in this session (players/<player-id>/); empty for others and bots
+  Vec3 eye_position = 17;    // the camera: position + view offset
+  double fov_deg = 18;       // horizontal field of view at 4:3, as CS2 defines it (90 unless zoomed)
+  int32 ping_ms = 19;
+  int32 kills = 20;          // in the match so far
+  int32 deaths = 21;
+  int32 assists = 22;
+  bool connected = 23;
+  bool is_bot = 24;
 }
 
 // Other entities that matter to play (CS2: grenades in flight, the bomb carried, dropped or planted).
