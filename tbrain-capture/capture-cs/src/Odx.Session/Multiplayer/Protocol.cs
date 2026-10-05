@@ -61,8 +61,11 @@ public sealed record Welcome(int TimePort) : AgentMessage;
 /// <summary>Orchestrator → agent: prepare a session; the game profile (JSON) is the one the build must use.</summary>
 public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;
 
-/// <summary>Orchestrator → agent: start capturing at this server UTC.</summary>
-public sealed record Start(string SessionId, double AtUtcMs) : AgentMessage;
+/// <summary>
+/// Orchestrator → agent: start capturing now. Not scheduled for a common instant: capture start-up takes 0.5–3.5 s, and
+/// every frame is put on server time afterwards anyway.
+/// </summary>
+public sealed record Start(string SessionId) : AgentMessage;
 
 /// <summary>Orchestrator → agent: stop capturing ("round_end", "permanent_death", "abort").</summary>
 public sealed record Stop(string SessionId, string Reason) : AgentMessage;

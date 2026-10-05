@@ -10,9 +10,9 @@ namespace Odx.Session;
 public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name, string OutputRoot, string? WindowProcess);
 
 /// <summary>
-/// A player's capture machine under the orchestrator: on Start it records from the given server UTC (its clock offset to
-/// the orchestrator's time service is measured on Welcome), on Stop it lets the capture build and validate the session,
-/// uploads the folder and reports Done. odx agent (headless) and odx-app's agent mode both run this.
+/// A player's capture machine under the orchestrator: on Start it records (sampling its clock against the orchestrator's
+/// time service, checked once on Welcome), on Stop it lets the capture build and validate the session, uploads the folder
+/// and reports Done. odx agent (headless) and odx-app's agent mode both run this.
 /// </summary>
 public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICaptureRun> startCapture)
 {
@@ -22,7 +22,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private readonly HttpClient _http = new() { BaseAddress = options.Orchestrator, Timeout = TimeSpan.FromMinutes(30) };
     private ClientWebSocket? _socket;
     private string? _timeServer;
-    private double _serverMinusSystemMs;
     private Arm? _armed;
     private string? _profilePath;
     private ICaptureRun? _run;
@@ -73,7 +72,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 Log?.Invoke($"armed for {a.SessionId}");
                 break;
             case Start s when _armed?.SessionId == s.SessionId:
-                _ = Task.Run(() => StartAtAsync(s, stop), stop);
+                _ = Task.Run(() => RecordAsync(s, stop), stop);
                 break;
             case Stop s when _runSessionId == s.SessionId:
                 Log?.Invoke($"stop {s.SessionId} ({s.Reason})");
@@ -82,10 +81,8 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         }
     }
 
-    private async Task StartAtAsync(Start s, CancellationToken stop)
+    private async Task RecordAsync(Start s, CancellationToken stop)
     {
-        double waitMs = s.AtUtcMs - ServerNowMs();
-        if (waitMs > 0) await Task.Delay(TimeSpan.FromMilliseconds(waitMs), stop);
         try
         {
             _run = startCapture(new CaptureOptions(options.OutputRoot, options.WindowProcess, _armed!.Fps, _profilePath, _timeServer));
@@ -133,7 +130,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         }
     }
 
-    /// <summary>Median offset of a few SNTP exchanges with the orchestrator; the capture itself samples it again every 15 s.</summary>
+    /// <summary>Checks the time service answers before any round; the capture itself samples it at start and every 15 s.</summary>
     private void MeasureClock()
     {
         var offsets = new List<double>();
@@ -148,11 +145,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 Log?.Invoke($"time service {_timeServer}: {e.Message}");
             }
         }
-        _serverMinusSystemMs = offsets.Count > 0 ? offsets.Order().ElementAt(offsets.Count / 2) : 0;
-        Log?.Invoke($"clock: server - this machine = {_serverMinusSystemMs:F1} ms ({offsets.Count}/5 samples)");
+        Log?.Invoke(offsets.Count > 0
+            ? $"clock: server - this machine = {offsets.Order().ElementAt(offsets.Count / 2):F1} ms ({offsets.Count}/5 samples)"
+            : $"clock: time service {_timeServer} does not answer; sessions will fail sync.clock");
     }
-
-    private double ServerNowMs() => NtpResponder.NowUnixMs() + _serverMinusSystemMs;
 
     private async Task SendAsync(AgentMessage message, CancellationToken stop)
     {

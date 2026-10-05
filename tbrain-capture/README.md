@@ -19,7 +19,7 @@ Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 8) in `c
 
 ## Capture tools (C#, `capture-cs/`)
 
-One command-line tool, `odx` (`src/Odx.Cli`): `odx input`, `odx record`, `odx build`, `odx validate`. Its Windows build has all four; its `net8.0` build (Linux servers) has `build` and `validate` only.
+One command-line tool, `odx` (`src/Odx.Cli`): `odx input`, `odx record`, `odx build`, `odx validate`, plus `odx agent` and `odx simulate-game` for multiplayer (below). Its Windows build has all of them; its `net8.0` build (Linux servers) has `build`, `validate` and `simulate-game` only.
 
 `odx input` records keyboard/mouse with Raw Input in its own process (never inside the game) and writes `input_events.csv` + `clock_samples.csv` (QPC ↔ UTC). `InputLogReader` reads the log back; the format is pinned by `tests/fixtures/input_events.csv` (writer output must match it byte for byte).
 
@@ -109,13 +109,22 @@ Exit code 1 when any error is found. Warnings (`c2w.roll`, `c2w.upright`) do not
 
 ```bash
 cd capture-cs
-dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profile ../games/example-fps.json [--http-port 5180] [--time-port 12300] [--lead-ms 1500] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
+dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profile ../games/example-fps.json [--http-port 5180] [--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
 ```
 
+On each player's machine, and in place of a game server plugin while there is none:
+
+```bash
+odx agent --orchestrator http://<host>:5180 --player p1 --out C:/odx_capture [--name Alice] [--window cs2]
+odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--rounds 2] [--round-s 20] [--match sim]
+```
+
+`simulate-game` plays scripted rounds: each has a kill and a permanent death halfway through. It waits for uploads between rounds, prints each session's gate result and exits 1 if any session fails. Run on one machine (orchestrator + two agents recording the monitor + simulator), three 10 s rounds all pass; first frames arrive 0.75–0.93 s after `round_start`.
+
 - **Time service:** an SNTP responder on UDP `--time-port`. Every player's capture measures QPC against it (`ntp_samples.csv`), so all players share one clock.
-- **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, starts its capture at the server UTC given in `start`, and stops on `stop`. Then it uploads the built capture folder (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`.
+- **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, starts its capture on `start` and stops on `stop`. Then it uploads the built capture folder (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`.
 - **Game events:** the game server plugin posts JSON events to `POST /game/events` (`GameEvents`: `match_start`, `round_start`, `round_end`, `kill`, `player_death` with `permanent`, `player_connect`, `player_disconnect`, `match_end`). Events without `utc_ms` are stamped on arrival.
-  - `round_start` arms and starts every idle agent at now + `--lead-ms`.
+  - `round_start` arms and starts every idle agent at once (players' starts differ by their capture start-up; every frame is put on server time afterwards).
   - A permanent `player_death` stops that player.
   - `round_end` stops the rest.
 - **Assembly:** once every player is done (or 15 min later), `MultiplayerSession.Assemble` writes:
@@ -132,7 +141,7 @@ dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profil
 - **Gate** (`validation.json`):
   - each player passes v2 §1.5;
   - `sync.clock`: median RTT ≤ 100 ms;
-  - `sync.start`: first frame ≤ 3 s after the scheduled start;
+  - `sync.start`: first frame ≤ 3 s after `round_start`;
   - `sync.end`: last frame ≥ stop − 1 s;
   - the session needs K of N valid players (K = N up to 3 players, else N − 1).
 

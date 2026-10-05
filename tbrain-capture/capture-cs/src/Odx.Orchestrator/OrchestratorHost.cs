@@ -60,7 +60,7 @@ public static class OrchestratorHost
                 await using (var file = File.Create(path)) await request.Body.CopyToAsync(file);
                 return Results.Ok();
             });
-        app.MapGet("/status", (MatchCoordinator coordinator) => Results.Text(coordinator.Status().ToJsonString(), "application/json"));
+        app.MapGet("/status", (MatchCoordinator coordinator) => Results.Text(coordinator.Status().ToJsonString(AgentMessage.Json), "application/json"));
         return app;
     }
 }

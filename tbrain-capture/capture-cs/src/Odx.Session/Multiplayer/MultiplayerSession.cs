@@ -37,7 +37,7 @@ public sealed record SyncTolerances
 
     /// <summary>The clock offset is known to ±RTT/2; above this the player's timestamps are not trusted.</summary>
     public double MaxRttMs { get; init; } = 100;
-    /// <summary>First frame may come this long after round_start (start lead + capture start-up).</summary>
+    /// <summary>First frame may come this long after round_start (capture start-up: ~0.7 s warm, ~3.5 s cold in a test here).</summary>
     public double StartGraceMs { get; init; } = 3000;
     /// <summary>Last frame may end this long before the player's stop (round end or permanent death).</summary>
     public double EndGraceMs { get; init; } = 1000;

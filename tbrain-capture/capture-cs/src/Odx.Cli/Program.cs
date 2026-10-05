@@ -3,7 +3,9 @@
 //   record     game window or monitor with Windows.Graphics.Capture + ffmpeg (Windows build only)
 //   build      capture folder -> spec v2 session (frames.csv + session.json)
 //   validate   spec v2 §1.5 vendor checks
-// The net8.0 build (Linux servers) has build and validate only.
+//   agent          one player's capture machine under odx-orchestrator (Windows build only)
+//   simulate-game  posts a scripted match to odx-orchestrator in place of a game server
+// The net8.0 build (Linux servers) has build, validate and simulate-game only.
 using System.Text;
 using Odx.Cli;
 
@@ -15,18 +17,20 @@ return command switch
 #if WINDOWS
     "input" => Odx.Input.InputCommand.Run(rest),
     "record" => Odx.Recorder.RecordCommand.Run(rest),
+    "agent" => AgentCommand.Run(rest),
 #endif
     "build" => BuildCommand.Run(rest),
     "validate" => ValidateCommand.Run(rest),
+    "simulate-game" => SimulateGameCommand.Run(rest),
     _ => Usage(),
 };
 
 static int Usage()
 {
 #if WINDOWS
-    Console.Error.WriteLine("usage: odx (input | record | build | validate) [args]");
+    Console.Error.WriteLine("usage: odx (input | record | build | validate | agent | simulate-game) [args]");
 #else
-    Console.Error.WriteLine("usage: odx (build | validate) [args]");
+    Console.Error.WriteLine("usage: odx (build | validate | simulate-game) [args]");
 #endif
     return 2;
 }
