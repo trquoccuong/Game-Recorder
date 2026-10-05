@@ -48,6 +48,7 @@ public static class GameEvents
 [JsonDerivedType(typeof(RoomError), "room_error")]
 [JsonDerivedType(typeof(RoomClosed), "room_closed")]
 [JsonDerivedType(typeof(LanMember), "lan_member")]
+[JsonDerivedType(typeof(SessionResult), "session_result")]
 public abstract record AgentMessage
 {
     public static readonly JsonSerializerOptions Json = new()
@@ -129,3 +130,10 @@ public sealed record RoomClosed(string Code) : AgentMessage;
 
 /// <summary>Agent → orchestrator: this machine (ZeroTier node) joined the room's LAN; the orchestrator authorizes it.</summary>
 public sealed record LanMember(string NodeId) : AgentMessage;
+
+/// <summary>
+/// Orchestrator → each player of a round, once it is assembled: whether the session passed the gate, and why not
+/// (the session's problems, then this player's own).
+/// </summary>
+public sealed record SessionResult(string SessionId, bool Pass, int ValidPlayers, int RequiredPlayers, List<string> Problems)
+    : AgentMessage;

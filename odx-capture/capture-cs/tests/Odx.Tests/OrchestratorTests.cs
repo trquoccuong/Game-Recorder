@@ -219,11 +219,25 @@ public sealed class OrchestratorTests : IAsyncLifetime
         ConnectAgents(null, "p1", "p2");
         await WaitForAgents(2);
         var session = NextSession();
+        var told = _agents.Select(agent =>
+        {
+            var result = new TaskCompletionSource<SessionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            agent.SessionResultReceived += r => result.TrySetResult(r);
+            return result.Task;
+        }).ToList();
 
         await Post(new { type = "round_start", round = 3 });
         await Post(new { type = "round_end" });
 
         var (dir, report) = await session;
+        Assert.All(await Task.WhenAll(told).WaitAsync(TimeSpan.FromSeconds(10)), result =>
+        {
+            Assert.Equal(report.SessionId, result.SessionId);
+            Assert.False(result.Pass);
+            Assert.Equal(0, result.ValidPlayers);
+            Assert.Contains(result.Problems, problem => problem.Contains("player streams valid", StringComparison.Ordinal));
+            Assert.Contains(result.Problems, problem => problem.StartsWith("player.missing", StringComparison.Ordinal));
+        });
         Assert.False(report.Pass);
         Assert.Equal(0, report.ValidPlayers);
         Assert.Contains(report.Issues, i => i.Rule == "session.min_players");

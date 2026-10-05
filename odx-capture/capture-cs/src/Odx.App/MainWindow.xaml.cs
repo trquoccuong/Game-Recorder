@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _agentStop;
     private AgentClient? _agent;
     private string _agentLog = "";
+    /// <summary>The last round's outcome for the status line (uploaded, then the session's gate result); null before any.</summary>
+    private Func<Strings, string>? _roundResult;
     private LanState? _lan;
     private PacketCaptureHelper? _packetHelper;
     /// <summary>null: this room's game records no packets; true/false: the elevated helper is running or was refused.</summary>
@@ -468,6 +470,20 @@ public partial class MainWindow : Window
             _agentLog = $"{DateTime.Now:HH:mm:ss} {line}";
             if (_run is null && _state == RunState.Agent) ShowAgentStatus();
         });
+        agent.RoundUploaded += (session, ok, error) => Dispatcher.BeginInvoke(() =>
+        {
+            if (_agent != agent) return;
+            _roundResult = ok ? t => t.RoundUploaded(session) : t => t.RoundUploadFailed(session, error!);
+            if (_run is null) ShowAgentStatus();
+        });
+        agent.SessionResultReceived += result => Dispatcher.BeginInvoke(() =>
+        {
+            if (_agent != agent) return;
+            _roundResult = result.Pass
+                ? t => t.SessionPass(result.SessionId, result.ValidPlayers, result.RequiredPlayers)
+                : t => t.SessionFail(result.SessionId, string.Join("; ", result.Problems));
+            if (_run is null) ShowAgentStatus();
+        });
         agent.RoomChanged += room => Dispatcher.BeginInvoke(() =>
         {
             if (_agent != agent) return;
@@ -504,6 +520,7 @@ public partial class MainWindow : Window
         });
         _agent = agent;
         _agentLog = "";
+        _roundResult = null;
         _lan = null;
         SetState(RunState.Agent, t => t.JoiningRoom);
         _ = agent.RunUntilStoppedAsync(_agentStop.Token);
@@ -607,7 +624,9 @@ public partial class MainWindow : Window
             m.Name + (m.PlayerId == room.HostPlayerId ? " (host)" : "") + (m.Ready ? " ✓" : "")));
         var lan = _lan;
         bool? packets = _packets;
-        SetStatus(t => t.RoomStatus(room.Code, host, members) + (lan is null ? "" : "\n" + t.LanStatus(lan)) +
+        var round = _roundResult;
+        SetStatus(t => t.RoomStatus(room.Code, host, members) + (round is null ? "" : "\n" + round(t)) +
+                       (lan is null ? "" : "\n" + t.LanStatus(lan)) +
                        (packets is { } on ? "\n" + (on ? t.PacketsOn : t.PacketsOff) : "") + "\n" + log + "\n" +
                        (host ? t.HostHint(hotkey) : ready ? t.ReadyOn(hotkey) : t.ReadyHint(hotkey)));
     }
@@ -670,6 +689,7 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(() =>
         {
             _run = run;
+            _roundResult = null;
             _runStarted = DateTime.Now;
             _clock.Start();
             ShowRecordingStatus();
