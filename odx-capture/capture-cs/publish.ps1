@@ -3,10 +3,13 @@
 # "Odx Capture.exe" (or bin\odx.exe); nothing else needs installing. Needs MSYS2 (ffmpeg) and the MSVC build tools
 # (NativeAOT launcher).
 #
-#   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0]
+#   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0] [-Orchestrator https://<domain>] [-AccessKey <key>]
+#
+# -Orchestrator / -AccessKey preset the package's bin/odx-capture.json for a deployed orchestrator (deploy/up.sh prints
+# both), so players only type a room's invite code; without them the repository's odx-capture.json is shipped.
 #
 # Output: dist/odx-capture-<version>-win-x64/ and dist/odx-capture-<version>-win-x64.zip
-param([string]$Version = "0.1.0")
+param([string]$Version = "0.1.0", [string]$Orchestrator = "", [string]$AccessKey = "")
 $ErrorActionPreference = 'Stop'
 
 # ffmpeg is built from pinned sources by ffmpeg/build-ffmpeg.sh (minimal: only what odx record uses) in MSYS2 and
@@ -46,6 +49,12 @@ $launcherOut = Join-Path $cache 'launcher'
 dotnet publish (Join-Path $root 'src/Odx.Launcher') -c Release -r win-x64 -p:DebugType=None -p:Version=$Version -o $launcherOut
 if ($LASTEXITCODE -ne 0) { throw 'dotnet publish Odx.Launcher failed' }
 Copy-Item (Join-Path $launcherOut 'odx-launcher.exe') (Join-Path $out 'Odx Capture.exe')
+
+$configPath = Join-Path $bin 'odx-capture.json'
+$config = Get-Content $configPath -Raw | ConvertFrom-Json
+if ($Orchestrator) { $config.orchestrator = $Orchestrator }
+if ($AccessKey) { $config | Add-Member -NotePropertyName access_key -NotePropertyValue $AccessKey -Force }
+[IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 
 $buildScript = Join-Path $root 'ffmpeg/build-ffmpeg.sh'
 $scriptHash = (Get-FileHash $buildScript -Algorithm SHA256).Hash.Substring(0, 12)

@@ -163,6 +163,17 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
   - `capture.window` (advisory): only the game window is captured;
   - the session needs K of N valid players (K = N up to 3 players, else N − 1).
 
+## Deploy the orchestrator (Linux server)
+
+`deploy/` runs odx-orchestrator in Docker behind Caddy, which gets the HTTPS certificate for your domain from Let's Encrypt and passes the agents' WebSocket and uploads through.
+
+1. On the server: Docker with the compose plugin; the domain's DNS A record pointing at the server (directly, not behind a proxy such as Cloudflare's orange cloud: players also reach the time service at `<domain>:12300/udp`); ports 80/tcp, 443/tcp+udp and 12300/udp open.
+2. Copy `odx-capture/` there (`git clone`, or `rsync -a --exclude bin --exclude obj --exclude dist --exclude .cache odx-capture/ server:odx-capture/`).
+3. `bash odx-capture/deploy/up.sh`. The first run writes `deploy/.env` with a random `ODX_ACCESS_KEY`; set `ODX_DOMAIN` (and `ODX_GAME_PROFILE`, a file of `games/`) in it and run it again. It builds the image, starts orchestrator + Caddy (restarting on reboot), and prints the address and the key. Run it again after an update.
+4. Package odx-app for that server on Windows: `powershell -ExecutionPolicy Bypass -File publish.ps1 -Orchestrator https://<domain> -AccessKey <key>` writes both into the package's `bin/odx-capture.json`, so players only type invite codes.
+
+Sessions land in `deploy/sessions/` (`<vendor>/<mm-dd-yyyy>/<game>/<session>/`; plan disk space for every player's video). Logs: `docker compose -f deploy/compose.yaml logs -f orchestrator`. Every request needs the access key (`Authorization: Bearer <key>`, 401 otherwise); the time service is open (it only tells the time). A game server plugin calls `POST /rooms` and `POST /rooms/{code}/events` with the same key.
+
 ## Decisions pending with the client
 
 - **Null encoding in CSV:** nulls are written as the literal `null` (`Frames.Null`), as spec v2 §1.5.5 asks ("null, not empty string") and as the client's multiplayer sample delivery does; confirm.

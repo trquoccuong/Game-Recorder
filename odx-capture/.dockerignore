@@ -1,0 +1,9 @@
+**/bin
+**/obj
+capture-cs/dist
+capture-cs/.cache
+capture-cs/tests
+extractor
+tests
+deploy/sessions
+deploy/.env

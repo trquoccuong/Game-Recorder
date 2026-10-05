@@ -79,7 +79,7 @@ odx-capture/
     src/Odx.Core/                 #   portable: Input/ (logs, IPC, keys), Video/ (grid, status), Formats/ (frames.csv, CSV), Geometry/
     src/Odx.Session/              #   capture host (runs odx input + odx record), session builder, validator (v2 §1.5),
                                   #   Multiplayer/: agent protocol + client, v3 session assembly and sync gate
-    src/Odx.Orchestrator/         #   odx-orchestrator (ASP.NET Core): time service, agent hub, game events (v3)
+    src/Odx.Orchestrator/         #   odx-orchestrator (ASP.NET Core): time service, rooms, agent hub, game events (v3)
     src/Odx.Cli/                  #   odx: input | record (Windows build) | build | validate
     src/Odx.Input/                #   `odx input` (Raw Input)
     src/Odx.Recorder/             #   `odx record` (WGC + ffmpeg)
@@ -87,6 +87,7 @@ odx-capture/
     src/Odx.Launcher/             #   "Odx Capture.exe": NativeAOT launcher showing the splash before odx-app loads
     tests/Odx.Tests/              #   xUnit, incl. synthetic session + one mutator per validation rule
   games/                          # game profiles (session.json fields + key/button -> action bindings)
+  deploy/                         # Docker + Caddy deployment of odx-orchestrator on a Linux server (up.sh)
   odx-capture.json             # deployment config copied next to the executables (time_server, orchestrator)
   extractor/                      # C++20 + Lua 5.4: in-game camera extractor DLL (camera_samples.csv), odx_synth, profiles
   schemas/                        # session.json JSON Schema (embedded in Odx.Session)
