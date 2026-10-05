@@ -8,3 +8,5 @@ odx_capture/
 # Packaging output and download cache (capture-cs/publish.ps1)
 dist/
 .cache/
+deploy/.env
+deploy/sessions/

@@ -1,4 +1,5 @@
 {
   "time_server": "time.windows.com",
-  "orchestrator": ""
+  "orchestrator": "https://capture.example.com",
+  "access_key": ""
 }
