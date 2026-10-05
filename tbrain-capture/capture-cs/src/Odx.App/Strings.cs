@@ -58,6 +58,7 @@ public sealed class Strings
     public required string Disconnect { get; init; }
 
     public required string Ready { get; init; }
+    public required Func<bool, string> ReadyWithEncoder { get; init; }
     public required Func<int, string> CountdownStatus { get; init; }
     public required string Cancelled { get; init; }
     public required string StartingCapture { get; init; }
@@ -126,6 +127,7 @@ public sealed class Strings
         Connect = "Connect to orchestrator",
         Disconnect = "Disconnect",
         Ready = "Ready",
+        ReadyWithEncoder = gpu => gpu ? "Ready · video encoder: NVENC (GPU)" : "Ready · video encoder: x264 (CPU; NVENC not available here)",
         CountdownStatus = n => $"Recording starts in {n}…",
         Cancelled = "Cancelled",
         StartingCapture = "Starting capture…",
@@ -197,6 +199,7 @@ public sealed class Strings
         Connect = "Kết nối orchestrator",
         Disconnect = "Ngắt kết nối",
         Ready = "Sẵn sàng",
+        ReadyWithEncoder = gpu => gpu ? "Sẵn sàng · mã hóa video: NVENC (GPU)" : "Sẵn sàng · mã hóa video: x264 (CPU; máy này không dùng được NVENC)",
         CountdownStatus = n => $"Bắt đầu ghi sau {n}…",
         Cancelled = "Đã hủy",
         StartingCapture = "Đang khởi động ghi…",

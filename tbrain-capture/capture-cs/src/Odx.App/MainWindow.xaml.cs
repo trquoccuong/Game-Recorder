@@ -84,6 +84,7 @@ public partial class MainWindow : Window
         PlayerBox.Text = _settings.PlayerId;
         HostBox.IsChecked = _settings.IsHost;
         Loaded += async (_, _) => await RefreshWindowsAsync();
+        Loaded += async (_, _) => await CheckEncoderAsync();
         _clock.Tick += (_, _) => ShowRecordingStatus();
 
         _trayStartStop.Click += (_, _) => Toggle();
@@ -544,6 +545,13 @@ public partial class MainWindow : Window
     private void StartStop_Click(object sender, RoutedEventArgs e) => Toggle();
 
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshWindowsAsync();
+
+    /// <summary>Settles which encoder "auto" means (a ~2 s probe, cached) before the first recording needs it.</summary>
+    private async Task CheckEncoderAsync()
+    {
+        string encoder = await Task.Run(() => Odx.Recorder.EncoderChoice.Resolve(ExternalTools.Ffmpeg(), "auto"));
+        if (_state == RunState.Idle && StatusText.Text == _t.Ready) SetStatus(t => t.ReadyWithEncoder(encoder == "nvenc"));
+    }
 
     private async Task RefreshWindowsAsync()
     {

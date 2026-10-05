@@ -38,7 +38,7 @@ public static class RecordCommand
             return 1;
         }
 
-        var encoderName = Task.Run(() => FfmpegEncoder.Resolve(opts.Ffmpeg, opts.Encoder));
+        var encoderName = Task.Run(() => EncoderChoice.Resolve(opts.Ffmpeg, opts.Encoder));
         CaptureInterop.UsePhysicalPixels();
         GraphicsCaptureItem item;
         IntPtr monitor;
