@@ -34,3 +34,23 @@ message FrameRecord {
   double input_mouse_dx = 14;
   double input_mouse_dy = 15;
 }
+
+// One game message seen on this player's machine (packets.bin, spec v3 §2.3): a decoded protocol message (e.g. one
+// Warcraft III W3GS message out of a TCP stream), or one UDP/TCP payload for protocols kept raw (encrypted CS2).
+message PacketRecord {
+  int64 server_time_us = 1;  // capture time on the orchestrator's clock (UTC microseconds)
+  int64 local_time_us = 2;   // capture time on this machine's Windows clock
+  Direction direction = 3;
+  string transport = 4;      // "tcp" or "udp"
+  string local_endpoint = 5;
+  string remote_endpoint = 6;
+  string message = 7;        // decoded message name; empty when kept raw
+  bytes payload = 8;         // the message's bytes as sent on the wire (raw: the transport payload)
+  string decoded_json = 9;   // the decoded fields, as in packets.txt; empty when kept raw
+
+  enum Direction {
+    DIRECTION_UNKNOWN = 0;
+    IN = 1;
+    OUT = 2;
+  }
+}
