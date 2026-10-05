@@ -16,6 +16,25 @@ map de_dust2
 Players are disconnected by it; they connect again. Then check with `tv_record replays/check` (a `check.dem` appears),
 `tv_stoprecord`. Add bots with `bot_add_t` / `bot_add_ct` rather than changing the quota mode.
 
+If the log also has `CS2 server: tv_record …: No connection could be made`, the orchestrator never reached RCON: CS2
+binds RCON to the machine's network address, not always to 127.0.0.1 (a cloud VM does). Check with `netstat -ano |
+findstr :27015` (the TCP line) and pass that address to `--cs2-rcon`.
+
+## CS2 server exits while loading the map
+
+A `cs2_*.mdmp` next to `cs2.exe` reads `Failed to initialize Steamworks SDK for gameserver. Could not determine Steam
+client install directory`: the machine has no Steam client. Copy `steamclient64.dll`, `tier0_s64.dll` and
+`vstdlib_s64.dll` from the SteamCMD folder to `game\bin\win64\`.
+
+## Demos or console.log land in addons\metamod
+
+The `Game csgo/addons/metamod` line of `gameinfo.gi` makes that folder the engine's write path, so `tv_record
+replays/…` writes to `addons\metamod\replays\`. Join it to `csgo\replays` (as administrator):
+
+```powershell
+New-Item -ItemType Junction -Path D:\cs2-server\game\csgo\addons\metamod\replays -Target D:\cs2-server\game\csgo\replays
+```
+
 ## The demo ends early or misses the round's end
 
 `tv_delay` is not 0: the game mode's config sets it (30–105 s). Check `tv_delay` in the console; create the
