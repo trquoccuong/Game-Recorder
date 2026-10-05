@@ -12,11 +12,12 @@ public sealed record RoundPlayer(string PlayerId, string Name, string? StopReaso
 
 /// <summary>
 /// One round as the orchestrator saw it (staging round.json). One round = one session (spec v3 §1: task boundaries are
-/// rounds). <c>TimePort</c> is the UDP port of the orchestrator's NTP responder the players measured against; the host part
+/// rounds). <c>StartUtcMs</c> is when play starts: the round_start event plus its countdown, during which players already
+/// record. <c>TimePort</c> is the UDP port of the orchestrator's NTP responder the players measured against; the host part
 /// of their samples' server differs with how each agent reaches the orchestrator.
 /// </summary>
 public sealed record RoundRecord(string SessionId, string MatchId, string Game, string? Map, int Round, double StartUtcMs,
-    double? EndUtcMs, int TimePort, List<RoundPlayer> Players)
+    double? EndUtcMs, int TimePort, List<RoundPlayer> Players, int CountdownMs = 0, string? EndReason = null)
 {
     public const string FileName = "round.json", EventsFileName = "server_events.jsonl";
 
@@ -66,6 +67,9 @@ public static class MultiplayerSession
     private static readonly string[] CaptureFiles =
         ["session.json", "recording.json", "video_frames.csv", "input_events.csv", "clock_samples.csv", "ntp_samples.csv"];
 
+    /// <summary>Version of the client's multiplayer spec this tree follows (document header of spec v3).</summary>
+    public const string SpecVersion = "3.1";
+
     public static (string Dir, SessionReport Report) Assemble(string stagingDir, string outRoot, string vendor,
         SyncTolerances? tolerances = null)
     {
@@ -90,12 +94,15 @@ public static class MultiplayerSession
 
         var session = new JsonObject
         {
+            ["spec_version"] = SpecVersion,
             ["session_id"] = round.SessionId,
             ["match_id"] = round.MatchId,
             ["vendor_name"] = vendor,
             ["game_title"] = round.Game,
             ["map"] = round.Map,
-            ["round"] = round.Round,
+            ["round_index"] = round.Round,
+            ["countdown_ms"] = round.CountdownMs,
+            ["end_reason"] = round.EndReason,
             ["created_at_utc"] = SessionBuilder.IsoUtc(round.StartUtcMs),
             ["ended_at_utc"] = round.EndUtcMs is double end ? SessionBuilder.IsoUtc(end) : null,
             ["duration_ms"] = round.EndUtcMs is double e2 ? e2 - round.StartUtcMs : null,
@@ -159,6 +166,9 @@ public static class MultiplayerSession
         info["first_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[0]);
         info["last_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[^1]);
         info["frame_count"] = frameUtc.Count;
+        int roundStartFrame = frameUtc.FindIndex(t => t >= round.StartUtcMs);
+        info["round_start_frame"] = roundStartFrame < 0 ? null : roundStartFrame;
+        info["round_start_video_time_ms"] = Math.Round(round.StartUtcMs - frameUtc[0], 1);
 
         double lateStart = frameUtc[0] - round.StartUtcMs;
         if (lateStart > tol.StartGraceMs)

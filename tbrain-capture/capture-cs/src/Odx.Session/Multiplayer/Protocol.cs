@@ -62,9 +62,9 @@ public sealed record Welcome(int TimePort) : AgentMessage;
 public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;
 
 /// <summary>
-/// Orchestrator → agent: start capturing after <paramref name="CountdownMs"/> (the countdown players see when a host starts
-/// the round; 0 when the game server does). Not scheduled for a common instant: capture start-up takes 0.5–3.5 s, and every
-/// frame is put on server time afterwards anyway.
+/// Orchestrator → agent: start capturing now; play starts after <paramref name="CountdownMs"/> (the countdown players see
+/// when a host starts the round; 0 when the game server does). Not scheduled for a common instant: capture start-up takes
+/// 0.5–3.5 s, and every frame is put on server time afterwards anyway.
 /// </summary>
 public sealed record Start(string SessionId, int CountdownMs = 0) : AgentMessage;
 

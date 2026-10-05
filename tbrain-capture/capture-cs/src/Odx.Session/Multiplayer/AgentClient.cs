@@ -34,7 +34,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// <summary>Human-readable progress for a UI or console.</summary>
     public event Action<string>? Log;
 
-    /// <summary>A round starts after this countdown (ms); the token is cancelled if the round is stopped before it ends.</summary>
+    /// <summary>
+    /// A round starts after this countdown (ms). The capture starts with the countdown, so the video holds the moment play
+    /// begins (round_start_frame). The token is cancelled if the round is stopped before the countdown ends.
+    /// </summary>
     public event Action<int, CancellationToken>? Countdown;
 
     /// <summary>The capture in progress (odx-app shows its counters); null between sessions.</summary>
@@ -150,19 +153,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     {
         CancellationToken stopped;
         lock (_gate) stopped = _stopBeforeStart!.Token;
-        if (s.CountdownMs > 0)
-        {
-            Countdown?.Invoke(s.CountdownMs, stopped);
-            try
-            {
-                await Task.Delay(s.CountdownMs, stopped);
-            }
-            catch (OperationCanceledException)
-            {
-                await EndWithoutCaptureAsync(s.SessionId, "stopped during the countdown", stop);
-                return;
-            }
-        }
+        if (s.CountdownMs > 0) Countdown?.Invoke(s.CountdownMs, stopped);
         ICaptureRun run;
         try
         {
