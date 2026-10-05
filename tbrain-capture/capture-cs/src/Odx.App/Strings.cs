@@ -79,6 +79,10 @@ public sealed class Strings
     public required Func<string, string> HotkeyInUse { get; init; }
     public required string PressKeys { get; init; }
     public required Func<string, string> HostHint { get; init; }
+    public required Func<string, string> RoundUploaded { get; init; }
+    public required Func<string, string, string> RoundUploadFailed { get; init; }
+    public required Func<string, int, int, string> SessionPass { get; init; }
+    public required Func<string, string, string> SessionFail { get; init; }
     public required string InvalidRoomCode { get; init; }
     public required string JoiningRoom { get; init; }
     public required Func<string, bool, string, string> RoomStatus { get; init; }
@@ -174,6 +178,10 @@ public sealed class Strings
         HotkeyInUse = hotkey => $"Hotkey {hotkey} is already used by another application; choose another one.",
         PressKeys = "Press a key combination…",
         HostHint = hotkey => $"Host: once everyone is ready (✓), press {hotkey} to start the round; again to end it.",
+        RoundUploaded = session => $"✓ Round {session}: recorded and uploaded; checking the session…",
+        RoundUploadFailed = (session, error) => $"✗ Round {session}: {error} (the recording stays on this machine)",
+        SessionPass = (session, valid, required) => $"✓ Session {session}: PASS ({valid} valid player(s), {required} needed)",
+        SessionFail = (session, problems) => $"✗ Session {session}: FAIL: {problems}",
         InvalidRoomCode = "Fill in your Player ID first.",
         JoiningRoom = "Joining the room…",
         RoomStatus = (code, host, members) => $"Room {code}{(host ? " · you are the host: share this invite code" : "")}\nPlayers: {members}",
@@ -271,6 +279,10 @@ public sealed class Strings
         HotkeyInUse = hotkey => $"Phím tắt {hotkey} đang được ứng dụng khác dùng; hãy chọn phím khác.",
         PressKeys = "Nhấn tổ hợp phím…",
         HostHint = hotkey => $"Host: khi mọi người đã sẵn sàng (✓), nhấn {hotkey} để bắt đầu round; nhấn lại để kết thúc.",
+        RoundUploaded = session => $"✓ Round {session}: đã ghi và tải lên; đang kiểm tra session…",
+        RoundUploadFailed = (session, error) => $"✗ Round {session}: {error} (bản ghi vẫn còn trên máy này)",
+        SessionPass = (session, valid, required) => $"✓ Session {session}: ĐẠT ({valid} người chơi hợp lệ, cần {required})",
+        SessionFail = (session, problems) => $"✗ Session {session}: KHÔNG ĐẠT: {problems}",
         InvalidRoomCode = "Hãy điền mã người chơi trước.",
         JoiningRoom = "Đang vào room…",
         RoomStatus = (code, host, members) => $"Room {code}{(host ? " · bạn là host: gửi mã mời này cho mọi người" : "")}\nNgười chơi: {members}",

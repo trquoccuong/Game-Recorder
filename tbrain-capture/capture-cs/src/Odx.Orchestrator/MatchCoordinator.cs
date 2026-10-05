@@ -763,12 +763,29 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 report.Pass ? "PASS" : "FAIL", report.ValidPlayers, report.Players.Count, dir);
             foreach (var issue in report.Issues.Concat(report.Players.SelectMany(p => p.Issues)))
                 log.LogWarning("{Session}: [{Rule}] {Message}", report.SessionId, issue.Rule, issue.Message);
+            _ = TellPlayersAsync(round, report);
             SessionAssembled?.Invoke(dir, report);
         }
         catch (Exception e) when (e is IOException or InvalidDataException or FormatException or System.Text.Json.JsonException)
         {
             log.LogError("cannot assemble {Session}: {Error} (staged in {Dir})", round.Record.SessionId, e.Message, round.StagingDir);
             lock (_lock) _rounds.Remove(round.Record.SessionId);
+        }
+    }
+
+    /// <summary>Each player of the round still connected learns the gate's result, with the session's and their own problems.</summary>
+    private async Task TellPlayersAsync(OpenRound round, SessionReport report)
+    {
+        var sessionProblems = report.Issues.Where(i => i.Severity == Issue.ErrorSeverity).Select(i => i.Message).ToList();
+        foreach (var player in report.Players)
+        {
+            AgentLink? link;
+            lock (_lock) _agents.TryGetValue(player.PlayerId, out link);
+            if (link is null) continue;
+            var problems = sessionProblems.Concat(player.Issues.Where(i => i.Severity == Issue.ErrorSeverity)
+                .Select(i => $"{i.Rule}: {i.Message}")).ToList();
+            await SendAsync(link, new SessionResult(round.Record.SessionId, report.Pass, report.ValidPlayers, report.RequiredPlayers,
+                problems));
         }
     }
 

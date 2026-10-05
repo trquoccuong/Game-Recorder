@@ -76,6 +76,12 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// <summary>Progress of joining the room's virtual LAN; null once out of it.</summary>
     public event Action<LanState?>? LanChanged;
 
+    /// <summary>A round's capture went to the orchestrator (session id, uploaded, why not).</summary>
+    public event Action<string, bool, string?>? RoundUploaded;
+
+    /// <summary>The orchestrator assembled a round this player recorded.</summary>
+    public event Action<SessionResult>? SessionResultReceived;
+
     /// <summary>Whether this player is ready for the next round; the orchestrator clears it when play starts.</summary>
     public bool IsReady { get; private set; }
 
@@ -297,6 +303,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 if (options.AutoReady && !IsHost && me is { Ready: false, State: "idle" } && r.CurrentSession is null)
                     await SetReadyAsync(true, stop);
                 break;
+            case SessionResult result:
+                Log?.Invoke($"{result.SessionId}: {(result.Pass ? "PASS" : "FAIL")}");
+                SessionResultReceived?.Invoke(result);
+                break;
             case RoomError e:
                 Log?.Invoke(e.Message);
                 RoomError?.Invoke(e.Message);
@@ -420,6 +430,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Done(s.SessionId, ok, error ?? (result.CaptureOk ? null : "capture failed")), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{s.SessionId} done: {(ok ? "uploaded" : error ?? "capture failed")}");
+        RoundUploaded?.Invoke(s.SessionId, ok, ok ? null : error ?? "capture failed");
         lock (_gate)
         {
             _run = null;
