@@ -15,10 +15,6 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
 {
     public GateTolerances Tolerances { get; init; } = GateTolerances.Default;
     public TimeSpan DoneTimeout { get; init; } = TimeSpan.FromMinutes(15);
-    /// <summary>Countdown of a round started because every player is ready (as in the client's sample delivery).</summary>
-    public int ReadyCountdownMs { get; init; } = 5000;
-    /// <summary>Members (host included) a room needs before a ready check can start a round.</summary>
-    public int MinReadyPlayers { get; init; } = 2;
     /// <summary>A room nobody is in is closed after this long (the host closes it otherwise).</summary>
     public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
     /// <summary>Every HTTP and WebSocket request must carry "Authorization: Bearer &lt;key&gt;"; null lets anyone in.</summary>
@@ -27,8 +23,8 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
 
 /// <summary>
 /// Rooms and their match state machine (spec v3 §2). A host opens a room and shares its invite code; only the room's members
-/// are recorded. A round starts from round_start (game server plugin via /rooms/{code}/events), from the host once every
-/// other member is ready, or in a room without a host when every member is ready. With a countdown, members record from round_countdown and play starts at round_start; a
+/// are recorded. Rounds start and end only on request: the host's (once every other member is ready), or a game server
+/// plugin's round_start / round_end (/rooms/{code}/events). Ready is a signal for the host, never a start by itself. With a countdown, members record from round_countdown and play starts at round_start; a
 /// round_end, an unready or a member leaving during the countdown cancels the round (nothing is kept). A permanent
 /// player_death stops that player, round_end stops the rest; when all players have uploaded (or
 /// <see cref="OrchestratorOptions.DoneTimeout"/> passes) the round is assembled into a v3 session.
@@ -49,7 +45,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private sealed class Room(string code, string? hostPlayerId)
     {
         public string Code { get; } = code;
-        /// <summary>Null for a room opened over HTTP (game server plugin, simulator): no host, ready checks only.</summary>
+        /// <summary>Null for a room opened over HTTP (game server plugin, simulator): its round_start/round_end drive it.</summary>
         public string? HostPlayerId { get; } = hostPlayerId;
         public List<AgentLink> Members { get; } = [];
         public string? MatchId { get; set; }
@@ -393,18 +389,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             ["name"] = link.Hello.Name }, effects);
         if (!ready && room.Current is { Counting: true } counting && counting.IndexOf(link.Id) >= 0)
             Cancel(counting, $"player_unready:{link.Id}", effects);
-        else if (ready && EveryoneReady(room))
-            Apply(room, new JsonObject { ["type"] = GameEvents.RoundStart, ["countdown_ms"] = options.ReadyCountdownMs,
-                ["by"] = "ready_check" }, effects);
     }
-
-    /// <summary>
-    /// Starts a round on its own only in a room without a host (game server plugin, simulator): no round running, enough
-    /// members, all ready and idle. A host starts rounds itself, once the others are ready (<see cref="NotReady"/>).
-    /// </summary>
-    private bool EveryoneReady(Room room) =>
-        room.HostPlayerId is null && room.Current is null && room.Members.Count >= options.MinReadyPlayers &&
-        NotReady(room).Count == 0;
 
     /// <summary>Members other than the host who are not ready (or still busy with the last round).</summary>
     private static List<AgentLink> NotReady(Room room) =>
