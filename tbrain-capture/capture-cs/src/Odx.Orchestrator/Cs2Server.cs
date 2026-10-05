@@ -57,6 +57,23 @@ public sealed class Cs2Server(Cs2ServerOptions options, ILogger log)
         if (File.Exists(demo)) File.Move(demo, Path.Combine(server, Cs2ServerCapture.DemoFile), true);
         else log.LogWarning("CS2 server: no demo {Demo} for {Session}", demo, sessionId);
         CopyNewLines(logStart ?? [], Path.Combine(server, Cs2ServerCapture.NetLogFile));
+        CopySignon(Path.Combine(server, Cs2ServerCapture.SendDataFile));
+    }
+
+    /// <summary>
+    /// Every signon buffer the plugin logged, a few per player join: players join before rounds, and the round's demo needs
+    /// the game event list from them. The newest list is the running build's (a server update means players join again).
+    /// </summary>
+    private void CopySignon(string target)
+    {
+        string dir = Path.Combine(NetLogDir, "senddata");
+        if (!Directory.Exists(dir)) return;
+        using var output = File.Create(target);
+        foreach (string file in Directory.GetFiles(dir, "*.jsonl").Order())
+        {
+            using var input = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            input.CopyTo(output);
+        }
     }
 
     /// <summary>The bytes each log file gained since the round started (whole files that appeared since).</summary>
