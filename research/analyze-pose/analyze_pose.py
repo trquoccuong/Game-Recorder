@@ -102,7 +102,7 @@ def audit(sdir):
                                                   "screen_width_px", "record_width_px") if k not in session]
         res["fps"] = session.get("fps")
 
-    M = np.array([[num(r[f"c2w_m{i // 4}{i % 4}"]) for i in range(16)] for r in rows]).reshape(-1, 4, 4)
+    M = np.array([[num(r[f"C2W_M{i // 4}{i % 4}"]) for i in range(16)] for r in rows]).reshape(-1, 4, 4)
     R = M[:, :3, :3]
     T = M[:, :3, 3]
     dets = np.linalg.det(R)

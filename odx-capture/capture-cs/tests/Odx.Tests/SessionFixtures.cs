@@ -125,9 +125,9 @@ public static class SessionFixtures
 
     private static string Repr(double v) => Frames.FormatDouble(v);
     private static double Num(string s) => Frames.ParseDouble(s);
-    private static int KeyFrame(List<Dictionary<string, string>> rows) => rows.FindIndex(r => r["input_keys"] != "");
+    private static int KeyFrame(List<Dictionary<string, string>> rows) => rows.FindIndex(r => r["input_keys"] != Frames.Null);
     private static int NoInputFrame(List<Dictionary<string, string>> rows) =>
-        rows.FindIndex(r => r["input_keys"] == "" && r["input_mouse_dx"] == "0.0");
+        rows.FindIndex(r => r["input_keys"] == Frames.Null && r["input_mouse_dx"] == "0.0");
 
     /// <summary>Rule id → mutator(session dir). Each targets exactly that rule (others may fire as a consequence).</summary>
     public static readonly Dictionary<string, Action<string>> Mutations = new()
@@ -145,18 +145,18 @@ public static class SessionFixtures
         ["frames.timestamp_start"] = d => EditRows(d, rows => rows.ForEach(r => r["timestamp_ms"] = (long.Parse(r["timestamp_ms"]) + 100).ToString())),
         ["frames.timestamp_end"] = d => EditSession(d, s => { s["duration_ms"] = 1900.0; s["duration_seconds"] = 1.9; }),
         ["frames.frame_interval"] = d => EditRows(d, rows => rows[60]["timestamp_ms"] = (long.Parse(rows[60]["timestamp_ms"]) + 8).ToString()),
-        ["camera.sparse_nulls"] = d => EditRows(d, rows => { foreach (var c in Frames.C2wColumns) rows[30][c] = ""; }),
+        ["camera.sparse_nulls"] = d => EditRows(d, rows => { foreach (var c in Frames.C2wColumns) rows[30][c] = Frames.Null; }),
         ["camera.model"] = d => EditRows(d, rows => rows[0]["camera_model"] = "PERSPECTIVE"),
         ["camera.principal_point"] = d => EditRows(d, rows => rows[0]["camera_cx"] = Repr(Num(rows[0]["camera_cx"]) + 20)),
         ["camera.fx_fy"] = d => EditRows(d, rows => rows[0]["camera_fx"] = Repr(Num(rows[0]["camera_fx"]) * 1.1)),
-        ["c2w.bottom_row"] = d => EditRows(d, rows => rows[0]["c2w_m30"] = "0.1"),
+        ["c2w.bottom_row"] = d => EditRows(d, rows => rows[0]["C2W_M30"] = "0.1"),
         ["c2w.det"] = d => EditRows(d, rows =>
         {
-            foreach (var c in new[] { "c2w_m02", "c2w_m12", "c2w_m22" }) rows[20][c] = Repr(-Num(rows[20][c]));
+            foreach (var c in new[] { "C2W_M02", "C2W_M12", "C2W_M22" }) rows[20][c] = Repr(-Num(rows[20][c]));
         }),
-        ["c2w.orthonormal"] = d => EditRows(d, rows => rows[0]["c2w_m00"] = Repr(Num(rows[0]["c2w_m00"]) * 1.5)),
-        ["input.mouse_delta"] = d => EditRows(d, rows => rows[3]["input_mouse_dx"] = ""),
-        ["input.keys_without_actions"] = d => EditRows(d, rows => rows[KeyFrame(rows)]["input_actions"] = ""),
+        ["c2w.orthonormal"] = d => EditRows(d, rows => rows[0]["C2W_M00"] = Repr(Num(rows[0]["C2W_M00"]) * 1.5)),
+        ["input.mouse_delta"] = d => EditRows(d, rows => rows[3]["input_mouse_dx"] = Frames.Null),
+        ["input.keys_without_actions"] = d => EditRows(d, rows => rows[KeyFrame(rows)]["input_actions"] = Frames.Null),
         ["input.no_input_null"] = d => EditRows(d, rows => rows[NoInputFrame(rows)]["input_actions"] = "Jump"),
         ["input.delimiter"] = d => EditRows(d, rows => rows[KeyFrame(rows)]["input_keys"] = "W,Shift"),
         ["video.missing"] = d => File.Delete(Path.Combine(d, "video.mp4")),

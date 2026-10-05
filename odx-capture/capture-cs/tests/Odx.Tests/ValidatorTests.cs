@@ -63,7 +63,7 @@ public class ValidatorTests(ValidSession valid) : IClassFixture<ValidSession>
         {
             foreach (var r in rows)
                 foreach (var c in Frames.C2wColumns.Append("camera_model").Concat(Frames.IntrinsicColumns))
-                    r[c] = "";
+                    r[c] = Frames.Null;
         });
         Assert.Empty(SessionValidator.ValidateSession(session, video: false));
     }

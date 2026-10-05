@@ -13,8 +13,9 @@ public sealed record FrameRow(long FrameId, long TimestampMs, double[,]? C2w, st
 /// <summary>frames.csv schema, per-frame input aggregation and writing (Capture Spec v2 §1.1.2.6, §1.1.3).</summary>
 public static class Frames
 {
+    /// <summary>Spelled as in the column table of spec v2 §1.1.3 (its prose writes c2w_mRC) and the client's sample delivery.</summary>
     public static readonly string[] C2wColumns =
-        Enumerable.Range(0, 16).Select(i => $"c2w_m{i / 4}{i % 4}").ToArray();
+        Enumerable.Range(0, 16).Select(i => $"C2W_M{i / 4}{i % 4}").ToArray();
     public static readonly string[] IntrinsicColumns = ["camera_fx", "camera_fy", "camera_cx", "camera_cy"];
     public static readonly string[] DistortionColumns =
         [.. Enumerable.Range(1, 6).Select(i => $"camera_radial_k{i}"), "camera_tangential_p1", "camera_tangential_p2"];
@@ -25,8 +26,8 @@ public static class Frames
 
     public static readonly string[] CameraModels = ["PINHOLE", "OPENCV", "OPENCV_FISHEYE"];
 
-    /// <summary>How a null value is written to CSV. Open question for the client: empty field vs a literal token.</summary>
-    public const string Null = "";
+    /// <summary>Spec v2 §1.5.5 wants null distinguished from an empty string, so it is written as this literal.</summary>
+    public const string Null = "null";
 
     /// <summary>Shortest round-trip text, always with a decimal point or exponent ("0.0", "1.5", "1e-05").</summary>
     public static string FormatDouble(double v)

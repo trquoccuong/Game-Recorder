@@ -99,9 +99,9 @@ internal static class Rules
             PerFrame(d, i => d.Intrinsics[i] is { } k && Math.Abs(k.Fx - k.Fy) > d.Tol.FxFyRelative * Math.Abs(k.Fy),
                 "fx must equal fy for square pixels")),
         Warn("c2w.roll", "v2 §1.5.3", Needs.Camera, d =>
-            PerFrame(d, i => d.C2w[i] is { } m && Math.Abs(m[2, 0]) > d.Tol.LevelRoll, "c2w_m20 not ≈ 0 (camera roll)")),
+            PerFrame(d, i => d.C2w[i] is { } m && Math.Abs(m[2, 0]) > d.Tol.LevelRoll, "C2W_M20 not ≈ 0 (camera roll)")),
         Warn("c2w.upright", "v2 §1.5.3", Needs.Camera, d =>
-            PerFrame(d, i => d.C2w[i] is { } m && m[2, 1] <= 0, "c2w_m21 <= 0 (camera not upright)")),
+            PerFrame(d, i => d.C2w[i] is { } m && m[2, 1] <= 0, "C2W_M21 <= 0 (camera not upright)")),
 
         // §1.5.5 control / input data
         Err("input.mouse_delta", "v2 §1.5.5", Needs.FrameRows, d =>

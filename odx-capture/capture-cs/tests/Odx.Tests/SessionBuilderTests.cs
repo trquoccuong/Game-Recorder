@@ -75,7 +75,7 @@ public class SessionBuilderTests
             Assert.Equal("Forward", rows[30]["input_actions"]);
             Assert.DoesNotContain(rows, r => r["input_keys"].Contains("Ctrl"));
             Assert.Equal(0, report.CameraFrames);
-            Assert.Equal("", rows[0]["c2w_m00"]);
+            Assert.Equal(Frames.Null, rows[0]["C2W_M00"]);
         }
         finally
         {

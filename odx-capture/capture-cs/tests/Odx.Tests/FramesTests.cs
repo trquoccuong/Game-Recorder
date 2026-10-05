@@ -83,8 +83,8 @@ public class FramesTests
             Assert.Equal(Frames.Columns, header);
             Assert.Equal("0.0", rows[0]["input_mouse_dx"]);
             Assert.Equal(0.1 + 0.2, Frames.ParseDouble(rows[0]["input_mouse_dy"]));  // full float precision preserved
-            Assert.Equal("", rows[0]["c2w_m00"]);
-            Assert.Equal("", rows[0]["input_keys"]);
+            Assert.Equal(Frames.Null, rows[0]["C2W_M00"]);
+            Assert.Equal(Frames.Null, rows[0]["input_keys"]);
         }
         finally
         {

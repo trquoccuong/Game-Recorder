@@ -149,8 +149,8 @@ In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine
 
 ## Decisions pending with the client
 
-- **Null encoding in CSV:** nulls are written as empty fields (`Frames.Null`). Spec v2 §1.5.5 distinguishes "null" from "empty string", which plain CSV cannot express; confirm the expected token.
-- **Column-name case:** the spec uses `c2w_mRC` (§1.1.2.4, §1.5.3) but `C2W_M00` in the summary table (§1.1.3). Lowercase is used here.
+- **Null encoding in CSV:** nulls are written as the literal `null` (`Frames.Null`), as spec v2 §1.5.5 asks ("null, not empty string") and as the client's multiplayer sample delivery does; confirm.
+- **Column-name case:** the spec uses `c2w_mRC` (§1.1.2.4, §1.5.3) but `C2W_M00` in the summary table (§1.1.3). Uppercase `C2W_M00` is used here, as in the summary table and the client's sample delivery (which also writes `camera_model` as `pinhole`; we keep the spec's `PINHOLE`).
 - **Extra `session.json` fields:** `vendor_tool_version` and `vendor_clock_sync` are not in the spec (the schema allows additional properties); confirm the client accepts them.
 - **Validation tolerances** not fixed by the spec (all in `ValidationTolerances`, `Odx.Session/Validation/Issue.cs`): rotation `1e-3`, principal point `4 px`, frame spacing `max(1 ms, 25%)`, level-roll warning `0.05`, fx = fy within `1e-3`, duration checks `1 s` / `1000 ms` / `2 frames`.
 - **Multiplayer (provisional):**
