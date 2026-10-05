@@ -46,7 +46,6 @@ public partial class MainWindow : Window
     private int _countdownLeft;
     private DateTime _runStarted;
     private bool _closeWhenIdle;
-    private string? _lastSessionDir;
     /// <summary>Windows that can be recorded, listed off the UI thread (~200 ms) once the window is up and on Refresh.</summary>
     private List<SourceItem> _windows = [];
     private bool _windowsListed;
@@ -101,10 +100,6 @@ public partial class MainWindow : Window
         _trayExit.Click += (_, _) => Close();
         _tray.ContextMenuStrip.Items.AddRange([_trayStartStop, _trayShow, _trayExit]);
         _tray.DoubleClick += (_, _) => RestoreFromTray();
-        _tray.BalloonTipClicked += (_, _) =>
-        {
-            if (_lastSessionDir is not null && Directory.Exists(_lastSessionDir)) Process.Start("explorer.exe", _lastSessionDir);
-        };
         _tray.Visible = true;
         ApplyLanguage();
         if (configError is not null) SetStatus(t => t.ConfigInvalid(configError));
@@ -401,10 +396,9 @@ public partial class MainWindow : Window
     private void OnRunCompleted(RunResult result)
     {
         _run = null;
-        _lastSessionDir = result.SessionDir;
         SetState(RunState.Idle, t => t.Describe(result));
         var (title, body) = _t.Notification(result);
-        _tray.ShowBalloonTip(10_000, title, body, result.Ok ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+        ToastOverlay.Notify(result.Ok, title, body);
         if (_closeWhenIdle) Close();
     }
 
@@ -474,6 +468,7 @@ public partial class MainWindow : Window
         {
             if (_agent != agent) return;
             _roundResult = ok ? t => t.RoundUploaded(session) : t => t.RoundUploadFailed(session, error!);
+            ToastOverlay.Notify(ok, _roundResult(_t));
             if (_run is null) ShowAgentStatus();
         });
         agent.SessionResultReceived += result => Dispatcher.BeginInvoke(() =>
@@ -482,6 +477,7 @@ public partial class MainWindow : Window
             _roundResult = result.Pass
                 ? t => t.SessionPass(result.SessionId, result.ValidPlayers, result.RequiredPlayers)
                 : t => t.SessionFail(result.SessionId, string.Join("; ", result.Problems));
+            ToastOverlay.Notify(result.Pass, _roundResult(_t));
             if (_run is null) ShowAgentStatus();
         });
         agent.RoomChanged += room => Dispatcher.BeginInvoke(() =>
@@ -704,9 +700,7 @@ public partial class MainWindow : Window
     {
         _run = null;
         _clock.Stop();
-        _lastSessionDir = result.SessionDir;
-        var (title, body) = _t.Notification(result);
-        _tray.ShowBalloonTip(10_000, title, body, result.Ok ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
+        // The notice comes once the upload is done (RoundUploaded).
         if (_state == RunState.Stopping) SetState(RunState.Idle, t => t.LeftRoom);
         else ShowAgentStatus();
         if (_closeWhenIdle) Close();
