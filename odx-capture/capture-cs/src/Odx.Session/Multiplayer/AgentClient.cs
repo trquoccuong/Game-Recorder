@@ -157,7 +157,8 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         ICaptureRun run;
         try
         {
-            run = startCapture(new CaptureOptions(options.OutputRoot, options.WindowProcess, _armed!.Fps, _profilePath, _timeServer));
+            run = startCapture(new CaptureOptions(options.OutputRoot, options.WindowProcess, _armed!.Fps, _profilePath, _timeServer,
+                NtpIntervalS: 1));
         }
         catch (Exception e)
         {

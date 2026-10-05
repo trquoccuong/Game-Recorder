@@ -155,6 +155,8 @@ public sealed class OrchestratorTests : IAsyncLifetime
         // The fake's 2 s of frames start when it is created, right after the round_start with a 1 s countdown.
         Assert.InRange((int)p1["round_start_frame"]!, 40, 61);
         Assert.InRange((double)p1["round_start_video_time_ms"]!, 600, 1000);
+        Assert.Equal(2, (int)p1["clock_sync"]!["sample_count"]!);
+        Assert.Equal("server_clock - player_clock", (string?)p1["clock_sync"]!["offset_definition"]);
         foreach (string p in new[] { "p1", "p2" })
         {
             Assert.True(File.Exists(Path.Combine(dir, "players", p, "video.mp4")));

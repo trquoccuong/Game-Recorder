@@ -1,11 +1,11 @@
-// odx input --out <dir> [--pid <game_pid>] [--stop-event <name>] [--ntp <server>]
+// odx input --out <dir> [--pid <game_pid>] [--stop-event <name>] [--ntp <server>] [--ntp-interval-s 15]
 //
 // Captures keyboard/mouse with the Raw Input API in its own process (RIDEV_INPUTSINK: keeps receiving while the game
 // has focus) and never touches the game. Writes, QPC-stamped:
 //   <dir>/input_events.csv   raw events (t_qpc_ms,kind,value,dx,dy)
 //   <dir>/clock_samples.csv  QPC <-> UTC once per second, to align with server events / demo ticks
 // --pid: stop when that process exits. --stop-event: stop when that named event is set (Odx.App).
-// --ntp: also measure QPC -> UTC against that NTP server at start and every 15 s (<dir>/ntp_samples.csv); the
+// --ntp: also measure QPC -> UTC against that NTP server at start and every --ntp-interval-s (<dir>/ntp_samples.csv); the
 // Windows clock in clock_samples.csv is only as good as its own time sync. NTP failures are reported, not fatal.
 // Without --ntp, the time_server of odx-capture.json next to odx is used, if set.
 // Stop with Ctrl+C.
@@ -22,7 +22,7 @@ public static class InputCommand
 {
     public static int Run(string[] args)
     {
-        (string OutDir, int? Pid, string? StopEvent, string? Ntp)? opts;
+        (string OutDir, int? Pid, string? StopEvent, string? Ntp, int NtpIntervalS)? opts;
         try
         {
             opts = ParseArgs(args);
@@ -34,7 +34,8 @@ public static class InputCommand
         }
         if (opts is null)
         {
-            Console.Error.WriteLine("usage: odx input --out <dir> [--pid <game_pid>] [--stop-event <name>] [--ntp <server>]");
+            Console.Error.WriteLine("usage: odx input --out <dir> [--pid <game_pid>] [--stop-event <name>] [--ntp <server>] " +
+                                    "[--ntp-interval-s 15]");
             return 2;
         }
 
@@ -70,7 +71,8 @@ public static class InputCommand
 
         using var ntpStop = new CancellationTokenSource();
         var ntpLoop = opts.Value.Ntp is string ntpServer
-            ? Task.Run(() => MeasureNtp(ntpServer, Path.Combine(opts.Value.OutDir, "ntp_samples.csv"), ntpStop.Token))
+            ? Task.Run(() => MeasureNtp(ntpServer, Path.Combine(opts.Value.OutDir, "ntp_samples.csv"),
+                TimeSpan.FromSeconds(opts.Value.NtpIntervalS), ntpStop.Token))
             : Task.CompletedTask;
 
         SetTimer(hwnd, 1, 1000, IntPtr.Zero);
@@ -120,7 +122,7 @@ public static class InputCommand
             events.Flush();
         }
 
-        static async Task MeasureNtp(string server, string path, CancellationToken stop)
+        static async Task MeasureNtp(string server, string path, TimeSpan interval, CancellationToken stop)
         {
             using var log = new NtpSampleWriter(new StreamWriter(path));
             while (!stop.IsCancellationRequested)
@@ -136,7 +138,7 @@ public static class InputCommand
                 }
                 try
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(15), stop);
+                    await Task.Delay(interval, stop);
                 }
                 catch (OperationCanceledException)
                 {
@@ -145,10 +147,11 @@ public static class InputCommand
             }
         }
 
-        static (string OutDir, int? Pid, string? StopEvent, string? Ntp)? ParseArgs(string[] args)
+        static (string OutDir, int? Pid, string? StopEvent, string? Ntp, int NtpIntervalS)? ParseArgs(string[] args)
         {
             string? outDir = null;
             int? pid = null;
+            int ntpIntervalS = 15;
             string? stopEvent = null, ntp = null;
             for (int i = 0; i < args.Length; i++)
             {
@@ -158,11 +161,15 @@ public static class InputCommand
                     case "--pid" when i + 1 < args.Length && int.TryParse(args[i + 1], out var p): pid = p; i++; break;
                     case "--stop-event" when i + 1 < args.Length: stopEvent = args[++i]; break;
                     case "--ntp" when i + 1 < args.Length: ntp = args[++i]; break;
+                    case "--ntp-interval-s" when i + 1 < args.Length && int.TryParse(args[i + 1], out var s) && s > 0:
+                        ntpIntervalS = s;
+                        i++;
+                        break;
                     default: return null;
                 }
             }
             if (outDir is null) return null;
-            return (outDir, pid, stopEvent, ntp ?? CaptureConfig.Load().TimeServer);
+            return (outDir, pid, stopEvent, ntp ?? CaptureConfig.Load().TimeServer, ntpIntervalS);
         }
     }
 }
