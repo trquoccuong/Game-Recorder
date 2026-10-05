@@ -15,12 +15,15 @@ public static class SntpClient
     private const int PacketSize = 48;
     private const double NtpToUnixSeconds = 2_208_988_800;
 
+    /// <param name="server">"host" (port 123) or "host:port", e.g. the orchestrator's time service.</param>
     /// <exception cref="SocketException">Network error or no answer within the timeout.</exception>
     /// <exception cref="InvalidDataException">The answer is not a usable server reply.</exception>
     public static NtpSample Query(string server, TimeSpan timeout)
     {
         using var socket = new Socket(SocketType.Dgram, ProtocolType.Udp) { ReceiveTimeout = (int)timeout.TotalMilliseconds };
-        socket.Connect(server, 123);
+        int colon = server.LastIndexOf(':');
+        if (colon > 0 && int.TryParse(server[(colon + 1)..], out int port)) socket.Connect(server[..colon], port);
+        else socket.Connect(server, 123);
         var request = new byte[PacketSize];
         request[0] = 0x23;  // LI 0, version 4, mode 3 (client)
         double sentUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
