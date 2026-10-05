@@ -1,6 +1,15 @@
 {
   "game_title": "Counter-Strike 2",
   "platform": "PC",
+  "engine": "Source 2",
+  "coordinate_system": {
+    "axes": "right-handed, Z up: X east, Y north (the spec's RFU)",
+    "units": "inch",
+    "units_per_meter": 39.37
+  },
+  "rules": {
+    "respawn_allowed": false
+  },
   "localization": "en-US",
   "window_process": "cs2",
   "network": {

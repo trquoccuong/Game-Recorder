@@ -104,6 +104,10 @@ public static class MultiplayerSession
         string stagedServer = Path.Combine(stagingDir, "server");
         JsonObject? serverInfo = null;
         string? serverError = null;
+        IReadOnlyDictionary<string, List<Cs2ServerCapture.CameraSample>> cameras = new Dictionary<string, List<Cs2ServerCapture.CameraSample>>();
+        // A Steam account several players share (two agents on one machine) names none of them.
+        var playerIds = round.Players.Where(p => p.SteamId is not null).GroupBy(p => p.SteamId!).Where(g => g.Count() == 1)
+            .ToDictionary(g => g.Key, g => g.Single().PlayerId);
         if (Cs2ServerCapture.IsStaged(stagedServer))
         {
             // The game server's recording is read by a third-party parser: a file it cannot read must not cost the
@@ -111,9 +115,10 @@ public static class MultiplayerSession
             try
             {
                 var server = Cs2ServerCapture.Write(stagedServer, Path.Combine(dir, "server"),
-                    new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, ToolVersion = BuildInfo.Version });
+                    new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, ToolVersion = BuildInfo.Version }, playerIds);
                 events = events.Concat(server.Events).OrderBy(GameEvents.UtcMs).ToList();
                 serverInfo = server.Info;
+                cameras = server.Cameras;
             }
             catch (Exception e)
             {
@@ -123,7 +128,7 @@ public static class MultiplayerSession
         WriteEvents(Path.Combine(dir, "server", "events.jsonl"), events);
         FramesBin.WriteSchema(Path.Combine(dir, FramesBin.SchemaFileName));
 
-        var reports = round.Players.Select(p => AssemblePlayer(round, p, events, profile, stagingDir, dir, tol)).ToList();
+        var reports = round.Players.Select(p => AssemblePlayer(round, p, events, profile, cameras, stagingDir, dir, tol)).ToList();
         int valid = reports.Count(r => r.Pass);
         int required = tol.MinValidPlayers ?? (round.Players.Count <= 3 ? round.Players.Count : round.Players.Count - 1);
         var issues = new List<Issue>();
@@ -142,7 +147,16 @@ public static class MultiplayerSession
             ["match_id"] = round.MatchId,
             ["vendor_name"] = vendor,
             ["game_title"] = round.Game,
-            ["map"] = round.Map,
+            ["game_engine"] = profile?["engine"]?.DeepClone(),
+            ["coordinate_system"] = profile?["coordinate_system"]?.DeepClone(),
+            ["rules"] = new JsonObject
+            {
+                ["start_trigger"] = round.CountdownMs > 0 ? "host (odx-app), after a countdown" : "game server",
+                ["stop_trigger"] = round.EndReason?.StartsWith("player_stop:", StringComparison.Ordinal) == true ? "host (odx-app)" : "game server",
+                ["recording"] = "from the countdown until the round ends; a permanent death stops that player",
+                ["respawn_allowed"] = profile?["rules"]?["respawn_allowed"]?.DeepClone(),
+            },
+            ["map"] = round.Map ?? serverInfo?["map"]?.DeepClone(),
             ["round_index"] = round.Round,
             ["countdown_ms"] = round.CountdownMs,
             ["end_reason"] = round.EndReason,
@@ -201,7 +215,7 @@ public static class MultiplayerSession
     }
 
     private static PlayerReport AssemblePlayer(RoundRecord round, RoundPlayer player, List<JsonObject> events, JsonObject? profile,
-        string stagingDir, string sessionDir, GateTolerances tol)
+        IReadOnlyDictionary<string, List<Cs2ServerCapture.CameraSample>> cameras, string stagingDir, string sessionDir, GateTolerances tol)
     {
         string src = Path.Combine(stagingDir, "players", player.PlayerId);
         string dst = Path.Combine(sessionDir, "players", player.PlayerId);
@@ -240,10 +254,19 @@ public static class MultiplayerSession
         AddFloorChecks(checks, capture, recording, rows, info, tol, player.StopReason == "permanent_death");
 
         var frameUtc = PutFramesOnServerTime(round, src, info, checks, tol);
+        info["network"] = new JsonObject
+        {
+            ["ping_ms"] = info["ping_ms"]?.DeepClone(),
+            ["jitter_ms"] = info["clock_sync"]?["jitter_ms"]?.DeepClone(),
+            ["measured_against"] = "the orchestrator's time service (next to the game server)",
+        };
+        if (frameUtc is not null && player.SteamId is { } steamId && cameras.TryGetValue(steamId, out var track) &&
+            rows.All(r => r[Frames.C2wColumns[0]] == Frames.Null))
+            AddServerCamera(rows, frameUtc, track, capture, info, checks, tol, Path.Combine(dst, "frames.csv"));
         AddPackets(round, player, profile, src, dst, info, checks);
         var header = new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
             ToolVersion = player.ToolVersion ?? "" };
-        FramesBin.Write(Path.Combine(src, "frames.csv"), frameUtc, header, Path.Combine(dst, FramesBin.FileName));
+        FramesBin.Write(Path.Combine(dst, "frames.csv"), frameUtc, header, Path.Combine(dst, FramesBin.FileName));
         if (frameUtc is null) return Finish(dst, info, player.PlayerId, checks);
 
         info["first_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[0]);
@@ -259,6 +282,13 @@ public static class MultiplayerSession
             checks.Add(new QaCheck("sync.end", $"last frame at most {tol.EndGraceMs} ms before the player's stop",
                 stopAt - frameUtc[^1] <= tol.EndGraceMs, $"last frame {stopAt - frameUtc[^1]:F0} ms before the stop"));
 
+        (string Key, string File)[] files =
+        [
+            ("video", "video.mp4"), ("frames_csv", "frames.csv"), ("frames_bin", FramesBin.FileName), ("events", "events.jsonl"),
+            ("packets_bin", PacketLog.BinFile), ("packets_txt", PacketLog.TextFile),
+        ];
+        info["files"] = new JsonObject(files.Where(f => f.Key == "events" || File.Exists(Path.Combine(dst, f.File)))
+            .Select(f => KeyValuePair.Create(f.Key, (JsonNode?)f.File)));
         WriteEvents(Path.Combine(dst, "events.jsonl"), events.Select(e =>
         {
             double t = GameEvents.UtcMs(e);
@@ -270,6 +300,99 @@ public static class MultiplayerSession
             return copy;
         }));
         return Finish(dst, info, player.PlayerId, checks);
+    }
+
+    /// <summary>
+    /// The camera from the game server's view of the player (<see cref="ServerCamera"/>) when their own capture has none:
+    /// rewrites frames.csv and checks the camera floor again on it.
+    /// </summary>
+    private static void AddServerCamera(List<Dictionary<string, string>> rows, List<double> frameUtc,
+        List<Cs2ServerCapture.CameraSample> track, JsonObject capture, JsonObject info, List<QaCheck> checks, GateTolerances tol,
+        string framesCsv)
+    {
+        double leadMs = (info["ping_ms"]?.GetValue<double>() ?? 0) / 2;
+        int width = capture["record_width_px"]?.GetValue<int>() ?? 0, height = capture["record_height_px"]?.GetValue<int>() ?? 0;
+        var (withCamera, notFirstPerson) = ServerCamera.Fill(rows, frameUtc, track, leadMs, width, height);
+        using (var writer = new StreamWriter(framesCsv, false, new System.Text.UTF8Encoding(false)) { NewLine = "\n" })
+        {
+            writer.Write(Csv.Line(Frames.Columns));
+            foreach (var row in rows) writer.Write(Csv.Line(Frames.Columns.Select(c => row[c])));
+        }
+
+        info["camera"] = new JsonObject
+        {
+            ["source"] = "game server: the player's eye position and view angles in the server's recording, at frame time + half the ping",
+            ["lead_ms"] = Math.Round(leadMs, 3),
+            ["c2w_layout"] = "row-major 4x4, RUB camera axes (spec v2 §1.1.2.4)",
+            ["world_axes"] = "right-handed, Z up: X east, Y north (the game's own axes, the spec's RFU)",
+            ["world_units"] = "game units (CS2: 1 inch, 39.37 per metre)",
+            ["intrinsics"] = "PINHOLE from the field of view: horizontal at 4:3 as CS2 defines it (90 degrees, less when a scope zooms)",
+        };
+        info["frame_cleanliness"] = new JsonObject
+        {
+            ["source"] = "game server",
+            ["not_first_person_frame_ranges"] = new JsonArray(notFirstPerson.Select(r => (JsonNode)new JsonArray(r.First, r.Last)).ToArray()),
+        };
+        if (info["frame_stats"] is JsonObject stats) stats["frames_with_camera"] = withCamera;
+        double coverage = rows.Count == 0 ? 0 : withCamera / (double)rows.Count;
+        checks.RemoveAll(c => c.Id == "floor.camera");
+        checks.Add(new QaCheck("floor.camera", $"camera on at least {tol.MinCameraCoverage:P0} of frames when captured",
+            coverage >= tol.MinCameraCoverage, $"{coverage:P1} (from the game server; no camera while dead)"));
+
+        if (InputCameraSync(rows) is { } sync)
+        {
+            info["qa_sync_input_camera"] = sync.Describe();
+            checks.Add(new QaCheck("sync.input_camera", "the player's mouse and the server's camera turn together (same frame)",
+                sync.Correlation >= 0.8 && sync.BestShift is -1 or 0,
+                $"correlation {sync.Correlation:F3} at {sync.BestShift:+0;-0} frame(s)", Required: false));
+        }
+    }
+
+    /// <summary>
+    /// Mouse x against the camera's yaw, frame by frame: a frame's mouse movement (accumulated since the previous frame)
+    /// should match the turn into that frame (shift −1). The best shift tells how far the two clocks disagree, in frames.
+    /// </summary>
+    internal sealed record InputCameraSyncResult(int BestShift, double Correlation, int Frames)
+    {
+        public JsonObject Describe() => new()
+        {
+            ["method"] = "correlation of input_mouse_dx with the camera's yaw change (C2W), the camera shifted by -3..+3 frames",
+            ["expected_shift_frames"] = -1,
+            ["best_shift_frames"] = BestShift,
+            ["correlation"] = Math.Round(Correlation, 4),
+            ["frames"] = Frames,
+        };
+    }
+
+    internal static InputCameraSyncResult? InputCameraSync(List<Dictionary<string, string>> rows)
+    {
+        var yaw = rows.Select(r => r[Frames.C2wColumns[0]] == Frames.Null
+            ? (double?)null
+            : Math.Atan2(-Frames.ParseDouble(r["C2W_M12"]), -Frames.ParseDouble(r["C2W_M02"])) * 180 / Math.PI).ToList();
+        var dx = rows.Select(r => r["input_mouse_dx"] == Frames.Null ? 0 : Frames.ParseDouble(r["input_mouse_dx"])).ToList();
+        InputCameraSyncResult? best = null;
+        for (int shift = -3; shift <= 3; shift++)
+        {
+            var pairs = new List<(double Mouse, double Turn)>();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                int j = i + shift;
+                if (j < 0 || j + 1 >= rows.Count || yaw[j] is not { } a || yaw[j + 1] is not { } b) continue;
+                pairs.Add((dx[i], -(((b - a) % 360 + 540) % 360 - 180)));  // turning right decreases yaw
+            }
+            if (pairs.Count < 30) continue;
+            double r = Correlation(pairs);
+            if (best is null || r > best.Correlation) best = new InputCameraSyncResult(shift, r, pairs.Count);
+        }
+        return best;
+    }
+
+    private static double Correlation(List<(double X, double Y)> pairs)
+    {
+        double mx = pairs.Average(p => p.X), my = pairs.Average(p => p.Y);
+        double sxy = pairs.Sum(p => (p.X - mx) * (p.Y - my)), sxx = pairs.Sum(p => (p.X - mx) * (p.X - mx)),
+            syy = pairs.Sum(p => (p.Y - my) * (p.Y - my));
+        return sxx == 0 || syy == 0 ? 0 : sxy / Math.Sqrt(sxx * syy);
     }
 
     /// <summary>packets.bin / packets.txt from the player's packets.pcapng (spec v3 §2.3), when the game's profile asks for them.</summary>

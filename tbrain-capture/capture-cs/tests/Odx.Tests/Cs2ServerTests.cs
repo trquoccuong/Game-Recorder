@@ -67,17 +67,21 @@ public sealed class Cs2ServerCaptureTests
         string staging = Cs2Fixtures.TempDir(), session = Cs2Fixtures.TempDir();
         File.Copy(Cs2Fixtures.NetLog, Path.Combine(staging, Cs2ServerCapture.NetLogFile));
 
-        Cs2ServerCapture.Write(staging, session, new FileHeader { SessionId = "s1" });
+        Cs2ServerCapture.Write(staging, session, new FileHeader { SessionId = "s1" },
+            new Dictionary<string, string> { ["76561197960265729"] = "p1" });
 
         var (header, records) = PacketLog.Read(Path.Combine(session, PacketLog.BinFile));
         Assert.Equal(PacketRecord.Descriptor.FullName, header.RecordType);
         Assert.Equal(210, records.Count);
         var tick = records.First(r => r.Message == "CNETMsg_Tick" && r.Direction == PacketRecord.Types.Direction.Out);
         Assert.Equal("76561197960265729", tick.PeerId);
+        Assert.Equal("p1", tick.PeerPlayerId);
         Assert.Equal("netmessage", tick.Transport);
         Assert.Equal(tick.LocalTimeUs, tick.ServerTimeUs);
         Assert.NotNull(JsonNode.Parse(tick.DecodedJson)!["tick"]);
-        Assert.Equal(211, File.ReadAllLines(Path.Combine(session, PacketLog.TextFile)).Length);
+        var text = File.ReadAllLines(Path.Combine(session, PacketLog.TextFile));
+        Assert.Equal(211, text.Length);
+        Assert.Equal("p1", text[1].Split('\t')[6]);  // the peer column
         Assert.True(File.Exists(Path.Combine(session, "capture", Cs2ServerCapture.NetLogFile)));
     }
 
@@ -122,8 +126,18 @@ public sealed class Cs2ServerCaptureTests
 
         var last = states[^1];
         Assert.Equal(20, last.Players.Count);
+        Assert.Contains(last.Phase, new[] { "freeze", "live" });
+        Assert.Equal(64, result.Info["tick_rate_hz"]!.GetValue<double>());
+        Assert.Equal(14188, result.Info["build"]!["network_protocol"]!.GetValue<int>());
+        Assert.Equal("de_dust2", result.Info["map"]!.GetValue<string>());
+        Assert.Empty(result.Cameras);  // bots only: nobody records a video
         Assert.All(last.Players, p =>
         {
+            Assert.True(p.IsBot);
+            Assert.Empty(p.PlayerId);
+            Assert.Equal(Cs2ServerCapture.DefaultFovDeg, p.FovDeg);
+            Assert.InRange(p.EyePosition.Z - p.Position.Z, 40, 70);  // crouched to standing eye height
+            Assert.True(p.Connected);
             Assert.Contains(p.Team, new[] { 2, 3 });
             Assert.NotEmpty(p.Name);
             Assert.True(p.Alive);
