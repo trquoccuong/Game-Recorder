@@ -256,11 +256,12 @@ public static class MultiplayerSession
         File.Copy(pcapng, Path.Combine(dst, "capture", PacketCaptureFiles.Pcapng), true);
         string localPath = Path.Combine(src, PacketCaptureFiles.LocalAddresses);
         if (File.Exists(localPath)) File.Copy(localPath, Path.Combine(dst, "capture", PacketCaptureFiles.LocalAddresses), true);
-        string protocol = (string?)network["protocol"] ?? "raw";
+        var spec = PacketCaptureSpec.Parse(network, "game profile");
+        string protocol = spec.Protocol;
         double offsetMs = info["clock_sync"]?["offset_ms"]?.GetValue<double>() ?? 0;
         try
         {
-            int count = PacketLog.Write(pcapng, PacketLog.ReadLocalAddresses(localPath), protocol, offsetMs,
+            int count = PacketLog.Write(pcapng, PacketLog.ReadLocalAddresses(localPath), spec, offsetMs,
                 new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
                     ToolVersion = player.ToolVersion ?? "" },
                 Path.Combine(dst, PacketLog.BinFile), Path.Combine(dst, PacketLog.TextFile));

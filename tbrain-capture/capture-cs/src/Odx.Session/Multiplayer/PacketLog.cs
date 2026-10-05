@@ -23,7 +23,7 @@ public static class PacketLog
 
     /// <param name="serverMinusLocalMs">Orchestrator clock − this machine's Windows clock (player.json clock_sync.offset_ms).</param>
     /// <returns>How many records were written.</returns>
-    public static int Write(string pcapng, IReadOnlyCollection<IPAddress> localAddresses, string protocol, double serverMinusLocalMs,
+    public static int Write(string pcapng, IReadOnlyCollection<IPAddress> localAddresses, PacketCaptureSpec spec, double serverMinusLocalMs,
         FileHeader header, string binPath, string textPath)
     {
         var packets = PcapNgReader.Read(pcapng)
@@ -33,7 +33,12 @@ public static class PacketLog
             .Select(p => (p.Frame.UtcUnixMs, Packet: p.Packet!))
             .ToList();
         var local = localAddresses.ToHashSet();
-        var records = protocol == "w3gs" ? W3gsRecords(packets, local) : RawRecords(packets, local);
+        var records = spec.Protocol switch
+        {
+            "w3gs" => W3gsRecords(packets, local),
+            "csgo" => CsgoRecords(packets, local, spec.UdpPorts.ToHashSet(), spec.Version),
+            _ => RawRecords(packets, local),
+        };
 
         using var bin = File.Create(binPath);
         header.RecordType = PacketRecord.Descriptor.FullName;
@@ -110,6 +115,22 @@ public static class PacketLog
             stream.Buffer.RemoveRange(0, consumed);
             streams[key] = stream;
             foreach (byte[] message in messages) records.Add(Decoded(utc, p, local, message));
+        }
+        return records;
+    }
+
+    /// <summary>One decoder per direction of each connection (its reliable streams span datagrams); a record per netmessage.</summary>
+    private static List<PacketRecord> CsgoRecords(List<(double Utc, IpPacket Packet)> packets, HashSet<IPAddress> local,
+        HashSet<int> serverPorts, string? version)
+    {
+        var records = new List<PacketRecord>();
+        var decoders = new Dictionary<string, CsgoChannelDecoder>();
+        foreach (var (utc, p) in packets.Where(p => p.Packet.Transport == "udp" && p.Packet.Payload.Length > 0))
+        {
+            string key = $"{p.Source}:{p.SourcePort}>{p.Destination}:{p.DestinationPort}";
+            if (!decoders.TryGetValue(key, out var decoder)) decoders[key] = decoder = new CsgoChannelDecoder(version);
+            foreach (var m in decoder.Decode(p.Payload, serverPorts.Contains(p.SourcePort)))
+                records.Add(Record(utc, p, local, m.Name, m.Bytes, m.Fields.ToJsonString(AgentMessage.Json)));
         }
         return records;
     }

@@ -39,17 +39,22 @@ public sealed record GameProfile(
 
 /// <summary>
 /// "network": {"protocol": "w3gs", "ports": ["tcp/6112", "udp/6112"]}: which traffic to capture and how to decode it into
-/// packets.txt ("w3gs": Warcraft III's game protocol; "raw": addresses, sizes and payloads only, e.g. encrypted CS2).
+/// packets.txt ("w3gs": Warcraft III's game protocol; "csgo": CS:GO legacy netchannel, whose ICE key derives from the game
+/// build in "version"; "raw": addresses, sizes and payloads only, e.g. encrypted CS2). For "csgo" the listed UDP ports are
+/// the game server's, which tells server→client from client→server.
 /// </summary>
-public sealed partial record PacketCaptureSpec(string Protocol, IReadOnlyList<string> Ports)
+public sealed partial record PacketCaptureSpec(string Protocol, IReadOnlyList<string> Ports, string? Version = null)
 {
+    public IEnumerable<int> UdpPorts => Ports.Where(p => p.StartsWith("udp/", StringComparison.Ordinal)).Select(p => int.Parse(p[4..],
+        System.Globalization.CultureInfo.InvariantCulture));
+
     public static PacketCaptureSpec Parse(JsonObject json, string source)
     {
         string protocol = json["protocol"]?.GetValue<string>() ?? "raw";
         var ports = json["ports"]?.AsArray().Select(p => p!.GetValue<string>().ToLowerInvariant()).ToList() ?? [];
         if (ports.Count == 0 || ports.Any(p => !PortPattern().IsMatch(p)))
             throw new FormatException($"{source}: network.ports must list \"tcp/<port>\" or \"udp/<port>\"");
-        return new PacketCaptureSpec(protocol, ports);
+        return new PacketCaptureSpec(protocol, ports, json["version"]?.GetValue<string>());
     }
 
     [GeneratedRegex(@"^(tcp|udp)/\d{1,5}$")]
