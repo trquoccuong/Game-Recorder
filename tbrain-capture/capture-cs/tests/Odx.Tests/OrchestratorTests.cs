@@ -467,3 +467,70 @@ public sealed class OrchestratorAccessKeyTests : IAsyncLifetime
         stop.Cancel();
     }
 }
+
+/// <summary>Against this machine's ZeroTier service, which is also a controller; skipped where ZeroTier is not installed.</summary>
+public sealed class RoomLanTests
+{
+    [SkippableFact]
+    public async Task A_lan_room_gets_its_own_network_that_members_join_and_closing_deletes()
+    {
+        string? token = ZeroTierApi.LocalToken();
+        Skip.If(token is null, "ZeroTier is not installed here");
+        string root = Path.Combine(Path.GetTempPath(), "odx-lan-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string profile = Path.Combine(root, "game.json");
+        File.WriteAllText(profile, """
+            {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
+             "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
+            """);
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(root, "out"), profile, HttpPort: 0, TimePort: 0)
+            { ZeroTierApi = ZeroTierApi.Local, ZeroTierToken = token }, "127.0.0.1");
+        await app.StartAsync();
+        using var controller = new ZeroTierApi(ZeroTierApi.Local, token!);
+
+        var host = new AgentClient(new AgentOptions(new Uri(app.Urls.First()), "p1", "P1", Path.Combine(root, "agent"), null,
+            CreateRoom: true, Lan: true), _ => throw new InvalidOperationException("no capture in this test"));
+        var lan = new TaskCompletionSource<LanState>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.LanChanged += s => { if (s is { Status: not "joining" }) lan.TrySetResult(s); };
+        using var stop = new CancellationTokenSource();
+        _ = host.RunUntilStoppedAsync(stop.Token);
+
+        var state = await lan.Task.WaitAsync(TimeSpan.FromSeconds(60));
+        Assert.Equal("ok", state.Status);
+        Assert.StartsWith("10.147.20.", state.Address);
+        Assert.Equal(host.Room!.LanNetworkId, state.NetworkId);
+
+        await host.CloseRoomAsync(default);
+        await Task.Delay(1000);
+        Assert.Equal("NOT_FOUND", (await controller.NetworkAsync(state.NetworkId, default)).Status);
+        using var http = new HttpClient { DefaultRequestHeaders = { { "X-ZT1-Auth", token } } };
+        Assert.DoesNotContain(state.NetworkId, await http.GetStringAsync(new Uri(ZeroTierApi.Local, "/controller/network")));
+        stop.Cancel();
+        await app.StopAsync();
+    }
+
+    [Fact]
+    public async Task Without_a_controller_a_lan_room_is_refused()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "odx-nolan-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string profile = Path.Combine(root, "game.json");
+        File.WriteAllText(profile, """
+            {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
+             "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
+            """);
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(root, "out"), profile, HttpPort: 0, TimePort: 0),
+            "127.0.0.1");
+        await app.StartAsync();
+        var host = new AgentClient(new AgentOptions(new Uri(app.Urls.First()), "p1", "P1", Path.Combine(root, "agent"), null,
+            CreateRoom: true, Lan: true), _ => throw new InvalidOperationException("no capture in this test"));
+        var refused = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.RoomError += m => refused.TrySetResult(m);
+        using var stop = new CancellationTokenSource();
+        _ = host.RunUntilStoppedAsync(stop.Token);
+        Assert.Contains("LAN", await refused.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Null(host.Room);
+        stop.Cancel();
+        await app.StopAsync();
+    }
+}

@@ -69,6 +69,7 @@
                      VerticalContentAlignment="Center" HorizontalContentAlignment="Center" />
             <Button x:Name="JoinButton" AutomationProperties.AutomationId="JoinButton" Click="Join_Click" />
             <Button x:Name="CreateButton" AutomationProperties.AutomationId="CreateButton" Click="Create_Click" />
+            <CheckBox x:Name="LanBox" AutomationProperties.AutomationId="LanBox" Margin="8,0,0,6" VerticalAlignment="Center" />
         </StackPanel>
 
         <Label x:Name="HotkeyLabel" Grid.Row="7" />

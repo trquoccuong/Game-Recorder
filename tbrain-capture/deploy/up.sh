@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Starts (or updates) odx-orchestrator on this server: bash up.sh
-# Needs Docker with the compose plugin, the domain's DNS pointing here, and ports 80/tcp, 443/tcp+udp and 12300/udp open.
+# Needs Docker with the compose plugin, the domain's DNS pointing here, and ports 80/tcp, 443/tcp+udp, 12300/udp and
+# 9993/udp (ZeroTier, rooms with a LAN) open.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -19,6 +20,16 @@ fi
 
 mkdir -p sessions
 [ "$(stat -c %u sessions)" = "1654" ] || sudo chown 1654:1654 sessions  # the container's non-root user
+
+# The ZeroTier controller's API token: written before its first start (zerotier-one keeps an existing one) and handed to
+# the orchestrator through .env.
+mkdir -p zerotier
+if ! grep -q '^ODX_ZT_TOKEN=.' .env; then
+  ztkey=$(head -c 24 /dev/urandom | base64 | tr -d '/+=')
+  sed -i '/^ODX_ZT_TOKEN=/d' .env && echo "ODX_ZT_TOKEN=$ztkey" >> .env
+  echo -n "$ztkey" | sudo tee zerotier/authtoken.secret > /dev/null && sudo chmod 600 zerotier/authtoken.secret
+  export ODX_ZT_TOKEN=$ztkey
+fi
 docker compose up -d --build
 
 echo

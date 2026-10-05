@@ -47,6 +47,7 @@ public static class GameEvents
 [JsonDerivedType(typeof(RoomUpdate), "room")]
 [JsonDerivedType(typeof(RoomError), "room_error")]
 [JsonDerivedType(typeof(RoomClosed), "room_closed")]
+[JsonDerivedType(typeof(LanMember), "lan_member")]
 public abstract record AgentMessage
 {
     public static readonly JsonSerializerOptions Json = new()
@@ -90,8 +91,11 @@ public sealed record Done(string SessionId, bool Ok, string? Error = null) : Age
 /// <summary>Agent → orchestrator: the player is (not) ready; when every player of the room is, a round starts after a countdown.</summary>
 public sealed record Ready(bool IsReady) : AgentMessage;
 
-/// <summary>Agent → orchestrator: open a room with this player as its host; the answer is a <see cref="RoomUpdate"/> with the invite code.</summary>
-public sealed record CreateRoom : AgentMessage;
+/// <summary>
+/// Agent → orchestrator: open a room with this player as its host; the answer is a <see cref="RoomUpdate"/> with the invite
+/// code. <paramref name="Lan"/>: give the room a virtual LAN (a ZeroTier network) for games that only play over LAN.
+/// </summary>
+public sealed record CreateRoom(bool Lan = false) : AgentMessage;
 
 /// <summary>Agent → orchestrator: join the room with this invite code (leaving any other).</summary>
 public sealed record JoinRoom(string Code) : AgentMessage;
@@ -107,11 +111,15 @@ public sealed record ToggleRound(int CountdownMs) : AgentMessage;
 public sealed record RoomMember(string PlayerId, string Name, bool Ready, string State);
 
 /// <summary>Orchestrator → every member whenever the room changes (members, ready, states, round).</summary>
+/// <param name="LanNetworkId">The room's ZeroTier network to join; null when the room has no LAN.</param>
 public sealed record RoomUpdate(string Code, string? HostPlayerId, List<RoomMember> Members, string? CurrentSession,
-    bool Countdown) : AgentMessage;
+    bool Countdown, string? LanNetworkId = null) : AgentMessage;
 
 /// <summary>Orchestrator → agent: a room request failed (unknown code, not the host…).</summary>
 public sealed record RoomError(string Message) : AgentMessage;
 
 /// <summary>Orchestrator → members: the host closed the room.</summary>
 public sealed record RoomClosed(string Code) : AgentMessage;
+
+/// <summary>Agent → orchestrator: this machine (ZeroTier node) joined the room's LAN; the orchestrator authorizes it.</summary>
+public sealed record LanMember(string NodeId) : AgentMessage;
