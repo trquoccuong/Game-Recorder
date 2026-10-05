@@ -124,7 +124,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         var link = new AgentLink(hello, socket);
         lock (_lock) _agents[hello.PlayerId] = link;
         log.LogInformation("agent {Player} ({Name}, {Version}) connected", hello.PlayerId, hello.Name, hello.ToolVersion);
-        await SendAsync(link, new Welcome(timePort));
+        await SendAsync(link, new Welcome(timePort, _profileJson));
 
         try
         {

@@ -1,0 +1,55 @@
+{
+  "game_title": "Warcraft III",
+  "platform": "PC",
+  "localization": "en-US",
+  "window_process": "war3",
+  "network": {
+    "protocol": "w3gs",
+    "ports": [
+      "tcp/6112",
+      "udp/6112"
+    ]
+  },
+  "input_mouse_convention": {
+    "maps_to": "cursor_position",
+    "dx_positive": "not_applicable",
+    "dx_negative": "not_applicable",
+    "dy_positive": "not_applicable",
+    "dy_negative": "not_applicable"
+  },
+  "bindings": {
+    "Left": "Select",
+    "Right": "Smart Order",
+    "A": "Attack",
+    "M": "Move",
+    "S": "Stop",
+    "H": "Hold Position",
+    "P": "Patrol",
+    "Shift": "Queue Order",
+    "Ctrl": "Assign Group",
+    "Alt": "Show Health Bars",
+    "Tab": "Next Subgroup",
+    "Space": "Jump To Event",
+    "Escape": "Cancel",
+    "F1": "Select Hero 1",
+    "F2": "Select Hero 2",
+    "F3": "Select Hero 3",
+    "1": "Group 1",
+    "2": "Group 2",
+    "3": "Group 3",
+    "4": "Group 4",
+    "5": "Group 5",
+    "6": "Group 6",
+    "7": "Group 7",
+    "8": "Group 8",
+    "9": "Group 9",
+    "0": "Group 10",
+    "Backspace": "Center On Town Hall",
+    "Insert": "Rotate Camera Left",
+    "Delete": "Rotate Camera Right",
+    "ArrowUp": "Scroll Up",
+    "ArrowDown": "Scroll Down",
+    "ArrowLeft": "Scroll Left",
+    "ArrowRight": "Scroll Right"
+  }
+}

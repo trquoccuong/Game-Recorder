@@ -534,3 +534,72 @@ public sealed class RoomLanTests
         await app.StopAsync();
     }
 }
+
+public sealed class PacketCaptureTests
+{
+    private sealed class FakePackets : IPacketCapture
+    {
+        public List<string> Calls { get; } = [];
+
+        public Task StartAsync(IReadOnlyList<string> ports, string etlPath, CancellationToken stop)
+        {
+            Calls.Add($"start {string.Join(',', ports)}");
+            return Task.CompletedTask;
+        }
+
+        public Task StopAsync(string etlPath, string pcapngPath, CancellationToken stop)
+        {
+            Calls.Add($"stop {Path.GetFileName(pcapngPath)}");
+            File.WriteAllBytes(pcapngPath, [0x0A, 0x0D, 0x0D, 0x0A]);
+            return Task.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public void Profiles_declare_the_traffic_to_capture()
+    {
+        string games = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "games"));
+        Assert.Equal("w3gs", GameProfile.Load(Path.Combine(games, "warcraft3.json")).Network!.Protocol);
+        Assert.Equal(["tcp/6112", "udp/6112"], GameProfile.Load(Path.Combine(games, "warcraft3.json")).Network!.Ports);
+        Assert.Equal("raw", GameProfile.Load(Path.Combine(games, "cs2.json")).Network!.Protocol);
+        Assert.Null(GameProfile.Load(Path.Combine(games, "example-fps.json")).Network);
+        Assert.Throws<FormatException>(() => PacketCaptureSpec.Parse(new System.Text.Json.Nodes.JsonObject
+            { ["ports"] = new System.Text.Json.Nodes.JsonArray("6112; calc.exe") }, "test"));
+    }
+
+    [Fact]
+    public async Task A_round_starts_and_stops_the_capture_and_a_failed_capture_discards_it()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "odx-pkt-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string profile = Path.Combine(root, "game.json");
+        File.WriteAllText(profile, """
+            {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
+             "network": {"protocol": "w3gs", "ports": ["tcp/6112"]},
+             "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
+            """);
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(root, "out"), profile, HttpPort: 0, TimePort: 0),
+            "127.0.0.1");
+        await app.StartAsync();
+        var packets = new FakePackets();
+        var host = new AgentClient(new AgentOptions(new Uri(app.Urls.First()), "p1", "P1", Path.Combine(root, "agent"), null,
+            CreateRoom: true), _ => throw new InvalidOperationException("no game window"));
+        var wanted = new TaskCompletionSource<PacketCaptureSpec>(TaskCreationOptions.RunContinuationsAsynchronously);
+        host.PacketCaptureWanted += spec =>
+        {
+            host.Packets = packets;
+            wanted.TrySetResult(spec);
+        };
+        using var stop = new CancellationTokenSource();
+        _ = host.RunUntilStoppedAsync(stop.Token);
+        Assert.Equal("w3gs", (await wanted.Task.WaitAsync(TimeSpan.FromSeconds(5))).Protocol);
+        for (int i = 0; i < 100 && host.Room is null; i++) await Task.Delay(50);
+
+        await host.ToggleRoundAsync(0, default);
+        for (int i = 0; i < 100 && packets.Calls.Count < 2; i++) await Task.Delay(50);
+        Assert.Equal("start tcp/6112", packets.Calls[0]);
+        Assert.StartsWith("stop odx-packets-p1-", packets.Calls[1]);  // the capture failed, so its packets are discarded
+        stop.Cancel();
+        await app.StopAsync();
+    }
+}

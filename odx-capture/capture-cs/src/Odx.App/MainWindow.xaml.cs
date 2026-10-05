@@ -54,6 +54,9 @@ public partial class MainWindow : Window
     private AgentClient? _agent;
     private string _agentLog = "";
     private LanState? _lan;
+    private PacketCaptureHelper? _packetHelper;
+    /// <summary>null: this room's game records no packets; true/false: the elevated helper is running or was refused.</summary>
+    private bool? _packets;
 
     /// <summary>
     /// Idle → Countdown → Starting (odx record warming up) → Recording → Stopping (incl. build + validate) → Idle.
@@ -477,6 +480,15 @@ public partial class MainWindow : Window
             SetState(_state);
             if (_run is null) ShowAgentStatus();
         });
+        agent.PacketCaptureWanted += _ => Dispatcher.BeginInvoke(async () =>
+        {
+            if (_agent != agent || _packetHelper is not null) return;
+            _packetHelper = await PacketCaptureHelper.LaunchAsync(ExternalTools.Odx());
+            _packets = _packetHelper is not null;
+            if (_agent == agent) agent.Packets = _packetHelper;
+            else _packetHelper?.Dispose();
+            if (_run is null && _state == RunState.Agent) ShowAgentStatus();
+        });
         agent.LanChanged += lan => Dispatcher.BeginInvoke(() =>
         {
             if (_agent != agent) return;
@@ -572,6 +584,9 @@ public partial class MainWindow : Window
 
     private void Disconnect(Func<Strings, string> status)
     {
+        _packetHelper?.Dispose();  // the helper stops pktmon and exits when its pipe closes
+        _packetHelper = null;
+        _packets = null;
         _agentStop?.Cancel();
         _agentStop = null;
         _agent = null;
@@ -591,7 +606,9 @@ public partial class MainWindow : Window
         string members = string.Join(" · ", room.Members.Select(m =>
             m.Name + (m.PlayerId == room.HostPlayerId ? " (host)" : "") + (m.Ready ? " ✓" : "")));
         var lan = _lan;
-        SetStatus(t => t.RoomStatus(room.Code, host, members) + (lan is null ? "" : "\n" + t.LanStatus(lan)) + "\n" + log + "\n" +
+        bool? packets = _packets;
+        SetStatus(t => t.RoomStatus(room.Code, host, members) + (lan is null ? "" : "\n" + t.LanStatus(lan)) +
+                       (packets is { } on ? "\n" + (on ? t.PacketsOn : t.PacketsOff) : "") + "\n" + log + "\n" +
                        (host ? t.HostHint(hotkey) : ready ? t.ReadyOn(hotkey) : t.ReadyHint(hotkey)));
     }
 
