@@ -107,6 +107,8 @@ Exit code 1 when any error is found. Warnings (`c2w.roll`, `c2w.upright`) do not
 
 ## Multiplayer (spec v3)
 
+Step-by-step setup for a test with players on several machines (CS2 server, orchestrator, network, player PCs): [`docs/`](docs/README.md).
+
 `odx-orchestrator` (`src/Odx.Orchestrator`, ASP.NET Core, cross-platform) runs on one machine everybody can reach (next to the game server):
 
 ```bash
