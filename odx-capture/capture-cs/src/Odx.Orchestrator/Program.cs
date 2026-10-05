@@ -1,5 +1,5 @@
 // odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] [--time-port 12300]
-//                  [--fps 30] [--min-valid K] [--max-rtt-ms 100] [--ready-countdown-ms 5000] [--min-ready 2] [--access-key K]
+//                  [--fps 30] [--min-valid K] [--max-rtt-ms 100] [--access-key K]
 // --access-key (or the ODX_ACCESS_KEY environment variable): clients must send it (access_key in odx-capture.json).
 // Runs next to the game server; agents connect to ws://<host>:<http-port>/agents, the game server plugin posts events.
 using System.Globalization;
@@ -23,8 +23,6 @@ for (int i = 0; i < args.Length; i++)
         case "--fps": options = options with { Fps = NextInt() }; break;
         case "--min-valid": tolerances = tolerances with { MinValidPlayers = NextInt() }; break;
         case "--max-rtt-ms": tolerances = tolerances with { MaxRttMs = NextInt() }; break;
-        case "--ready-countdown-ms": options = options with { ReadyCountdownMs = NextInt() }; break;
-        case "--min-ready": options = options with { MinReadyPlayers = NextInt() }; break;
         case "--access-key": options = options with { AccessKey = Next() }; break;
         default: outRoot = null; i = args.Length; break;
     }
@@ -32,7 +30,7 @@ for (int i = 0; i < args.Length; i++)
 if (outRoot is null || profile is null)
 {
     Console.Error.WriteLine("usage: odx-orchestrator --out <dir> --game-profile <game.json> [--vendor odx] [--http-port 5180] " +
-                            "[--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100] [--ready-countdown-ms 5000] [--min-ready 2] " +
+                            "[--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100] " +
                             "[--access-key K]");
     return 2;
 }

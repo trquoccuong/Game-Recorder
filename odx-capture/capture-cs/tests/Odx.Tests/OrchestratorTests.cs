@@ -50,7 +50,6 @@ public sealed class OrchestratorTests : IAsyncLifetime
     private HttpClient _http = null!;
     private MatchCoordinator _coordinator = null!;
     private readonly List<AgentClient> _agents = [];
-    private const int ReadyCountdownMs = 1500;
     /// <summary>A room without a host (as a game server plugin opens one); most tests use it.</summary>
     private string _room = null!;
 
@@ -67,7 +66,6 @@ public sealed class OrchestratorTests : IAsyncLifetime
         {
             // The fixture session is 320x180 and 2 s long.
             Tolerances = GateTolerances.Default with { MinWidth = SessionFixtures.Width, MinHeight = SessionFixtures.Height, MinDurationMs = 1000 },
-            ReadyCountdownMs = ReadyCountdownMs,
         }, "127.0.0.1");
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
@@ -298,45 +296,40 @@ public sealed class OrchestratorTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task EveryPlayerReadyStartsARoundAfterTheCountdown()
+    public async Task ReadyAloneNeverStartsARound()
     {
-        ConnectAgents(null, "p1", "p2");
+        var started = ConnectAgents(null, "p1", "p2");
         await WaitForAgents(2);
-        var countdown = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _agents[0].Countdown += (ms, _) => countdown.TrySetResult(ms);
-        var session = NextSession();
 
         await _agents[0].SetReadyAsync(true, default);
-        await Task.Delay(300);
-        Assert.Null((await RoomStatus())["current_session"]);
         await _agents[1].SetReadyAsync(true, default);
-        Assert.Equal(ReadyCountdownMs, await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-        await Task.Delay(ReadyCountdownMs + 300);
-        await Post(new { type = "round_end" });
+        await Task.Delay(1500);
 
-        var (dir, _) = await session;
-        var types = MultiplayerSession.ReadEvents(Path.Combine(dir, "server", "events.jsonl")).Select(GameEvents.Type).ToList();
-        Assert.Equal(["player_ready", "player_ready", "round_countdown", "round_start", "round_end"], types);
-        Assert.False(_agents[0].IsReady);
+        var status = await RoomStatus();
+        Assert.Null(status["current_session"]);
+        Assert.All(status["members"]!.AsArray(), m => Assert.True((bool)m!["ready"]!));
+        Assert.DoesNotContain(started, s => s.Task.IsCompleted);
     }
 
     [Fact]
-    public async Task UnreadyDuringTheCountdownCancelsTheRound()
+    public async Task UnreadyDuringTheHostsCountdownCancelsTheRound()
     {
-        ConnectAgents(null, "p1", "p2");
-        await WaitForAgents(2);
+        var (host, _, code) = await HostRoom("p1");
+        var (member, _) = Connect(null, "p2", code);
+        await WaitForAgents(2, code);
         var countdown = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _agents[0].Countdown += (_, _) => countdown.TrySetResult();
+        member.Countdown += (_, _) => countdown.TrySetResult();
         var cancelled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         _coordinator.RoundCancelled += sid => cancelled.TrySetResult(sid);
 
-        await _agents[0].SetReadyAsync(true, default);
-        await _agents[1].SetReadyAsync(true, default);
+        await member.SetReadyAsync(true, default);
+        for (int i = 0; i < 100 && !host.Room!.Members.All(m => m.PlayerId == "p1" || m.Ready); i++) await Task.Delay(50);
+        await host.ToggleRoundAsync(10_000, default);
         await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await _agents[1].SetReadyAsync(false, default);
+        await member.SetReadyAsync(false, default);
 
         Assert.EndsWith("-r01", await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.Null((await RoomStatus())["current_session"]);
+        Assert.Null((await RoomStatus(code))["current_session"]);
     }
 
     [Fact]
@@ -373,7 +366,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.Contains("P2", await refused.Task.WaitAsync(TimeSpan.FromSeconds(5)));
 
         await member.SetReadyAsync(true, default);
-        await Task.Delay(ReadyCountdownMs + 500);  // a hostless room would have started by now
+        await Task.Delay(1500);
         Assert.Null((await RoomStatus(code))["current_session"]);
         Assert.False(hostStarted.Task.IsCompleted);
 

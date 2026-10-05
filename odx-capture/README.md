@@ -120,11 +120,11 @@ dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profil
 - **Join room** asks for the invite code in a dialog; **Leave room** to go. Leaving during a countdown cancels the round; leaving during a round stops your recording.
 - In a room, the main button and the hotkey are the room action:
   - the host starts and ends rounds (3 s countdown);
-  - the other players say they are ready (again to take it back); the host can start only once all of them are (the button waits, the orchestrator checks too). A room never starts on its own while it has a host.
+  - the other players say they are ready (again to take it back); the host can start only once all of them are (the button waits, the orchestrator checks too). 
 
   The status line lists the members (✓ = ready). The game profile and FPS come from the orchestrator.
 
-A room without a host (opened by a game server plugin or the simulator, `POST /rooms`) starts a round on its own once at least 2 members are in and all are ready, with a 5 s countdown (`--ready-countdown-ms`, `--min-ready`), as in the client's sample delivery.
+Rounds start and end only on request: the host's, or a game server plugin's `round_start` / `round_end` in a room without a host (`POST /rooms`). Ready is only a signal for the host; it never starts a round by itself.
 
 Every member starts capturing when the countdown starts and sees it on screen (excluded from screen capture, so never in the video). A `round_end`, an unready, or a member leaving during the countdown cancels the round (`round_cancelled`): everyone stops, nothing is uploaded or assembled, and the round number is used again. After a lost connection an agent joins its room again.
 
@@ -188,6 +188,5 @@ Sessions land in `deploy/sessions/` (`<vendor>/<mm-dd-yyyy>/<game>/<session>/`; 
   - The sync tolerances above (`GateTolerances`) and the K-of-N rule are proposals (v3 §4 leaves them open); the 10 s and 90 % camera floors come from the client's sample delivery, not the spec.
   - The 10 s floor does not apply to a player stopped by a permanent death: v3 §1 asks to cut that recording, so a player who dies early would otherwise always fail.
   - Agents still uploading the previous round are left out of the next one.
-  - Rooms: the player who creates a room is its only host and is left out of its ready checks; there is no per-player stop without a game server, so everyone records the whole round. Match ids start with the room's code.
-  - Ready check: 5 s countdown, at least 2 players; a cancelled round's number is used again.
+  - Rooms: the player who creates a room is its only host; only the host (or a game server plugin) starts and ends rounds, once every other member is ready. There is no per-player stop without a game server, so everyone records the whole round. Match ids start with the room's code; a cancelled round's number is used again.
   - Network packets and `server_state.bin` are not produced yet (they need a game server plugin); `schema.bin.gz` so far describes `frames.bin` only.
