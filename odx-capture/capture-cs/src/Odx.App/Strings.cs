@@ -102,7 +102,6 @@ public sealed class Strings
     public required string NotifySavedPass { get; init; }
     public required string NotifySavedRaw { get; init; }
     public required string NotifyFailed { get; init; }
-    public required string OpenFolderHint { get; init; }
 
     public required Func<string, string> Saved { get; init; }
     public required Func<string, string> StoppedWithErrors { get; init; }
@@ -201,7 +200,6 @@ public sealed class Strings
         NotifySavedPass = "Recording saved · validation PASS",
         NotifySavedRaw = "Recording saved (raw capture)",
         NotifyFailed = "Recording stopped with errors",
-        OpenFolderHint = "Click to open the folder.",
         Saved = dir => $"Saved: {dir}",
         StoppedWithErrors = dir => $"Stopped with errors: {dir}",
         FramesSummary = (frames, w, h, fps, duplicates, dropped) =>
@@ -302,7 +300,6 @@ public sealed class Strings
         NotifySavedPass = "Đã lưu bản ghi · Kiểm tra ĐẠT",
         NotifySavedRaw = "Đã lưu bản ghi (dữ liệu thô)",
         NotifyFailed = "Bản ghi có lỗi",
-        OpenFolderHint = "Bấm để mở thư mục.",
         Saved = dir => $"Đã lưu: {dir}",
         StoppedWithErrors = dir => $"Đã dừng nhưng có lỗi: {dir}",
         FramesSummary = (frames, w, h, fps, duplicates, dropped) =>
@@ -322,7 +319,7 @@ public sealed class Strings
 
     /// <summary>Title and text of the Windows notification shown when a recording is finished.</summary>
     public (string Title, string Body) Notification(RunResult r) =>
-        (!r.Ok ? NotifyFailed : r.Build is null ? NotifySavedRaw : NotifySavedPass, $"{r.SessionDir}\n{OpenFolderHint}");
+        (!r.Ok ? NotifyFailed : r.Build is null ? NotifySavedRaw : NotifySavedPass, r.SessionDir);
 
     /// <summary>Multi-line result of one recording in this language.</summary>
     public string Describe(RunResult r)
