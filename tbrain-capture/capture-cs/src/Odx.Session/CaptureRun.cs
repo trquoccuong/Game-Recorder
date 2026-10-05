@@ -22,12 +22,22 @@ public sealed record RunResult(string SessionDir, bool CaptureOk, RecorderStatus
 /// <param name="Error">Why the session could not be built; null when it was built and validated.</param>
 public sealed record BuildResult(BuildReport? Report, IReadOnlyList<Issue> Issues, string? Error);
 
+/// <summary>One recording in progress; the agent and odx-app drive it, tests substitute a fake.</summary>
+public interface ICaptureRun
+{
+    string SessionDir { get; }
+    Task Started { get; }
+    Task CaptureStopped { get; }
+    Task<RunResult> Completion { get; }
+    void Stop();
+}
+
 /// <summary>
 /// One recording: `odx input` and `odx record` run as child processes into the same session folder, both stopped through
 /// a shared named event. If either child exits on its own (error, captured window closed), the other is stopped too.
 /// After a clean stop the folder is built into a spec v2 session with the chosen game profile and validated.
 /// </summary>
-public sealed class CaptureRun
+public sealed class CaptureRun : ICaptureRun
 {
     private static readonly TimeSpan StopTimeout = TimeSpan.FromSeconds(60);  // ffmpeg may still be draining frames
 

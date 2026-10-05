@@ -12,6 +12,7 @@ Tooling for the client's canonical game-data format. See [`../document/software-
 | `games/*.json` | Game profiles: `game_title`, `platform`, `localization`, `input_mouse_convention`, `bindings` (key/button → action) | v2 §1.1.2.1, §1.1.2.6 |
 | `Odx.Session` / `odx validate` | Every vendor check in v2 §1.5 (session.json, frames structure, C2W, intrinsics, input, video read with `Odx.Core.Mp4Reader` — no ffprobe) | v2 §1.5 |
 | `schemas/session_schema.json` | JSON Schema for `session.json`, extracted from the spec; embedded in `Odx.Session` | v2 §1.1.2.1 |
+| `odx-orchestrator` / `Odx.Session.Multiplayer` | Multiplayer capture: time service, agent hub, game events → per-player start/stop, assembly of the v3 session tree and its sync gate | v3 §2–§4 |
 | `tests/Odx.Tests/SessionFixtures.cs` | Synthetic valid session + one mutator per validation rule | plan §7.10.2 |
 
 Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 8) in `capture-cs/`. The Python pose audit lives outside the product in [`../research/analyze-pose/`](../research/analyze-pose/).
@@ -102,9 +103,48 @@ dotnet run --project src/Odx.Cli -f net8.0 -- validate path/to/<capture-dir> [mo
 
 Exit code 1 when any error is found. Warnings (`c2w.roll`, `c2w.upright`) do not fail a session.
 
+## Multiplayer (spec v3)
+
+`odx-orchestrator` (`src/Odx.Orchestrator`, ASP.NET Core, cross-platform) runs next to the game server:
+
+```bash
+cd capture-cs
+dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profile ../games/example-fps.json [--http-port 5180] [--time-port 12300] [--lead-ms 1500] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
+```
+
+- **Time service:** an SNTP responder on UDP `--time-port`. Every player's capture measures QPC against it (`ntp_samples.csv`), so all players share one clock.
+- **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, starts its capture at the server UTC given in `start`, and stops on `stop`. Then it uploads the built capture folder (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`.
+- **Game events:** the game server plugin posts JSON events to `POST /game/events` (`GameEvents`: `match_start`, `round_start`, `round_end`, `kill`, `player_death` with `permanent`, `player_connect`, `player_disconnect`, `match_end`). Events without `utc_ms` are stamped on arrival.
+  - `round_start` arms and starts every idle agent at now + `--lead-ms`.
+  - A permanent `player_death` stops that player.
+  - `round_end` stops the rest.
+- **Assembly:** once every player is done (or 15 min later), `MultiplayerSession.Assemble` writes:
+
+  ```
+  <out>/<vendor>/<mm-dd-yyyy>/<game>/<match>-rNN/
+    session.json  validation.json  server/events.jsonl
+    players/<pid>/ player.json frames.csv video.mp4 events.jsonl capture/
+  ```
+
+  - `player.json` holds the ping (median NTP RTT), clock offset, first/last frame UTC, stop reason and validity.
+  - `events.jsonl` holds the server events inside the player's recording, each with the `frame_index` on screen at that moment.
+  - `capture/` holds the v2 `session.json` and the raw logs.
+- **Gate** (`validation.json`):
+  - each player passes v2 §1.5;
+  - `sync.clock`: median RTT ≤ 100 ms;
+  - `sync.start`: first frame ≤ 3 s after the scheduled start;
+  - `sync.end`: last frame ≥ stop − 1 s;
+  - the session needs K of N valid players (K = N up to 3 players, else N − 1).
+
 ## Decisions pending with the client
 
 - **Null encoding in CSV:** nulls are written as empty fields (`Frames.Null`). Spec v2 §1.5.5 distinguishes "null" from "empty string", which plain CSV cannot express; confirm the expected token.
 - **Column-name case:** the spec uses `c2w_mRC` (§1.1.2.4, §1.5.3) but `C2W_M00` in the summary table (§1.1.3). Lowercase is used here.
 - **Extra `session.json` fields:** `vendor_tool_version` and `vendor_clock_sync` are not in the spec (the schema allows additional properties); confirm the client accepts them.
 - **Validation tolerances** not fixed by the spec (all in `ValidationTolerances`, `Odx.Session/Validation/Issue.cs`): rotation `1e-3`, principal point `4 px`, frame spacing `max(1 ms, 25%)`, level-roll warning `0.05`, fx = fy within `1e-3`, duration checks `1 s` / `1000 ms` / `2 frames`.
+- **Multiplayer (provisional):**
+  - One round = one session (`<match>-rNN`).
+  - Ping is the median NTP RTT to the orchestrator.
+  - The sync tolerances above (`SyncTolerances`) and the K-of-N rule are proposals (v3 §4 leaves them open).
+  - Agents still uploading the previous round are left out of the next one.
+  - `frames.bin`, network packets, `server_state.bin` and `schema.bin.gz` are not produced yet.

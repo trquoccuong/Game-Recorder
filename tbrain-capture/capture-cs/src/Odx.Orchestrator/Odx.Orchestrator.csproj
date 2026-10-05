@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Runs next to the game server: time service, agent hub, game events in, v3 sessions out. Cross-platform. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>odx-orchestrator</AssemblyName>
+    <RootNamespace>Odx.Orchestrator</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Odx.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+  </ItemGroup>
+</Project>

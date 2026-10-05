@@ -193,7 +193,7 @@ public static class SessionBuilder
         return json;
     }
 
-    private static string IsoUtc(double unixMs) =>
+    internal static string IsoUtc(double unixMs) =>
         DateTimeOffset.FromUnixTimeMilliseconds((long)Math.Round(unixMs)).UtcDateTime
             .ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
 

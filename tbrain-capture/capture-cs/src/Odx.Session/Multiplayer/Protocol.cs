@@ -1,0 +1,74 @@
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+
+namespace Odx.Session;
+
+/// <summary>
+/// One event from the game server (POST /game/events), game-agnostic: a game's server plugin maps its own events to
+/// these types. They drive recording (round boundaries, permanent deaths) and are the sync points of spec v3 §3.2.
+/// Extra fields (attacker, weapon, map…) are kept as sent and written to events.jsonl.
+/// </summary>
+public static class GameEvents
+{
+    public const string MatchStart = "match_start";      // game, map
+    public const string RoundStart = "round_start";      // round
+    public const string RoundEnd = "round_end";          // round, winner?
+    public const string Kill = "kill";                   // attacker, victim, weapon
+    public const string PlayerDeath = "player_death";    // player, permanent (cannot respawn this round)
+    public const string PlayerConnect = "player_connect";
+    public const string PlayerDisconnect = "player_disconnect";
+    public const string MatchEnd = "match_end";
+
+    public static string Type(JsonObject e) => e["type"]?.GetValue<string>() ?? throw new FormatException("event without \"type\"");
+
+    /// <summary>Server UTC of the event; the orchestrator stamps events that arrive without one.</summary>
+    public static double UtcMs(JsonObject e) => e["utc_ms"]?.GetValue<double>() ?? throw new FormatException("event without \"utc_ms\"");
+
+    public static string? Text(JsonObject e, string key) => e[key] is JsonValue v && v.TryGetValue(out string? s) ? s : null;
+}
+
+/// <summary>WebSocket messages between an agent (a player's capture machine) and the orchestrator, one JSON object each.</summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[JsonDerivedType(typeof(Hello), "hello")]
+[JsonDerivedType(typeof(Welcome), "welcome")]
+[JsonDerivedType(typeof(Arm), "arm")]
+[JsonDerivedType(typeof(Start), "start")]
+[JsonDerivedType(typeof(Stop), "stop")]
+[JsonDerivedType(typeof(AgentState), "state")]
+[JsonDerivedType(typeof(Done), "done")]
+public abstract record AgentMessage
+{
+    public static readonly JsonSerializerOptions Json = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
+    public string ToJson() => JsonSerializer.Serialize(this, Json);
+
+    public static AgentMessage Parse(string json) =>
+        JsonSerializer.Deserialize<AgentMessage>(json, Json) ?? throw new JsonException("empty message");
+}
+
+/// <summary>Agent → orchestrator, first message.</summary>
+public sealed record Hello(string PlayerId, string Name, string ToolVersion) : AgentMessage;
+
+/// <summary>Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder).</summary>
+public sealed record Welcome(int TimePort) : AgentMessage;
+
+/// <summary>Orchestrator → agent: prepare a session; the game profile (JSON) is the one the build must use.</summary>
+public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;
+
+/// <summary>Orchestrator → agent: start capturing at this server UTC.</summary>
+public sealed record Start(string SessionId, double AtUtcMs) : AgentMessage;
+
+/// <summary>Orchestrator → agent: stop capturing ("round_end", "permanent_death", "abort").</summary>
+public sealed record Stop(string SessionId, string Reason) : AgentMessage;
+
+/// <summary>Agent → orchestrator: idle, armed, recording, building, uploading, error.</summary>
+public sealed record AgentState(string State, string? Detail = null) : AgentMessage;
+
+/// <summary>Agent → orchestrator: the session's files are uploaded (or why not).</summary>
+public sealed record Done(string SessionId, bool Ok, string? Error = null) : AgentMessage;
