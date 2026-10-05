@@ -34,12 +34,15 @@ public sealed class CaptureRun
     private readonly EventWaitHandle _stop;
     private readonly List<string> _stderr = [];
     private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _captureStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly string? _gameProfile;
     private RecorderStatus? _lastStatus;
 
     public string SessionDir { get; }
     /// <summary>Completes when odx record reports that capture is running; it can take seconds on a cold start.</summary>
     public Task Started => _started.Task;
+    /// <summary>Completes when both capture tools have exited (before the session is built and validated).</summary>
+    public Task CaptureStopped => _captureStopped.Task;
     /// <summary>Latest odx record status (frame counters update every second); null before capture starts.</summary>
     public RecorderStatus? LastStatus => Volatile.Read(ref _lastStatus);
     public Task<RunResult> Completion { get; }
@@ -122,6 +125,7 @@ public sealed class CaptureRun
             lock (_stderr) _stderr.Add("a capture tool did not stop in time and was killed");
         }
         _stop.Dispose();
+        _captureStopped.TrySetResult();
 
         bool captureOk = input.ExitCode == 0 && record.ExitCode == 0;
         var status = LastStatus is { Event: RecorderStatus.Stopped } stopped ? stopped : null;

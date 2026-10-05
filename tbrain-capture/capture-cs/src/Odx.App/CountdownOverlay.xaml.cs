@@ -4,7 +4,7 @@ using System.Windows.Interop;
 
 namespace Odx.App;
 
-/// <summary>Click-through, never-focused countdown shown over the game before capture starts.</summary>
+/// <summary>Click-through, never-focused badge over the game: the countdown before capture and "END" after it.</summary>
 public partial class CountdownOverlay : Window
 {
     private const int GWL_EXSTYLE = -20;
@@ -14,7 +14,16 @@ public partial class CountdownOverlay : Window
 
     public int Seconds
     {
-        set => Number.Text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        set => Text = value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    public string Text
+    {
+        set
+        {
+            Number.Text = value;
+            Number.FontSize = value.Length <= 2 ? 110 : 64;
+        }
     }
 
     protected override void OnSourceInitialized(EventArgs e)
