@@ -75,7 +75,7 @@ document/                         # Specs and plans (Markdown, source of truth f
   reviews/                        # Reviews of sample/vendor data
   raw/                            # Original PDFs (do not edit)
 odx-capture/
-  capture-cs/                     # C# .NET 8 — everything outside the game process
+  capture-cs/                     # C# .NET 10 — everything outside the game process
     src/Odx.Core/                 #   portable: Input/ (logs, IPC, keys), Video/ (grid, status), Formats/ (frames.csv, CSV), Geometry/
     src/Odx.Session/              #   capture host (runs odx input + odx record), session builder, validator (v2 §1.5),
                                   #   Multiplayer/: agent protocol + client, v3 session assembly and sync gate
@@ -99,7 +99,7 @@ research/
 
 ## Build & test
 
-Toolchain: .NET 8 SDK, CMake ≥ 3.24 + MSVC (C++20); ffmpeg/ffprobe on PATH for the video tests.
+Toolchain: .NET 10 SDK, CMake ≥ 3.24 + MSVC (C++20); ffmpeg/ffprobe on PATH for the video tests.
 
 ```bash
 # C# (from odx-capture/capture-cs/)

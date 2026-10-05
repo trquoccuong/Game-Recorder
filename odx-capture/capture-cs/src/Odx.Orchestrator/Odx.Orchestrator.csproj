@@ -6,6 +6,8 @@
     <RootNamespace>Odx.Orchestrator</RootNamespace>
     <!-- web.config is for IIS; the orchestrator runs as its own process. -->
     <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+    <!-- No static files are served; without this .NET 10 publishes a staticwebassets.endpoints.json manifest. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Odx.Tests" />

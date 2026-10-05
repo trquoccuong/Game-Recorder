@@ -15,18 +15,18 @@ Tooling for the client's canonical game-data format. See [`../document/software-
 | `odx-orchestrator` / `Odx.Session.Multiplayer` | Multiplayer capture: time service, agent hub, game events → per-player start/stop, assembly of the v3 session tree and its sync gate | v3 §2–§4 |
 | `tests/Odx.Tests/SessionFixtures.cs` | Synthetic valid session + one mutator per validation rule | plan §7.10.2 |
 
-Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 8) in `capture-cs/`. The Python pose audit lives outside the product in [`../research/analyze-pose/`](../research/analyze-pose/).
+Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 10) in `capture-cs/`. The Python pose audit lives outside the product in [`../research/analyze-pose/`](../research/analyze-pose/).
 
 ## Capture tools (C#, `capture-cs/`)
 
-One command-line tool, `odx` (`src/Odx.Cli`): `odx input`, `odx record`, `odx build`, `odx validate`, plus `odx agent` and `odx simulate-game` for multiplayer (below). Its Windows build has all of them; its `net8.0` build (Linux servers) has `build`, `validate` and `simulate-game` only.
+One command-line tool, `odx` (`src/Odx.Cli`): `odx input`, `odx record`, `odx build`, `odx validate`, plus `odx agent` and `odx simulate-game` for multiplayer (below). Its Windows build has all of them; its `net10.0` build (Linux servers) has `build`, `validate` and `simulate-game` only.
 
 `odx input` records keyboard/mouse with Raw Input in its own process (never inside the game) and writes `input_events.csv` + `clock_samples.csv` (QPC ↔ UTC). `InputLogReader` reads the log back; the format is pinned by `tests/fixtures/input_events.csv` (writer output must match it byte for byte).
 
 ```bash
 cd capture-cs
-dotnet test                                   # .NET 8 SDK; video tests are skipped without ffmpeg/ffprobe on PATH (fixtures; ffprobe checks Mp4Reader)
-dotnet run --project src/Odx.Cli -f net8.0-windows10.0.22621.0 -- input --out C:/odx_capture/session1 [--pid <game_pid>] [--ntp time.windows.com]
+dotnet test                                   # .NET 10 SDK; video tests are skipped without ffmpeg/ffprobe on PATH (fixtures; ffprobe checks Mp4Reader)
+dotnet run --project src/Odx.Cli -f net10.0-windows10.0.22621.0 -- input --out C:/odx_capture/session1 [--pid <game_pid>] [--ntp time.windows.com]
 ```
 
 Language split: plan §6.5.
@@ -45,7 +45,7 @@ Language split: plan §6.5.
 - `recording.json` (size, fps, start UTC/QPC, duplicated/dropped frame counts)
 
 ```bash
-dotnet run --project src/Odx.Cli -f net8.0-windows10.0.22621.0 -- record --out C:/odx_capture/session1 --window Game.exe [--fps 60] [--encoder auto|x264|nvenc] [--seconds 120]
+dotnet run --project src/Odx.Cli -f net10.0-windows10.0.22621.0 -- record --out C:/odx_capture/session1 --window Game.exe [--fps 60] [--encoder auto|x264|nvenc] [--seconds 120]
 ```
 
 Run `odx input` and `odx record` into the same `--out` folder. Grid times (`t_grid_qpc_ms`) are the per-frame clock for `Frames.AggregateInputs`. Requires Windows 10 2004+ and ffmpeg (the packaged `ffmpeg/ffmpeg.exe`, else PATH, or `--ffmpeg`). `--encoder auto` (default) uses NVENC when it works on the machine, which keeps the CPU free for the game, else x264; the probe (~2 s cold) is cached per ffmpeg build in `%LOCALAPPDATA%\Odx\encoder.json`. NVENC needs an NVIDIA GPU with driver 471.41+ (the packaged ffmpeg is built with NVENC 11.1 headers; ffmpeg builds with the newest headers need 610+). Both commands also accept `--stop-event <name>`: they stop when that named Win32 event is set.
@@ -99,8 +99,8 @@ Every tool stamps `<version>+<git commit>` into its output: `tool_version` in `r
 
 ```bash
 cd capture-cs
-dotnet run --project src/Odx.Cli -f net8.0 -- build path/to/<capture-dir> --profile ../games/example-fps.json
-dotnet run --project src/Odx.Cli -f net8.0 -- validate path/to/<capture-dir> [more dirs...] [--json] [--no-video]
+dotnet run --project src/Odx.Cli -f net10.0 -- build path/to/<capture-dir> --profile ../games/example-fps.json
+dotnet run --project src/Odx.Cli -f net10.0 -- validate path/to/<capture-dir> [more dirs...] [--json] [--no-video]
 ```
 
 Exit code 1 when any error is found. Warnings (`c2w.roll`, `c2w.upright`) do not fail a session.
