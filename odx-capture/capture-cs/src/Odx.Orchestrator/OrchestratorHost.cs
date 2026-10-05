@@ -7,10 +7,12 @@ namespace Odx.Orchestrator;
 
 /// <summary>
 /// HTTP API (AgentClient and the game server plugin are the clients):
-///   GET  /agents                                   WebSocket, one per agent (Hello → Welcome, then Arm/Start/Stop ↔ state/done)
-///   POST /game/events                              one GameEvents JSON object
+///   GET  /agents                                   WebSocket, one per agent (Hello → Welcome, rooms, Arm/Start/Stop ↔ state/done)
+///   POST /rooms                                    open a room without a host (game server plugin) → {"code": …}
+///   POST /rooms/{code}/events                      one GameEvents JSON object for that room
+///   GET  /rooms/{code}                             the room's members, round and sessions
 ///   PUT  /sessions/{sid}/players/{pid}/files/{name} a capture file after the player's recording stopped
-///   GET  /status
+///   GET  /status                                   every room
 /// plus the NTP responder on UDP <see cref="OrchestratorOptions.TimePort"/>.
 /// </summary>
 public static class OrchestratorHost
@@ -31,6 +33,8 @@ public static class OrchestratorHost
         if (CaptureConfig.Load().TimeServer is { } timeServer)
             app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(() =>
                 app.Services.GetRequiredService<MatchCoordinator>().MeasureClockAsync(timeServer, app.Lifetime.ApplicationStopping)));
+        app.Lifetime.ApplicationStarted.Register(() => _ = Task.Run(() =>
+            app.Services.GetRequiredService<MatchCoordinator>().SweepRoomsAsync(app.Lifetime.ApplicationStopping)));
         app.Lifetime.ApplicationStopped.Register(udp.Dispose);
 
         app.UseWebSockets();
@@ -44,12 +48,18 @@ public static class OrchestratorHost
             using var socket = await context.WebSockets.AcceptWebSocketAsync();
             await coordinator.HandleAgentAsync(socket, context.RequestAborted);
         });
-        app.MapPost("/game/events", async (HttpRequest request, MatchCoordinator coordinator) =>
+        app.MapPost("/rooms", (MatchCoordinator coordinator) =>
+            Results.Text(new JsonObject { ["code"] = coordinator.OpenRoom() }.ToJsonString(), "application/json"));
+        app.MapGet("/rooms/{code}", (string code, MatchCoordinator coordinator) =>
+            coordinator.RoomStatus(code) is { } room ? Results.Text(room.ToJsonString(AgentMessage.Json), "application/json") : Results.NotFound());
+        app.MapPost("/rooms/{code}/events", async (string code, HttpRequest request, MatchCoordinator coordinator) =>
         {
             try
             {
                 if (await JsonNode.ParseAsync(request.Body) is not JsonObject e) return Results.BadRequest("expected a JSON object");
-                return Results.Text((await coordinator.PostEventAsync(e)).ToJsonString(AgentMessage.Json), "application/json");
+                return await coordinator.PostEventAsync(code, e) is { } stamped
+                    ? Results.Text(stamped.ToJsonString(AgentMessage.Json), "application/json")
+                    : Results.NotFound($"no room {code}");
             }
             catch (Exception e) when (e is System.Text.Json.JsonException or FormatException or InvalidOperationException)
             {

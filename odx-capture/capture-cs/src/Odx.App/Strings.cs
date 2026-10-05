@@ -35,11 +35,13 @@ public sealed class Strings
     public required string Browse { get; init; }
     public required string GameTooltip { get; init; }
     public required string HotkeyTooltip { get; init; }
-    public required string Orchestrator { get; init; }
-    public required string OrchestratorTooltip { get; init; }
     public required string PlayerId { get; init; }
-    public required string Host { get; init; }
-    public required string HostTooltip { get; init; }
+    public required string Room { get; init; }
+    public required string RoomTooltip { get; init; }
+    public required string JoinRoom { get; init; }
+    public required string CreateRoom { get; init; }
+    public required string LeaveRoom { get; init; }
+    public required string CloseRoom { get; init; }
 
     public required string PrimaryMonitor { get; init; }
     public required Func<string, string> NotRunning { get; init; }
@@ -54,8 +56,6 @@ public sealed class Strings
     public required string TrayExit { get; init; }
     public required string TrayCancel { get; init; }
     public required string TrayStop { get; init; }
-    public required string Connect { get; init; }
-    public required string Disconnect { get; init; }
 
     public required string Ready { get; init; }
     public required Func<bool, string> ReadyWithEncoder { get; init; }
@@ -67,10 +67,17 @@ public sealed class Strings
     public required Func<string, string> CouldNotStart { get; init; }
     public required Func<string, string> HotkeyInUse { get; init; }
     public required string PressKeys { get; init; }
-    public required string InvalidOrchestrator { get; init; }
-    public required Func<string, string, string> AgentStatus { get; init; }
-    public required string Disconnected { get; init; }
     public required Func<string, string> HostHint { get; init; }
+    public required string InvalidRoomCode { get; init; }
+    public required string JoiningRoom { get; init; }
+    public required Func<string, bool, string, string> RoomStatus { get; init; }
+    public required Func<string, string> StartRound { get; init; }
+    public required Func<string, string> EndRound { get; init; }
+    public required Func<string, string> ReadyButton { get; init; }
+    public required Func<string, string> UnreadyButton { get; init; }
+    public required string InRound { get; init; }
+    public required string LeftRoom { get; init; }
+    public required string RoomClosed { get; init; }
     public required Func<string, string> ReadyHint { get; init; }
     public required Func<string, string> ReadyOn { get; init; }
     public required Func<string, string> RoundToggleFailed { get; init; }
@@ -107,11 +114,13 @@ public sealed class Strings
         Browse = "Browse…",
         GameTooltip = "Builds frames.csv + session.json after recording and validates them",
         HotkeyTooltip = "Click, then press the new key combination",
-        Orchestrator = "Orchestrator",
-        OrchestratorTooltip = "Multiplayer: http://<host>:5180 of odx-orchestrator, which starts and stops the recordings. Leave empty to record on your own.",
         PlayerId = "Player ID",
-        Host = "Host (controls rounds)",
-        HostTooltip = "The hotkey starts a round (3 s countdown on every player) and ends it for everyone.",
+        Room = "Room",
+        RoomTooltip = "Invite code from the room's host (6 characters)",
+        JoinRoom = "Join room",
+        CreateRoom = "Create room",
+        LeaveRoom = "Leave room",
+        CloseRoom = "Close room",
         PrimaryMonitor = "Primary monitor",
         NotRunning = exe => $"{exe} (not running)",
         NoGameProfile = "None (keep raw capture only)",
@@ -124,8 +133,6 @@ public sealed class Strings
         TrayExit = "Exit",
         TrayCancel = "Cancel",
         TrayStop = "Stop recording",
-        Connect = "Connect to orchestrator",
-        Disconnect = "Disconnect",
         Ready = "Ready",
         ReadyWithEncoder = gpu => gpu ? "Ready · video encoder: NVENC (GPU)" : "Ready · video encoder: x264 (CPU; NVENC not available here)",
         CountdownStatus = n => $"Recording starts in {n}…",
@@ -137,10 +144,17 @@ public sealed class Strings
         CouldNotStart = error => $"Could not start: {error}",
         HotkeyInUse = hotkey => $"Hotkey {hotkey} is already used by another application; choose another one.",
         PressKeys = "Press a key combination…",
-        InvalidOrchestrator = "Orchestrator must be an address like http://192.168.1.10:5180, and Player ID must not be empty.",
-        AgentStatus = (url, log) => $"Orchestrator {url}: recordings start and stop with the game's rounds.\n{log}",
-        Disconnected = "Disconnected from the orchestrator",
         HostHint = hotkey => $"Host: press {hotkey} to start or end the round for everyone.",
+        InvalidRoomCode = "Type the room's 6-character invite code (and a player ID).",
+        JoiningRoom = "Joining the room…",
+        RoomStatus = (code, host, members) => $"Room {code}{(host ? " · you are the host: share this invite code" : "")}\nPlayers: {members}",
+        StartRound = hotkey => $"Start round ({hotkey})",
+        EndRound = hotkey => $"End round ({hotkey})",
+        ReadyButton = hotkey => $"I'm ready ({hotkey})",
+        UnreadyButton = hotkey => $"Not ready ({hotkey})",
+        InRound = "Round in progress…",
+        LeftRoom = "Left the room",
+        RoomClosed = "The host closed the room",
         ReadyHint = hotkey => $"Press {hotkey} when you are ready; the round starts when everyone is.",
         ReadyOn = hotkey => $"READY: waiting for the others ({hotkey} to cancel).",
         RoundToggleFailed = error => $"Could not start/end the round: {error}",
@@ -179,11 +193,13 @@ public sealed class Strings
         Browse = "Chọn…",
         GameTooltip = "Sau khi ghi, tạo frames.csv + session.json và kiểm tra hợp lệ",
         HotkeyTooltip = "Bấm vào đây rồi nhấn tổ hợp phím mới",
-        Orchestrator = "Orchestrator",
-        OrchestratorTooltip = "Chơi nhiều người: địa chỉ http://<máy>:5180 của odx-orchestrator, nó tự bắt đầu và dừng ghi. Để trống để tự ghi.",
         PlayerId = "Mã người chơi",
-        Host = "Host (điều khiển round)",
-        HostTooltip = "Phím tắt bắt đầu round (mọi người đếm ngược 3 giây) và kết thúc round cho tất cả.",
+        Room = "Room",
+        RoomTooltip = "Mã mời do host của room gửi (6 ký tự)",
+        JoinRoom = "Vào room",
+        CreateRoom = "Tạo room",
+        LeaveRoom = "Rời room",
+        CloseRoom = "Đóng room",
         PrimaryMonitor = "Màn hình chính",
         NotRunning = exe => $"{exe} (không chạy)",
         NoGameProfile = "Không có (chỉ giữ dữ liệu thô)",
@@ -196,8 +212,6 @@ public sealed class Strings
         TrayExit = "Thoát",
         TrayCancel = "Hủy",
         TrayStop = "Dừng ghi",
-        Connect = "Kết nối orchestrator",
-        Disconnect = "Ngắt kết nối",
         Ready = "Sẵn sàng",
         ReadyWithEncoder = gpu => gpu ? "Sẵn sàng · mã hóa video: NVENC (GPU)" : "Sẵn sàng · mã hóa video: x264 (CPU; máy này không dùng được NVENC)",
         CountdownStatus = n => $"Bắt đầu ghi sau {n}…",
@@ -209,10 +223,17 @@ public sealed class Strings
         CouldNotStart = error => $"Không thể bắt đầu: {error}",
         HotkeyInUse = hotkey => $"Phím tắt {hotkey} đang được ứng dụng khác dùng; hãy chọn phím khác.",
         PressKeys = "Nhấn tổ hợp phím…",
-        InvalidOrchestrator = "Orchestrator phải là địa chỉ dạng http://192.168.1.10:5180 và mã người chơi không được để trống.",
-        AgentStatus = (url, log) => $"Orchestrator {url}: tự ghi theo từng round của game.\n{log}",
-        Disconnected = "Đã ngắt kết nối orchestrator",
         HostHint = hotkey => $"Host: nhấn {hotkey} để bắt đầu hoặc kết thúc round cho mọi người.",
+        InvalidRoomCode = "Nhập mã mời 6 ký tự của room (và mã người chơi).",
+        JoiningRoom = "Đang vào room…",
+        RoomStatus = (code, host, members) => $"Room {code}{(host ? " · bạn là host: gửi mã mời này cho mọi người" : "")}\nNgười chơi: {members}",
+        StartRound = hotkey => $"Bắt đầu round ({hotkey})",
+        EndRound = hotkey => $"Kết thúc round ({hotkey})",
+        ReadyButton = hotkey => $"Tôi sẵn sàng ({hotkey})",
+        UnreadyButton = hotkey => $"Hủy sẵn sàng ({hotkey})",
+        InRound = "Đang trong round…",
+        LeftRoom = "Đã rời room",
+        RoomClosed = "Host đã đóng room",
         ReadyHint = hotkey => $"Nhấn {hotkey} khi bạn sẵn sàng; round bắt đầu khi mọi người đều sẵn sàng.",
         ReadyOn = hotkey => $"ĐÃ SẴN SÀNG: đang chờ người khác (nhấn {hotkey} để hủy).",
         RoundToggleFailed = error => $"Không bắt đầu/kết thúc được round: {error}",

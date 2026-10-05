@@ -80,9 +80,9 @@ public partial class MainWindow : Window
         FpsBox.SelectedItem = _settings.Fps;
         OutputBox.Text = _settings.OutputRoot;
         HotkeyBox.Text = _settings.Hotkey.ToString();
-        OrchestratorBox.Text = _settings.Orchestrator;
         PlayerBox.Text = _settings.PlayerId;
-        HostBox.IsChecked = _settings.IsHost;
+        var roomRows = _config.Orchestrator is null ? Visibility.Collapsed : Visibility.Visible;
+        PlayerLabel.Visibility = PlayerBox.Visibility = RoomLabel.Visibility = RoomPanel.Visibility = roomRows;
         Loaded += async (_, _) => await RefreshWindowsAsync();
         Loaded += async (_, _) => await CheckEncoderAsync();
         _clock.Tick += (_, _) => ShowRecordingStatus();
@@ -112,11 +112,9 @@ public partial class MainWindow : Window
         FpsLabel.Content = _t.Fps;
         OutputLabel.Content = _t.OutputFolder;
         HotkeyLabel.Content = _t.Hotkey;
-        OrchestratorLabel.Content = _t.Orchestrator;
         PlayerLabel.Content = _t.PlayerId;
-        OrchestratorBox.ToolTip = _t.OrchestratorTooltip;
-        HostBox.Content = _t.Host;
-        HostBox.ToolTip = _t.HostTooltip;
+        RoomLabel.Content = _t.Room;
+        RoomBox.ToolTip = _t.RoomTooltip;
         RefreshButton.Content = _t.Refresh;
         BrowseButton.Content = _t.Browse;
         GameBox.ToolTip = _t.GameTooltip;
@@ -164,7 +162,7 @@ public partial class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         if (_state == RunState.Countdown) CancelCountdown();
-        if (_state == RunState.Agent) Disconnect();
+        if (_state == RunState.Agent) LeaveRoom();
         if (_run is not null)
         {
             e.Cancel = true;
@@ -187,9 +185,7 @@ public partial class MainWindow : Window
     {
         if (msg == WM_HOTKEY && wParam.ToInt32() == HotkeyId)
         {
-            if (!AgentMode) Toggle();
-            else if (_state == RunState.Agent && _settings.IsHost) ToggleRound();
-            else if (_state == RunState.Agent) ToggleReady();
+            Toggle();
             handled = true;
         }
         return IntPtr.Zero;
@@ -244,9 +240,7 @@ public partial class MainWindow : Window
         _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
         _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
         _settings.OutputRoot = OutputBox.Text.Trim();
-        _settings.Orchestrator = OrchestratorBox.Text.Trim();
         _settings.PlayerId = PlayerBox.Text.Trim();
-        _settings.IsHost = HostBox.IsChecked == true;
         _settings.Save();
     }
 
@@ -254,9 +248,9 @@ public partial class MainWindow : Window
     {
         switch (_state)
         {
-            case RunState.Idle when AgentMode: Connect(); break;
             case RunState.Idle: BeginCountdown(); break;
-            case RunState.Agent: Disconnect(); break;
+            case RunState.Agent when _agent is { IsHost: true }: ToggleRound(); break;
+            case RunState.Agent when _agent?.Room is { CurrentSession: null }: ToggleReady(); break;
             case RunState.Countdown: CancelCountdown(); break;
             case RunState.Starting or RunState.Recording: StopRecording(); break;
         }
@@ -270,23 +264,30 @@ public partial class MainWindow : Window
         bool idle = state == RunState.Idle;
         StartStopButton.Content = state switch
         {
-            RunState.Idle => AgentMode ? _t.Connect : _t.Start,
-            RunState.Agent => _t.Disconnect,
+            RunState.Idle => _t.Start,
+            RunState.Agent => RoomAction(),
             RunState.Countdown => _t.Cancel(_settings.Hotkey.ToString()),
             RunState.Stopping => _t.Stopping,
             _ => _t.Stop(_settings.Hotkey.ToString()),
         };
-        StartStopButton.IsEnabled = _trayStartStop.Enabled = state != RunState.Stopping;
+        StartStopButton.IsEnabled = _trayStartStop.Enabled = state != RunState.Stopping &&
+            !(state == RunState.Agent && (_agent?.Room is null || (!_agent.IsHost && _agent.Room.CurrentSession is not null)));
         _trayStartStop.Text = state switch
         {
-            RunState.Idle => AgentMode ? _t.Connect : _t.Start,
-            RunState.Agent => _t.Disconnect,
+            RunState.Idle => _t.Start,
+            RunState.Agent => RoomAction(),
             RunState.Countdown => _t.TrayCancel,
             RunState.Stopping => _t.Stopping,
             _ => _t.TrayStop,
         };
         SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = OutputBox.IsEnabled = HotkeyBox.IsEnabled = idle;
-        LanguageBox.IsEnabled = OrchestratorBox.IsEnabled = PlayerBox.IsEnabled = HostBox.IsEnabled = idle;
+        LanguageBox.IsEnabled = PlayerBox.IsEnabled = RoomBox.IsEnabled = idle;
+        bool inRoom = state == RunState.Agent && _agent?.Room is not null;
+        JoinButton.Content = inRoom ? _t.LeaveRoom : _t.JoinRoom;
+        JoinButton.IsEnabled = idle || inRoom;
+        CreateButton.Content = inRoom ? _t.CloseRoom : _t.CreateRoom;
+        CreateButton.IsEnabled = idle || inRoom && _agent!.IsHost;
+        CreateButton.Visibility = inRoom && !_agent!.IsHost ? Visibility.Collapsed : Visibility.Visible;
         RefreshButton.IsEnabled = BrowseButton.IsEnabled = idle;
         _tray.Text = idle ? "Odx Capture" : _t.TrayTooltip(_trayStartStop.Text);
     }
@@ -403,52 +404,124 @@ public partial class MainWindow : Window
         _tray.Text = _t.TrayTooltip($"{elapsed:hh\\:mm\\:ss}");
     }
 
-    private bool AgentMode => OrchestratorBox.Text.Trim().Length > 0;
-
-    private void Orchestrator_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
+    /// <summary>What the main button and the hotkey do in a room: the host starts/ends rounds, the others say they are ready.</summary>
+    private string RoomAction()
     {
-        if (IsLoaded && _state == RunState.Idle) SetState(RunState.Idle);
+        string hotkey = _settings.Hotkey.ToString();
+        if (_agent?.Room is not { } room) return _t.JoiningRoom;
+        if (_agent.IsHost) return room.CurrentSession is null ? _t.StartRound(hotkey) : _t.EndRound(hotkey);
+        if (room.CurrentSession is not null) return _t.InRound;
+        return _agent.IsReady ? _t.UnreadyButton(hotkey) : _t.ReadyButton(hotkey);
     }
 
-    private void Connect()
+    private void Join_Click(object sender, RoutedEventArgs e)
+    {
+        if (_state == RunState.Agent) LeaveRoom();
+        else if (RoomBox.Text.Trim().Length == 6) EnterRoom(RoomBox.Text.Trim());
+        else SetStatus(t => t.InvalidRoomCode);
+    }
+
+    private void Create_Click(object sender, RoutedEventArgs e)
+    {
+        if (_state == RunState.Agent) CloseRoom();
+        else EnterRoom(null);
+    }
+
+    /// <param name="code">Invite code to join; null opens a new room with this player as its host.</param>
+    private void EnterRoom(string? code)
     {
         SaveSettings();
-        if (!Uri.TryCreate(_settings.Orchestrator, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https") ||
-            _settings.PlayerId.Length == 0)
+        if (_config.Orchestrator is not { } orchestrator || _settings.PlayerId.Length == 0)
         {
-            SetStatus(t => t.InvalidOrchestrator);
+            SetStatus(t => t.InvalidRoomCode);
             return;
         }
         _agentStop = new CancellationTokenSource();
-        var agent = new AgentClient(new AgentOptions(uri, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
-            _settings.WindowProcess, _settings.IsHost), StartAgentCapture);
+        var agent = new AgentClient(new AgentOptions(orchestrator, _settings.PlayerId, Environment.UserName, _settings.OutputRoot,
+            _settings.WindowProcess, RoomCode: code, CreateRoom: code is null), StartAgentCapture);
         agent.Countdown += (ms, cancelled) => Dispatcher.BeginInvoke(() => ShowAgentCountdown(ms, cancelled));
         agent.Log += line => Dispatcher.BeginInvoke(() =>
         {
             _agentLog = $"{DateTime.Now:HH:mm:ss} {line}";
             if (_run is null && _state == RunState.Agent) ShowAgentStatus();
         });
+        agent.RoomChanged += room => Dispatcher.BeginInvoke(() =>
+        {
+            if (_agent != agent) return;
+            if (room is null)
+            {
+                Disconnect(t => t.RoomClosed);
+                return;
+            }
+            RoomBox.Text = room.Code;
+            SetState(_state);
+            if (_run is null) ShowAgentStatus();
+        });
+        agent.RoomError += error => Dispatcher.BeginInvoke(() =>
+        {
+            if (_agent != agent) return;
+            if (agent.Room is null) Disconnect(_ => error);
+            else SetStatus(_ => error);
+        });
         _agent = agent;
         _agentLog = "";
-        SetState(RunState.Agent);
-        ShowAgentStatus();
+        SetState(RunState.Agent, t => t.JoiningRoom);
         _ = agent.RunUntilStoppedAsync(_agentStop.Token);
     }
 
-    private void Disconnect()
+    private async void LeaveRoom()
+    {
+        if (_agent is { } agent && _agentStop is { } stop)
+        {
+            _agent = null;  // its RoomChanged(null) is ours, not the host's
+            try
+            {
+                await agent.LeaveRoomAsync(stop.Token);
+            }
+            catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
+            {
+            }
+        }
+        Disconnect(t => t.LeftRoom);
+    }
+
+    private async void CloseRoom()
+    {
+        if (_agent is { } agent && _agentStop is { } stop)
+        {
+            _agent = null;
+            try
+            {
+                await agent.CloseRoomAsync(stop.Token);
+            }
+            catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
+            {
+            }
+        }
+        Disconnect(t => t.LeftRoom);
+    }
+
+    private void Disconnect(Func<Strings, string> status)
     {
         _agentStop?.Cancel();
         _agentStop = null;
         _agent = null;
-        if (_run is null) SetState(RunState.Idle, t => t.Disconnected);
+        if (_run is null) SetState(RunState.Idle, status);
         else StopRecording();
     }
 
     private void ShowAgentStatus()
     {
-        string url = _settings.Orchestrator, log = _agentLog, hotkey = _settings.Hotkey.ToString();
-        bool host = _settings.IsHost, ready = _agent?.IsReady == true;
-        SetStatus(t => t.AgentStatus(url, log) + "\n" +
+        if (_agent?.Room is not { } room)
+        {
+            SetStatus(t => t.JoiningRoom);
+            return;
+        }
+        string log = _agentLog, hotkey = _settings.Hotkey.ToString();
+        bool host = _agent.IsHost, ready = _agent.IsReady;
+        string members = string.Join(" · ", room.Members.Select(m =>
+            m.Name + (m.PlayerId == room.HostPlayerId ? " (host)" : "") + (m.Ready ? " ✓" : "")));
+        SetStatus(t => t.RoomStatus(room.Code, host, members) + "\n" + log + "\n" +
                        (host ? t.HostHint(hotkey) : ready ? t.ReadyOn(hotkey) : t.ReadyHint(hotkey)));
     }
 
@@ -472,7 +545,7 @@ public partial class MainWindow : Window
         {
             await _agent.ToggleRoundAsync(CountdownSeconds * 1000, _agentStop.Token);
         }
-        catch (Exception e) when (e is System.Net.Http.HttpRequestException or TaskCanceledException)
+        catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
         {
             string error = e.Message;
             SetStatus(t => t.RoundToggleFailed(error));
@@ -527,7 +600,7 @@ public partial class MainWindow : Window
         _lastSessionDir = result.SessionDir;
         var (title, body) = _t.Notification(result);
         _tray.ShowBalloonTip(10_000, title, body, result.Ok ? Forms.ToolTipIcon.Info : Forms.ToolTipIcon.Warning);
-        if (_state == RunState.Stopping) SetState(RunState.Idle, t => t.Disconnected);
+        if (_state == RunState.Stopping) SetState(RunState.Idle, t => t.LeftRoom);
         else ShowAgentStatus();
         if (_closeWhenIdle) Close();
     }

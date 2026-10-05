@@ -1,5 +1,6 @@
-// odx agent --orchestrator http://<host>:5180 --player <id> --out <dir> [--name <name>] [--window <process>] [--auto-ready]
-// One player's capture machine under odx-orchestrator (spec v3): records each round when told to, uploads it, repeats.
+// odx agent --orchestrator http://<host>:5180 --room <invite code> --player <id> --out <dir> [--name <name>] [--window <process>]
+//           [--auto-ready]
+// One player's capture machine in a room of odx-orchestrator (spec v3): records each round when told to, uploads it, repeats.
 // Reconnects every 5 s while the orchestrator is unreachable; Ctrl+C quits. --auto-ready: says ready on connect and after
 // every round, so a headless machine does not hold up the ready check.
 #if WINDOWS
@@ -11,13 +12,14 @@ public static class AgentCommand
 {
     public static int Run(string[] args)
     {
-        string? orchestrator = null, player = null, outRoot = null, name = null, window = null;
+        string? orchestrator = null, room = null, player = null, outRoot = null, name = null, window = null;
         bool autoReady = false;
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
             {
                 case "--orchestrator" when i + 1 < args.Length: orchestrator = args[++i]; break;
+                case "--room" when i + 1 < args.Length: room = args[++i]; break;
                 case "--player" when i + 1 < args.Length: player = args[++i]; break;
                 case "--out" when i + 1 < args.Length: outRoot = args[++i]; break;
                 case "--name" when i + 1 < args.Length: name = args[++i]; break;
@@ -26,11 +28,11 @@ public static class AgentCommand
                 default: orchestrator = null; i = args.Length; break;
             }
         }
-        if (orchestrator is null || player is null || outRoot is null ||
+        if (orchestrator is null || room is null || player is null || outRoot is null ||
             !Uri.TryCreate(orchestrator, UriKind.Absolute, out var uri))
         {
-            Console.Error.WriteLine("usage: odx agent --orchestrator http://<host>:5180 --player <id> --out <dir> [--name <name>] " +
-                                    "[--window <process>] [--auto-ready]");
+            Console.Error.WriteLine("usage: odx agent --orchestrator http://<host>:5180 --room <invite code> --player <id> --out <dir> " +
+                                    "[--name <name>] [--window <process>] [--auto-ready]");
             return 2;
         }
 
@@ -40,8 +42,8 @@ public static class AgentCommand
             e.Cancel = true;
             stop.Cancel();
         };
-        var agent = new AgentClient(new AgentOptions(uri, player, name ?? player, outRoot, window, AutoReady: autoReady),
-            CaptureRun.Start);
+        var agent = new AgentClient(new AgentOptions(uri, player, name ?? player, outRoot, window, RoomCode: room,
+            AutoReady: autoReady), CaptureRun.Start);
         agent.Log += line => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {line}");
         agent.RunUntilStoppedAsync(stop.Token).GetAwaiter().GetResult();
         return 0;

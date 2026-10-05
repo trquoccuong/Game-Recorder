@@ -146,6 +146,15 @@ public class CaptureConfigTests
         Assert.Equal("10.0.0.5:12300", CaptureConfig.Load(Dir("""{"time_server": "10.0.0.5:12300"}""")).TimeServer);
 
     [Fact]
+    public void Reads_the_orchestrator_address()
+    {
+        Assert.Equal(new Uri("http://10.0.0.5:5180"),
+            CaptureConfig.Load(Dir("""{"orchestrator": "http://10.0.0.5:5180"}""")).Orchestrator);
+        Assert.Null(CaptureConfig.Load(Dir("""{"orchestrator": ""}""")).Orchestrator);
+        Assert.Throws<InvalidDataException>(() => CaptureConfig.Load(Dir("""{"orchestrator": "10.0.0.5:5180"}""")));
+    }
+
+    [Fact]
     public void Invalid_file_is_reported() =>
         Assert.Throws<InvalidDataException>(() => CaptureConfig.Load(Dir("{ time_server")));
 }

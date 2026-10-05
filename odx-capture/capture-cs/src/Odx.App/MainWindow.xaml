@@ -56,16 +56,17 @@
         <TextBox x:Name="OutputBox" Grid.Row="4" Grid.Column="1" Margin="0,0,0,6" VerticalContentAlignment="Center" />
         <Button x:Name="BrowseButton" Grid.Row="4" Grid.Column="2" Click="Browse_Click" />
 
-        <Label x:Name="OrchestratorLabel" Grid.Row="5" />
-        <TextBox x:Name="OrchestratorBox" AutomationProperties.AutomationId="OrchestratorBox" Grid.Row="5" Grid.Column="1"
-                 Margin="0,0,0,6" VerticalContentAlignment="Center" TextChanged="Orchestrator_Changed" />
+        <!-- Room rows: shown only when odx-capture.json names an orchestrator. -->
+        <Label x:Name="PlayerLabel" Grid.Row="5" />
+        <TextBox x:Name="PlayerBox" AutomationProperties.AutomationId="PlayerBox" Grid.Row="5" Grid.Column="1" Width="200"
+                 HorizontalAlignment="Left" Margin="0,0,0,6" VerticalContentAlignment="Center" />
 
-        <Label x:Name="PlayerLabel" Grid.Row="6" />
-        <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
-            <TextBox x:Name="PlayerBox" AutomationProperties.AutomationId="PlayerBox" Width="200"
-                     VerticalContentAlignment="Center" />
-            <CheckBox x:Name="HostBox" AutomationProperties.AutomationId="HostBox" Margin="12,0,0,0"
-                      VerticalAlignment="Center" />
+        <Label x:Name="RoomLabel" Grid.Row="6" />
+        <StackPanel x:Name="RoomPanel" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,6">
+            <TextBox x:Name="RoomBox" AutomationProperties.AutomationId="RoomBox" Width="110" MaxLength="6"
+                     CharacterCasing="Upper" FontFamily="Consolas" FontSize="14" VerticalContentAlignment="Center" />
+            <Button x:Name="JoinButton" AutomationProperties.AutomationId="JoinButton" Click="Join_Click" />
+            <Button x:Name="CreateButton" AutomationProperties.AutomationId="CreateButton" Click="Create_Click" />
         </StackPanel>
 
         <Label x:Name="HotkeyLabel" Grid.Row="7" />

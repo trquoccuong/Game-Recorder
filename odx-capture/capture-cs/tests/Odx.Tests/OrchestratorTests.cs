@@ -51,6 +51,8 @@ public sealed class OrchestratorTests : IAsyncLifetime
     private MatchCoordinator _coordinator = null!;
     private readonly List<AgentClient> _agents = [];
     private const int ReadyCountdownMs = 1500;
+    /// <summary>A room without a host (as a game server plugin opens one); most tests use it.</summary>
+    private string _room = null!;
 
     public async Task InitializeAsync()
     {
@@ -70,6 +72,8 @@ public sealed class OrchestratorTests : IAsyncLifetime
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         _coordinator = _app.Services.GetRequiredService<MatchCoordinator>();
+        using var opened = await _http.PostAsync("/rooms", null);
+        _room = (string)(await opened.Content.ReadFromJsonAsync<JsonObject>())!["code"]!;
     }
 
     public async Task DisposeAsync()
@@ -93,43 +97,54 @@ public sealed class OrchestratorTests : IAsyncLifetime
         return tcs.Task.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
-    private List<TaskCompletionSource> ConnectAgents(string? template, params string[] players)
+    /// <summary>Agents joining the hostless test room.</summary>
+    private List<TaskCompletionSource> ConnectAgents(string? template, params string[] players) =>
+        players.Select(p => Connect(template, p, _room).Started).ToList();
+
+    /// <param name="room">Invite code to join; null opens a new room with this player as host.</param>
+    private (AgentClient Agent, TaskCompletionSource Started) Connect(string? template, string player, string? room)
     {
-        var started = new List<TaskCompletionSource>();
-        foreach (string player in players)
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var agent = new AgentClient(new AgentOptions(_http.BaseAddress!, player, player.ToUpperInvariant(),
+            Path.Combine(_root, "agent-" + player), null, RoomCode: room, CreateRoom: room is null), options =>
         {
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            started.Add(tcs);
-            var agent = new AgentClient(new AgentOptions(_http.BaseAddress!, player, player.ToUpperInvariant(),
-                Path.Combine(_root, "agent-" + player), null), options =>
+            try
             {
-                try
-                {
-                    return template is null ? throw new InvalidOperationException("no game window") : new FakeCapture(options, template);
-                }
-                finally
-                {
-                    tcs.TrySetResult();
-                }
-            });
-            _agents.Add(agent);
-            _ = agent.RunAsync(_stop.Token);
-        }
-        return started;
+                return template is null ? throw new InvalidOperationException("no game window") : new FakeCapture(options, template);
+            }
+            finally
+            {
+                started.TrySetResult();
+            }
+        });
+        _agents.Add(agent);
+        _ = agent.RunAsync(_stop.Token);
+        return (agent, started);
     }
 
-    private async Task WaitForAgents(int count)
+    /// <summary>Opens a room hosted by <paramref name="host"/> and returns its invite code.</summary>
+    private async Task<(AgentClient Host, TaskCompletionSource Started, string Code)> HostRoom(string host)
+    {
+        var (agent, started) = Connect(null, host, null);
+        for (int i = 0; i < 100 && agent.Room is null; i++) await Task.Delay(50);
+        return (agent, started, agent.Room?.Code ?? throw new TimeoutException("no room opened"));
+    }
+
+    private async Task WaitForAgents(int count, string? room = null)
     {
         for (int i = 0; i < 100; i++)
         {
-            var status = await _http.GetFromJsonAsync<JsonObject>("/status");
-            if (status!["agents"]!.AsArray().Count(a => (string?)a!["state"] == "idle") == count) return;
+            var status = await _http.GetFromJsonAsync<JsonObject>($"/rooms/{room ?? _room}");
+            if (status!["members"]!.AsArray().Count(a => (string?)a!["state"] == "idle") == count) return;
             await Task.Delay(50);
         }
-        throw new TimeoutException("agents did not connect");
+        throw new TimeoutException("agents did not join");
     }
 
-    private Task Post(object e) => _http.PostAsJsonAsync("/game/events", e).ContinueWith(t => t.Result.EnsureSuccessStatusCode());
+    private Task<JsonObject> RoomStatus(string? room = null) => _http.GetFromJsonAsync<JsonObject>($"/rooms/{room ?? _room}")!;
+
+    private Task Post(object e) =>
+        _http.PostAsJsonAsync($"/rooms/{_room}/events", e).ContinueWith(t => t.Result.EnsureSuccessStatusCode());
 
     [SkippableFact]
     public async Task RoundBecomesV3SessionWithPerPlayerStopsAndFrameIndexedEvents()
@@ -223,8 +238,9 @@ public sealed class OrchestratorTests : IAsyncLifetime
     [Fact]
     public async Task HostStartsRoundWithCountdownOnEveryPlayerAndEndsIt()
     {
-        var started = ConnectAgents(null, "p1", "p2");
-        await WaitForAgents(2);
+        var (_, hostStarted, code) = await HostRoom("p1");
+        var started = new List<TaskCompletionSource> { hostStarted, Connect(null, "p2", code).Started };
+        await WaitForAgents(2, code);
         var countdowns = _agents.Select(a =>
         {
             var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -237,7 +253,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         int[] countdownMs = await Task.WhenAll(countdowns).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal([300, 300], countdownMs);
         await Task.WhenAll(started.Select(s => s.Task)).WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.NotNull((await _http.GetFromJsonAsync<JsonObject>("/status"))!["current_session"]);
+        Assert.NotNull((await RoomStatus(code))["current_session"]);
         await Task.Delay(600);  // past the countdown: ending during it would cancel the round
         await _agents[0].ToggleRoundAsync(300, default);
 
@@ -249,8 +265,9 @@ public sealed class OrchestratorTests : IAsyncLifetime
     [Fact]
     public async Task StoppingDuringTheCountdownCancelsTheRoundAndItsNumberIsUsedAgain()
     {
-        var started = ConnectAgents(null, "p1");
-        await WaitForAgents(1);
+        var (_, hostStarted, code) = await HostRoom("p1");
+        var started = new List<TaskCompletionSource> { hostStarted };
+        await WaitForAgents(1, code);
         var cancelled = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         _coordinator.RoundCancelled += sid => cancelled.TrySetResult(sid);
 
@@ -258,8 +275,8 @@ public sealed class OrchestratorTests : IAsyncLifetime
         await started[0].Task.WaitAsync(TimeSpan.FromSeconds(5));
         await _agents[0].ToggleRoundAsync(10_000, default);
         string cancelledId = await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await WaitForAgents(1);
-        var status = (await _http.GetFromJsonAsync<JsonObject>("/status"))!;
+        await WaitForAgents(1, code);
+        var status = await RoomStatus(code);
         Assert.Null(status["current_session"]);
         Assert.Empty(status["pending_sessions"]!.AsArray());
 
@@ -288,7 +305,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
 
         await _agents[0].SetReadyAsync(true, default);
         await Task.Delay(300);
-        Assert.Null((await _http.GetFromJsonAsync<JsonObject>("/status"))!["current_session"]);
+        Assert.Null((await RoomStatus())["current_session"]);
         await _agents[1].SetReadyAsync(true, default);
         Assert.Equal(ReadyCountdownMs, await countdown.Task.WaitAsync(TimeSpan.FromSeconds(5)));
         await Task.Delay(ReadyCountdownMs + 300);
@@ -316,7 +333,45 @@ public sealed class OrchestratorTests : IAsyncLifetime
         await _agents[1].SetReadyAsync(false, default);
 
         Assert.EndsWith("-r01", await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.Null((await _http.GetFromJsonAsync<JsonObject>("/status"))!["current_session"]);
+        Assert.Null((await RoomStatus())["current_session"]);
+    }
+
+    [Fact]
+    public async Task OnlyTheHostsRoomIsRecorded()
+    {
+        var (_, aStarted, a) = await HostRoom("p1");
+        var memberStarted = Connect(null, "p2", a).Started;
+        var (otherHost, bStarted, b) = await HostRoom("p3");
+        await WaitForAgents(2, a);
+        Assert.NotEqual(a, b);
+
+        await _agents[0].ToggleRoundAsync(300, default);
+        await Task.WhenAll(aStarted.Task, memberStarted.Task).WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(500);
+        Assert.False(bStarted.Task.IsCompleted);
+        Assert.Null((await RoomStatus(b))["current_session"]);
+        Assert.Equal(["p1", "p2"], (await RoomStatus(a))["members"]!.AsArray().Select(m => (string)m!["player_id"]!).Order());
+        Assert.True(otherHost.IsHost);
+        Assert.False(_agents[1].IsHost);
+    }
+
+    [Fact]
+    public async Task UnknownInviteCodesAreRefusedAndTheHostClosesTheRoom()
+    {
+        var (stranger, _) = Connect(null, "p9", "ZZZZZZ");
+        var refused = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        stranger.RoomError += m => refused.TrySetResult(m);
+        Assert.Contains("ZZZZZZ", await refused.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        var (host, _, code) = await HostRoom("p1");
+        var (member, _) = Connect(null, "p2", code.ToLowerInvariant());
+        await WaitForAgents(2, code);
+        var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        member.RoomChanged += r => { if (r is null) closed.TrySetResult(); };
+        await host.CloseRoomAsync(default);
+        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Null(member.Room);
+        Assert.Equal(System.Net.HttpStatusCode.NotFound, (await _http.GetAsync($"/rooms/{code}")).StatusCode);
     }
 
     [Fact]

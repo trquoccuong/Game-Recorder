@@ -20,11 +20,7 @@ public sealed class AppSettings
     /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>
     public string? GameProfile { get; set; }
     public Hotkey Hotkey { get; set; } = Hotkey.Default;
-    /// <summary>odx-orchestrator URL (multiplayer, spec v3); empty records on its own with the hotkey.</summary>
-    public string Orchestrator { get; set; } = "";
     public string PlayerId { get; set; } = Environment.MachineName.ToLowerInvariant();
-    /// <summary>In agent mode, the hotkey starts and ends rounds for every player (no game server plugin needed).</summary>
-    public bool IsHost { get; set; }
 
     /// <param name="timeServer">time_server of odx-capture.json; null uses the Windows clock only.</param>
     public CaptureOptions ToCaptureOptions(string? timeServer) => new(OutputRoot, WindowProcess, Fps, GameProfile, timeServer);

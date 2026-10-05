@@ -8,7 +8,9 @@ namespace Odx.Core;
 /// in each user's settings. A missing file or field leaves the user's own setting in charge.
 /// </summary>
 /// <param name="TimeServer">NTP server ("host" or "host:port") every machine measures its clock against (spec v3 §4 baseline).</param>
-public sealed record CaptureConfig(string? TimeServer)
+/// <param name="Orchestrator">odx-orchestrator's address (http://host:5180); players then only type a room's invite code.
+/// Null: odx-app records on its own only.</param>
+public sealed record CaptureConfig(string? TimeServer, Uri? Orchestrator = null)
 {
     public const string FileName = "odx-capture.json";
 
@@ -22,7 +24,12 @@ public sealed record CaptureConfig(string? TimeServer)
             var json = JsonNode.Parse(File.ReadAllText(path)) as JsonObject
                        ?? throw new InvalidDataException($"{path}: not a JSON object");
             string? server = json["time_server"]?.GetValue<string>().Trim();
-            return new CaptureConfig(string.IsNullOrEmpty(server) ? null : server);
+            string? orchestrator = json["orchestrator"]?.GetValue<string>().Trim();
+            Uri? uri = null;
+            if (!string.IsNullOrEmpty(orchestrator) &&
+                (!Uri.TryCreate(orchestrator, UriKind.Absolute, out uri) || uri.Scheme is not ("http" or "https")))
+                throw new InvalidDataException($"{path}: orchestrator must be an http:// address, not \"{orchestrator}\"");
+            return new CaptureConfig(string.IsNullOrEmpty(server) ? null : server, uri);
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException)
         {

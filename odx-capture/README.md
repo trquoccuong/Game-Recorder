@@ -107,32 +107,37 @@ Exit code 1 when any error is found. Warnings (`c2w.roll`, `c2w.upright`) do not
 
 ## Multiplayer (spec v3)
 
-`odx-orchestrator` (`src/Odx.Orchestrator`, ASP.NET Core, cross-platform) runs next to the game server:
+`odx-orchestrator` (`src/Odx.Orchestrator`, ASP.NET Core, cross-platform) runs on one machine everybody can reach (next to the game server):
 
 ```bash
 cd capture-cs
 dotnet run --project src/Odx.Orchestrator -- --out C:/odx_sessions --game-profile ../games/example-fps.json [--http-port 5180] [--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
 ```
 
-On each player's machine, and in place of a game server plugin while there is none:
+**Rooms.** Players are recorded only with the other members of their room. Set the orchestrator's address once in `odx-capture.json` (`"orchestrator": "http://<host>:5180"`; empty: odx-app records on its own only, the room rows stay hidden). In odx-app:
+
+- **Create room** opens a room with you as its host and shows its 6-character invite code (no 0/O or 1/I) to share. **Close room** ends it for everyone; a room nobody is in also closes after 30 min.
+- **Join room** with an invite code; **Leave room** to go. Leaving during a countdown cancels the round; leaving during a round stops your recording.
+- In a room, the main button and the hotkey are the room action:
+  - the host starts and ends rounds (3 s countdown);
+  - the other players say they are ready (again to take it back). Once at least 2 members are in and every non-host member is ready, the round starts with a 5 s countdown (`--ready-countdown-ms`, `--min-ready`), as in the client's sample delivery.
+
+  The status line lists the members (✓ = ready). The game profile and FPS come from the orchestrator.
+
+Every member starts capturing when the countdown starts and sees it on screen (excluded from screen capture, so never in the video). A `round_end`, an unready, or a member leaving during the countdown cancels the round (`round_cancelled`): everyone stops, nothing is uploaded or assembled, and the round number is used again. After a lost connection an agent joins its room again.
+
+Headless capture machines and the simulator (in place of a game server plugin while there is none):
 
 ```bash
-odx agent --orchestrator http://<host>:5180 --player p1 --out C:/odx_capture [--name Alice] [--window cs2] [--auto-ready]
-odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--rounds 2] [--round-s 20] [--match sim]
+odx agent --orchestrator http://<host>:5180 --room <code> --player p1 --out C:/odx_capture [--name Alice] [--window cs2] [--auto-ready]
+odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <code>] [--rounds 2] [--round-s 20] [--match sim]
 ```
 
-In odx-app, filling in **Orchestrator** (and **Player ID**, default: the machine name) turns the main button into Connect/Disconnect. The orchestrator then starts and stops recordings, and the game profile and FPS come from the orchestrator. Without a game server plugin, rounds start in two ways (as in the client's sample delivery):
-
-- **Ready check:** every player who is not a host presses the hotkey when ready (again to take it back). Once at least 2 players are connected and all non-host players are ready, the orchestrator starts a round with a 5 s countdown (`--ready-countdown-ms`, `--min-ready`). Headless agents use `--auto-ready`.
-- **Host:** a player who ticks **Host** starts a round (3 s countdown) and ends it for everyone with the hotkey (`end_reason` `player_stop:<id>`).
-
-Every player starts capturing when the countdown starts and sees it on screen (excluded from screen capture, so never in the video). A `round_end`, an unready, or a player leaving during the countdown cancels the round (`round_cancelled`): everyone stops, nothing is uploaded or assembled, and the round number is used again.
-
-`simulate-game` plays scripted rounds: each has a kill and a permanent death halfway through. It waits for uploads between rounds, prints each session's gate result and exits 1 if any session fails. Run on one machine (orchestrator + two agents recording the monitor + simulator), three 10 s rounds all pass; first frames arrive 0.75–0.93 s after `round_start`.
+`simulate-game` opens a room without a host (or uses `--room`), prints its invite code, waits until every `--players` member has joined, then plays scripted rounds: each has a kill and a permanent death halfway through. It waits for uploads between rounds, prints each session's gate result and exits 1 if any session fails. Run on one machine (orchestrator + two agents recording the monitor + simulator), three 10 s rounds all pass; first frames arrive 0.75–0.93 s after `round_start`.
 
 - **Time service:** an SNTP responder on UDP `--time-port`. Every player's capture measures QPC against it (`ntp_samples.csv`), so all players share one clock.
-- **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, starts its capture on `start` and stops on `stop`. Then it uploads the built capture folder (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`.
-- **Game events:** the game server plugin posts JSON events to `POST /game/events` (`GameEvents`: `match_start`, `round_start`, `round_end`, `kill`, `player_death` with `permanent`, `player_connect`, `player_disconnect`, `match_end`). Events without `utc_ms` are stamped on arrival.
+- **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, creates or joins a room (`create_room`, `join_room`; the orchestrator answers with `room` updates), starts its capture on `start` and stops on `stop`. Then it uploads the built capture folder (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`.
+- **Game events:** a game server plugin opens a room without a host (`POST /rooms` → `{"code"}`), lets the players join it, and posts JSON events to `POST /rooms/{code}/events`; `GET /rooms/{code}` and `GET /status` show the rooms (`GameEvents`: `match_start`, `round_start`, `round_end`, `kill`, `player_death` with `permanent`, `player_connect`, `player_disconnect`, `match_end`). Events without `utc_ms` are stamped on arrival.
   - `round_start` arms and starts every idle agent at once. With `countdown_ms` it is recorded as `round_countdown` and the orchestrator adds `round_start` when play starts, so the video holds the start of play (`round_start_frame` in `player.json`). Players' starts differ by their capture start-up (~0.8 s warm; ~3 s on the first start after an install, while Windows Defender scans the new files); every frame is put on server time afterwards. Events between rounds (`match_start`, `player_ready`, `round_cancelled`) open the next round's events.
   - A permanent `player_death` stops that player.
   - `round_end` stops the rest.
@@ -169,6 +174,6 @@ Every player starts capturing when the countdown starts and sees it on screen (e
   - Ping is the median NTP RTT to the orchestrator.
   - The sync tolerances above (`GateTolerances`) and the K-of-N rule are proposals (v3 §4 leaves them open); the 10 s and 90 % camera floors come from the client's sample delivery, not the spec.
   - Agents still uploading the previous round are left out of the next one.
-  - Host control: any player who ticks Host can start and end rounds (no exclusive host); hosts are left out of the ready check. There is no per-player stop without a game server, so everyone records the whole round.
+  - Rooms: the player who creates a room is its only host and is left out of its ready checks; there is no per-player stop without a game server, so everyone records the whole round. Match ids start with the room's code.
   - Ready check: 5 s countdown, at least 2 players; a cancelled round's number is used again.
   - Network packets and `server_state.bin` are not produced yet (they need a game server plugin); `schema.bin.gz` so far describes `frames.bin` only.
