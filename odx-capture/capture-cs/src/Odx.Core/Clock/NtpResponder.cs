@@ -58,5 +58,12 @@ public static class NtpResponder
     /// <summary>UTC with sub-millisecond resolution (DateTime.UtcNow is precise to ~1 µs on Windows 10+ and Linux).</summary>
     public static double NowUnixMs() => (DateTime.UtcNow.Ticks - UnixEpochTicks) / (double)TimeSpan.TicksPerMillisecond;
 
-    public static UdpClient Bind(int port) => new(new IPEndPoint(IPAddress.Any, port));
+    /// <summary>Dual-stack, so agents reaching the orchestrator as "localhost" (::1) or by IPv4 address both get answers.</summary>
+    public static UdpClient Bind(int port)
+    {
+        var udp = new UdpClient(AddressFamily.InterNetworkV6);
+        udp.Client.DualMode = true;
+        udp.Client.Bind(new IPEndPoint(IPAddress.IPv6Any, port));
+        return udp;
+    }
 }

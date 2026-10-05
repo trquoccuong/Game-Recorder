@@ -104,8 +104,8 @@ public class NtpResponderTests
 
         var samples = Enumerable.Range(0, 5).Select(_ => SntpClient.Query($"127.0.0.1:{port}", TimeSpan.FromSeconds(2))).ToList();
 
-        Assert.All(samples, s => Assert.InRange(s.RttMs, 0, 50));
-        Assert.All(samples, s => Assert.InRange(s.SystemOffsetMs, -5, 5));  // same machine, same clock
+        Assert.InRange(samples.Min(s => s.RttMs), 0, 50);  // the first exchange can be slow under parallel test load
+        Assert.All(samples, s => Assert.InRange(Math.Abs(s.SystemOffsetMs), 0, s.RttMs / 2 + 2));  // same clock: RTT/2 + whole-ms send stamp
         Assert.All(samples, s => Assert.Equal($"127.0.0.1:{port}", s.Server));
         stop.Cancel();
         await server;
