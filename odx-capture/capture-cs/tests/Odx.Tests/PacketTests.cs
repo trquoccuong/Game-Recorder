@@ -202,7 +202,7 @@ public class PacketTests
             (1008, Tcp(Me, 50000, Host, 6112, s + 1 + (uint)req.Length + 100 + (uint)pong.Length, 0x11, [])),
         ]);
         string bin = Path.ChangeExtension(path, ".bin"), text = Path.ChangeExtension(path, ".txt");
-        int count = PacketLog.Write(path, [Me], "w3gs", 250, new FileHeader { SessionId = "s1", PlayerId = "p1" }, bin, text);
+        int count = PacketLog.Write(path, [Me], new PacketCaptureSpec("w3gs", ["tcp/6112"]), 250, new FileHeader { SessionId = "s1", PlayerId = "p1" }, bin, text);
 
         var (header, records) = PacketLog.Read(bin);
         Assert.Equal("odx.capture.v1.PacketRecord", header.RecordType);
@@ -231,7 +231,7 @@ public class PacketTests
         byte[] encrypted = [0x01, 0x02, 0x03, 0x04];
         string path = Pcapng([(1000, Ethernet(Udp(Host, 27015, Me, 51000, encrypted)))]);
         string bin = Path.ChangeExtension(path, ".bin"), text = Path.ChangeExtension(path, ".txt");
-        PacketLog.Write(path, [Me], "raw", 0, new FileHeader(), bin, text);
+        PacketLog.Write(path, [Me], new PacketCaptureSpec("raw", ["udp/27015"]), 0, new FileHeader(), bin, text);
         var record = PacketLog.Read(bin).Records.Single();
         Assert.Equal(("", PacketRecord.Types.Direction.In, "udp"), (record.Message, record.Direction, record.Transport));
         Assert.Equal(encrypted, record.Payload.ToByteArray());
