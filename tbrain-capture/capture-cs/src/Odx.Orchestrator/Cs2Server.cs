@@ -33,7 +33,18 @@ public sealed class Cs2Server(Cs2ServerOptions options, ILogger log)
         Directory.CreateDirectory(server);
         double utc = NtpResponder.NowUnixMs();
         await ExecAsync($"tv_record replays/{sessionId}");
-        File.WriteAllText(Path.Combine(server, Cs2ServerCapture.RecordingFile), new JsonObject { ["tv_record_utc_ms"] = utc }.ToJsonString());
+        var recording = new JsonObject { ["tv_record_utc_ms"] = utc, ["problems"] = new JsonArray() };
+        // tv_record answers nothing over RCON, recording or not; the demo file appears at once when it does.
+        string demo = Path.Combine(options.GameDir, "replays", $"{sessionId}.dem");
+        for (int i = 0; i < 30 && !File.Exists(demo); i++) await Task.Delay(100);
+        if (!File.Exists(demo))
+        {
+            const string problem = "SourceTV is not recording (no demo after tv_record): a match restart or a bot change can kick " +
+                                   "SourceTV; load the map again (\"map <map>\") between rounds";
+            log.LogError("CS2 server: {Session}: {Problem}", sessionId, problem);
+            recording["problems"]!.AsArray().Add(problem);
+        }
+        File.WriteAllText(Path.Combine(server, Cs2ServerCapture.RecordingFile), recording.ToJsonString());
     }
 
     /// <param name="keep">False for a cancelled round: stop recording and drop it.</param>
@@ -55,7 +66,11 @@ public sealed class Cs2Server(Cs2ServerOptions options, ILogger log)
         string server = Path.Combine(stagingDir, "server");
         Directory.CreateDirectory(server);
         if (File.Exists(demo)) File.Move(demo, Path.Combine(server, Cs2ServerCapture.DemoFile), true);
-        else log.LogWarning("CS2 server: no demo {Demo} for {Session}", demo, sessionId);
+        else
+        {
+            log.LogWarning("CS2 server: no demo {Demo} for {Session}", demo, sessionId);
+            AddProblem(Path.Combine(server, Cs2ServerCapture.RecordingFile), "no demo when the round ended");
+        }
         CopyNewLines(logStart ?? [], Path.Combine(server, Cs2ServerCapture.NetLogFile));
         CopySignon(Path.Combine(server, Cs2ServerCapture.SendDataFile));
     }
@@ -90,6 +105,15 @@ public sealed class Cs2Server(Cs2ServerOptions options, ILogger log)
             input.Position = from;
             input.CopyTo(output);
         }
+    }
+
+    private static void AddProblem(string recordingPath, string problem)
+    {
+        var recording = File.Exists(recordingPath) ? JsonNode.Parse(File.ReadAllText(recordingPath))!.AsObject() : [];
+        if (recording["problems"] is not JsonArray problems) recording["problems"] = problems = [];
+        if (!problems.Any(p => p!.GetValue<string>().StartsWith("SourceTV is not recording", StringComparison.Ordinal)))
+            problems.Add(problem);
+        File.WriteAllText(recordingPath, recording.ToJsonString());
     }
 
     private void TryDelete(string path)
