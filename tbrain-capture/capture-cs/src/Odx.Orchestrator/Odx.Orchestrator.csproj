@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <AssemblyName>odx-orchestrator</AssemblyName>
     <RootNamespace>Odx.Orchestrator</RootNamespace>
+    <!-- web.config is for IIS; the orchestrator runs as its own process. -->
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Odx.Tests" />
