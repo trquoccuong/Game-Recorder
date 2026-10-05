@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
 using Odx.Core;
 using Odx.Session;
@@ -13,7 +15,8 @@ namespace Odx.Orchestrator;
 ///   GET  /rooms/{code}                             the room's members, round and sessions
 ///   PUT  /sessions/{sid}/players/{pid}/files/{name} a capture file after the player's recording stopped
 ///   GET  /status                                   every room
-/// plus the NTP responder on UDP <see cref="OrchestratorOptions.TimePort"/>.
+/// plus the NTP responder on UDP <see cref="OrchestratorOptions.TimePort"/>. With an access key, every HTTP and WebSocket
+/// request needs "Authorization: Bearer &lt;key&gt;" (401 otherwise); NTP stays open, it reveals only the time.
 /// </summary>
 public static class OrchestratorHost
 {
@@ -37,6 +40,20 @@ public static class OrchestratorHost
             app.Services.GetRequiredService<MatchCoordinator>().SweepRoomsAsync(app.Lifetime.ApplicationStopping)));
         app.Lifetime.ApplicationStopped.Register(udp.Dispose);
 
+        if (options.AccessKey is { Length: > 0 } key)
+        {
+            byte[] expected = Encoding.UTF8.GetBytes("Bearer " + key);
+            app.Use(async (context, next) =>
+            {
+                byte[] presented = Encoding.UTF8.GetBytes(context.Request.Headers.Authorization.ToString());
+                if (!CryptographicOperations.FixedTimeEquals(presented, expected))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return;
+                }
+                await next();
+            });
+        }
         app.UseWebSockets();
         app.Map("/agents", async (HttpContext context, MatchCoordinator coordinator) =>
         {

@@ -1,4 +1,5 @@
 // odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <code>] [--rounds 2] [--round-s 20] [--match sim]
+//                   [--access-key K]   (default: access_key of odx-capture.json next to odx)
 // Stands in for a game server plugin: opens a room without a host (or uses --room), prints its invite code, waits until
 // every --players member has joined, then posts a scripted match to /rooms/<code>/events. Each round: round_start, a kill
 // and a permanent death of the last player halfway through, round_end. Before each round it waits until every member is
@@ -15,7 +16,7 @@ public static class SimulateGameCommand
 
     public static int Run(string[] args)
     {
-        string? orchestrator = null, match = "sim", room = null;
+        string? orchestrator = null, match = "sim", room = null, accessKey = null;
         string[] players = [];
         int rounds = 2;
         double roundSeconds = 20;
@@ -29,18 +30,20 @@ public static class SimulateGameCommand
                 case "--round-s" when i + 1 < args.Length: roundSeconds = double.Parse(args[++i], CultureInfo.InvariantCulture); break;
                 case "--match" when i + 1 < args.Length: match = args[++i]; break;
                 case "--room" when i + 1 < args.Length: room = args[++i]; break;
+                case "--access-key" when i + 1 < args.Length: accessKey = args[++i]; break;
                 default: orchestrator = null; i = args.Length; break;
             }
         }
         if (orchestrator is null || players.Length == 0 || !Uri.TryCreate(orchestrator, UriKind.Absolute, out var uri))
         {
             Console.Error.WriteLine("usage: odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <code>] " +
-                                    "[--rounds 2] [--round-s 20] [--match sim]");
+                                    "[--rounds 2] [--round-s 20] [--match sim] [--access-key K]");
             return 2;
         }
         try
         {
-            return RunAsync(uri, room, players, rounds, TimeSpan.FromSeconds(roundSeconds), match).GetAwaiter().GetResult();
+            return RunAsync(uri, accessKey ?? Odx.Core.CaptureConfig.Load().AccessKey, room, players, rounds,
+                TimeSpan.FromSeconds(roundSeconds), match).GetAwaiter().GetResult();
         }
         catch (Exception e) when (e is HttpRequestException or TimeoutException)
         {
@@ -49,10 +52,11 @@ public static class SimulateGameCommand
         }
     }
 
-    private static async Task<int> RunAsync(Uri orchestrator, string? room, string[] players, int rounds, TimeSpan roundLength,
-        string match)
+    private static async Task<int> RunAsync(Uri orchestrator, string? accessKey, string? room, string[] players, int rounds,
+        TimeSpan roundLength, string match)
     {
         using var http = new HttpClient { BaseAddress = orchestrator };
+        if (accessKey is not null) http.DefaultRequestHeaders.Authorization = new("Bearer", accessKey);
         if (room is null)
         {
             using var opened = await http.PostAsync("/rooms", null);

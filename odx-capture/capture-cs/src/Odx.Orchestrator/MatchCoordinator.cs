@@ -21,6 +21,8 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
     public int MinReadyPlayers { get; init; } = 2;
     /// <summary>A room nobody is in is closed after this long (the host closes it otherwise).</summary>
     public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
+    /// <summary>Every HTTP and WebSocket request must carry "Authorization: Bearer &lt;key&gt;"; null lets anyone in.</summary>
+    public string? AccessKey { get; init; }
 }
 
 /// <summary>

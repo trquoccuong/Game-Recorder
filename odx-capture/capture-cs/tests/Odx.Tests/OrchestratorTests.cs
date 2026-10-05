@@ -386,3 +386,65 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.Null(_coordinator.UploadPath("m0-r01", "p1", "video.mp4"));
     }
 }
+
+public sealed class OrchestratorAccessKeyTests : IAsyncLifetime
+{
+    private readonly string _root = Path.Combine(Path.GetTempPath(), "odx-key-" + Guid.NewGuid().ToString("N"));
+    private WebApplication _app = null!;
+    private Uri _url = null!;
+
+    public async Task InitializeAsync()
+    {
+        Directory.CreateDirectory(_root);
+        string profile = Path.Combine(_root, "game.json");
+        File.WriteAllText(profile, """
+            {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
+             "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
+            """);
+        _app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(_root, "out"), profile, HttpPort: 0, TimePort: 0)
+            { AccessKey = "s3cret" }, "127.0.0.1");
+        await _app.StartAsync();
+        _url = new Uri(_app.Urls.First());
+    }
+
+    public async Task DisposeAsync()
+    {
+        await _app.StopAsync();
+        await _app.DisposeAsync();
+    }
+
+    private AgentClient Agent(string? key) =>
+        new(new AgentOptions(_url, "p1", "P1", Path.Combine(_root, "agent"), null, CreateRoom: true, AccessKey: key),
+            _ => throw new InvalidOperationException("no capture in this test"));
+
+    [Fact]
+    public async Task Requests_without_the_key_are_refused()
+    {
+        using var anonymous = new HttpClient { BaseAddress = _url };
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await anonymous.PostAsync("/rooms", null)).StatusCode);
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/status")).StatusCode);
+        using var wrong = new HttpClient { BaseAddress = _url, DefaultRequestHeaders = { Authorization = new("Bearer", "guess") } };
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await wrong.GetAsync("/status")).StatusCode);
+
+        var agent = Agent("guess");
+        var refused = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        agent.RoomError += m => refused.TrySetResult(m);
+        var run = agent.RunUntilStoppedAsync(default);
+        Assert.Contains("access key", await refused.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        await run.WaitAsync(TimeSpan.FromSeconds(5));  // gives up instead of retrying
+    }
+
+    [Fact]
+    public async Task The_key_opens_rooms()
+    {
+        using var keyed = new HttpClient { BaseAddress = _url, DefaultRequestHeaders = { Authorization = new("Bearer", "s3cret") } };
+        Assert.True((await keyed.PostAsync("/rooms", null)).IsSuccessStatusCode);
+
+        var agent = Agent("s3cret");
+        using var stop = new CancellationTokenSource();
+        _ = agent.RunUntilStoppedAsync(stop.Token);
+        for (int i = 0; i < 100 && agent.Room is null; i++) await Task.Delay(50);
+        Assert.True(agent.IsHost);
+        stop.Cancel();
+    }
+}

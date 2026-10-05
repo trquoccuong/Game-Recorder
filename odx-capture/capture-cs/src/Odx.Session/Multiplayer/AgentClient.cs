@@ -11,8 +11,9 @@ namespace Odx.Session;
 /// <param name="RoomCode">Invite code of the room to join; with <paramref name="CreateRoom"/> instead, a new room is opened
 /// with this player as its host. After a reconnect the agent joins the same room again.</param>
 /// <param name="AutoReady">Says ready whenever it is idle in a room between rounds (headless capture machines).</param>
+/// <param name="AccessKey">The orchestrator's access key (access_key in odx-capture.json), sent with every request.</param>
 public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name, string OutputRoot, string? WindowProcess,
-    string? RoomCode = null, bool CreateRoom = false, bool AutoReady = false);
+    string? RoomCode = null, bool CreateRoom = false, bool AutoReady = false, string? AccessKey = null);
 
 /// <summary>
 /// A player's capture machine under the orchestrator, in one room: on Start it records (sampling its clock against the
@@ -24,7 +25,12 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private static readonly TimeSpan NtpTimeout = TimeSpan.FromSeconds(2), Retry = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _sendLock = new(1, 1);
-    private readonly HttpClient _http = new() { BaseAddress = options.Orchestrator, Timeout = TimeSpan.FromMinutes(30) };
+    private readonly HttpClient _http = new()
+    {
+        BaseAddress = options.Orchestrator,
+        Timeout = TimeSpan.FromMinutes(30),
+        DefaultRequestHeaders = { Authorization = options.AccessKey is { } key ? new AuthenticationHeaderValue("Bearer", key) : null },
+    };
     private ClientWebSocket? _socket;
     private string? _timeServer;
     private Arm? _armed;
@@ -61,7 +67,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// <summary>The capture in progress (odx-app shows its counters); null between sessions.</summary>
     public ICaptureRun? CurrentRun => _run;
 
-    /// <summary>Runs until <paramref name="stop"/>, reconnecting every 5 s while the orchestrator is unreachable.</summary>
+    /// <summary>
+    /// Runs until <paramref name="stop"/>, reconnecting every 5 s while the orchestrator is unreachable. A refused access key
+    /// ends it (retrying cannot help) and is reported through <see cref="RoomError"/>.
+    /// </summary>
     public async Task RunUntilStoppedAsync(CancellationToken stop)
     {
         while (!stop.IsCancellationRequested)
@@ -70,6 +79,12 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             {
                 await RunAsync(stop);
                 if (!stop.IsCancellationRequested) Log?.Invoke("orchestrator closed the connection");
+            }
+            catch (UnauthorizedAccessException e)
+            {
+                Log?.Invoke(e.Message);
+                RoomError?.Invoke(e.Message);
+                return;
             }
             catch (Exception e) when (e is WebSocketException or HttpRequestException)
             {
@@ -93,13 +108,23 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     public async Task RunAsync(CancellationToken stop)
     {
         using var socket = new ClientWebSocket();
+        socket.Options.CollectHttpResponseDetails = true;
+        if (options.AccessKey is { } key) socket.Options.SetRequestHeader("Authorization", $"Bearer {key}");
         _socket = socket;
         var wsUri = new UriBuilder(options.Orchestrator)
         {
             Scheme = options.Orchestrator.Scheme == "https" ? "wss" : "ws",
             Path = "/agents",
         }.Uri;
-        await socket.ConnectAsync(wsUri, stop);
+        try
+        {
+            await socket.ConnectAsync(wsUri, stop);
+        }
+        catch (WebSocketException) when (socket.HttpStatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            throw new UnauthorizedAccessException(
+                $"{options.Orchestrator} refused the access key (access_key in odx-capture.json)");
+        }
         IsReady = false;
         await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId), stop);
         Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");

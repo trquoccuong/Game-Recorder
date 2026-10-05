@@ -2,7 +2,8 @@
 //           [--auto-ready]
 // One player's capture machine in a room of odx-orchestrator (spec v3): records each round when told to, uploads it, repeats.
 // Reconnects every 5 s while the orchestrator is unreachable; Ctrl+C quits. --auto-ready: says ready on connect and after
-// every round, so a headless machine does not hold up the ready check.
+// every round, so a headless machine does not hold up the ready check. The access key is access_key of odx-capture.json
+// next to odx, or --access-key.
 #if WINDOWS
 using Odx.Session;
 
@@ -14,6 +15,7 @@ public static class AgentCommand
     {
         string? orchestrator = null, room = null, player = null, outRoot = null, name = null, window = null;
         bool autoReady = false;
+        string? accessKey = null;
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
@@ -25,6 +27,7 @@ public static class AgentCommand
                 case "--name" when i + 1 < args.Length: name = args[++i]; break;
                 case "--window" when i + 1 < args.Length: window = args[++i]; break;
                 case "--auto-ready": autoReady = true; break;
+                case "--access-key" when i + 1 < args.Length: accessKey = args[++i]; break;
                 default: orchestrator = null; i = args.Length; break;
             }
         }
@@ -32,7 +35,7 @@ public static class AgentCommand
             !Uri.TryCreate(orchestrator, UriKind.Absolute, out var uri))
         {
             Console.Error.WriteLine("usage: odx agent --orchestrator http://<host>:5180 --room <invite code> --player <id> --out <dir> " +
-                                    "[--name <name>] [--window <process>] [--auto-ready]");
+                                    "[--name <name>] [--window <process>] [--auto-ready] [--access-key K]");
             return 2;
         }
 
@@ -43,7 +46,7 @@ public static class AgentCommand
             stop.Cancel();
         };
         var agent = new AgentClient(new AgentOptions(uri, player, name ?? player, outRoot, window, RoomCode: room,
-            AutoReady: autoReady), CaptureRun.Start);
+            AutoReady: autoReady, AccessKey: accessKey ?? Odx.Core.CaptureConfig.Load().AccessKey), CaptureRun.Start);
         agent.Log += line => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {line}");
         agent.RunUntilStoppedAsync(stop.Token).GetAwaiter().GetResult();
         return 0;
