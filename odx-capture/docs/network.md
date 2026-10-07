@@ -1,17 +1,18 @@
 # Network
 
-Both players must reach the server machine on:
+Who must reach what (the CS2 server machine and the orchestrator's machine can be the same):
 
-| Port | Protocol | What | Open to players |
-|---|---|---|---|
-| 27015 | UDP | CS2 game traffic | yes |
-| 5180 | TCP | Orchestrator: rooms (WebSocket), uploads, status | yes |
-| 12300 | UDP | Orchestrator's time service (clock sync) | yes |
-| 27015 | TCP | RCON (orchestrator → CS2 server) | **no**: local only |
-| 27020 | UDP | SourceTV broadcast | no (the demo is recorded locally) |
+| Port | Protocol | On | What | Reached by |
+|---|---|---|---|---|
+| 27015 | UDP | CS2 server | CS2 game traffic | players |
+| 5180 | TCP | orchestrator | Rooms and rounds (WebSocket), status | players, the game server agent |
+| 12300 | UDP | orchestrator | Time service (clock sync) | players, the game server agent |
+| 5190 | TCP | odx-merge | Uploads after every round | players, the game server agent, the orchestrator |
+| 27015 | TCP | CS2 server | RCON (game server agent → CS2 server) | **nobody else**: same machine only |
+| 27020 | UDP | CS2 server | SourceTV broadcast | nobody (the demo is recorded locally) |
 
-Each player uploads their video after every round (about 2 MB per second of round): the server's upload bandwidth
-matters less than the players' upload bandwidth.
+Each player uploads their video to odx-merge after every round (about 2 MB per second of round): the players' upload
+bandwidth matters more than the server's.
 
 ## Option A: everyone on the same LAN
 
@@ -22,13 +23,14 @@ points at `http://192.168.1.20:5180`. Only the Windows firewall needs to let the
 
 On the server's router, forward to the server machine's LAN address:
 
-- UDP 27015
-- TCP 5180
-- UDP 12300
+- UDP 27015 (CS2 server)
+- TCP 5180, UDP 12300 (orchestrator)
+- TCP 5190 (odx-merge)
 
 Use the router's public address (or a dynamic DNS name) in CS2 (`connect <public address>:27015`) and in the package
-(`http://<public address>:5180`). Start the orchestrator with `--access-key` and build the package with the same key:
-otherwise anyone who finds the port can open rooms and upload.
+(`http://<public address>:5180`), and as the orchestrator's `--merge-public` (`http://<public address>:5190`). Start the
+orchestrator and odx-merge with `--access-key` and build the package with the same key: otherwise anyone who finds the
+ports can open rooms and upload.
 
 Players behind the same router as the server use the LAN address instead (many routers do not loop the public address
 back).
@@ -42,21 +44,23 @@ the CS2 server, so it does not help here.
 
 Latency matters: the gate needs a median RTT to the time service of at most 100 ms (`sync.clock`).
 
-## Windows firewall on the server machine
+## Windows firewall on the server machines
 
-The first start of `cs2.exe` and `odx-orchestrator.exe` asks whether to allow them; allow private (and public, for
-option B) networks. Or add the rules up front, as administrator:
+The first start of `cs2.exe`, `odx-orchestrator.exe` and `odx-merge.exe` asks whether to allow them; allow private (and
+public, for option B) networks. Or add the rules up front, as administrator, on the machine that runs each:
 
 ```powershell
 netsh advfirewall firewall add rule name="CS2 server" dir=in action=allow protocol=UDP localport=27015
 netsh advfirewall firewall add rule name="Odx orchestrator" dir=in action=allow protocol=TCP localport=5180
 netsh advfirewall firewall add rule name="Odx time service" dir=in action=allow protocol=UDP localport=12300
+netsh advfirewall firewall add rule name="Odx merge" dir=in action=allow protocol=TCP localport=5190
 ```
 
 ## Check from a player's PC
 
 ```powershell
 curl.exe http://<server>:5180/status -H "Authorization: Bearer <access key>"   # answers JSON
+curl.exe http://<server>:5190/status -H "Authorization: Bearer <access key>"   # odx-merge: answers JSON
 ```
 
 In CS2's console, `connect <server>:27015` must join the server. The time service is checked by the app itself: after

@@ -1,4 +1,5 @@
-# odx-orchestrator behind Caddy (HTTPS for ODX_DOMAIN from Let's Encrypt). Run ./up.sh, or: docker compose up -d --build
+# odx-orchestrator and odx-merge behind Caddy (HTTPS for ODX_DOMAIN from Let's Encrypt). Run ./up.sh, or:
+# docker compose up -d --build. The CS2 server runs elsewhere with its own agent (odx game-server).
 services:
   orchestrator:
     build:
@@ -8,13 +9,22 @@ services:
     environment:
       ODX_ACCESS_KEY: ${ODX_ACCESS_KEY:?set ODX_ACCESS_KEY in .env}
       ODX_ZT_TOKEN: ${ODX_ZT_TOKEN:-}
-    command: ["--out", "/data", "--game-profile", "/app/games/${ODX_GAME_PROFILE:-cs2.json}", "--vendor", "${ODX_VENDOR:-odx}",
-              "--zerotier-api", "http://zerotier:9993"]
-    volumes:
-      - ./sessions:/data
+    command: ["odx-orchestrator.dll", "--game-profile", "/app/games/${ODX_GAME_PROFILE:-cs2.json}",
+              "--merge", "http://merge:5190", "--merge-public", "https://${ODX_DOMAIN}", "--zerotier-api", "http://zerotier:9993"]
     ports:
       # Time service (SNTP): players measure their clock against <domain>:12300 directly, it cannot go through Caddy.
       - "12300:12300/udp"
+  # Receives every round's uploads and assembles the sessions, one at a time, into ./sessions.
+  merge:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    environment:
+      ODX_ACCESS_KEY: ${ODX_ACCESS_KEY:?set ODX_ACCESS_KEY in .env}
+    command: ["odx-merge.dll", "--out", "/data", "--vendor", "${ODX_VENDOR:-odx}"]
+    volumes:
+      - ./sessions:/data
   # ZeroTier network controller: one virtual LAN per room created "with LAN". Players' ZeroTier reaches it on 9993/udp;
   # its API (9993/tcp) is only reachable inside this compose network, never published.
   zerotier:
@@ -32,7 +42,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
-    depends_on: [orchestrator]
+    depends_on: [orchestrator, merge]
     environment:
       ODX_DOMAIN: ${ODX_DOMAIN:?set ODX_DOMAIN in .env}
     ports:

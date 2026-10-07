@@ -1,5 +1,5 @@
 # Builds a self-contained Windows x64 package: odx-app, the odx command-line tool (input, record, build, validate, agent,
-# simulate-game), odx-orchestrator (multiplayer, runs on the host's machine), the .NET runtime, a minimal ffmpeg and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
+# simulate-game, game-server), odx-orchestrator and odx-merge (multiplayer), the .NET runtime, a minimal ffmpeg and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
 # "Odx Capture.exe" (or bin\odx.exe); nothing else needs installing. Needs MSYS2 (ffmpeg) and the MSVC build tools
 # (NativeAOT launcher).
 #
@@ -28,7 +28,8 @@ New-Item -ItemType Directory -Force $out, $bin, $cache, (Join-Path $out 'data\ca
 # NativeAOT finds the MSVC linker through vswhere.exe, which is not on PATH by default.
 $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 
-# Layout: "Odx Capture.exe" (launcher) at the root; odx-app.exe, odx.exe, odx-orchestrator.exe, ffmpeg/ and games/ in bin/.
+# Layout: "Odx Capture.exe" (launcher) at the root; odx-app.exe, odx.exe, odx-orchestrator.exe, odx-merge.exe, ffmpeg/ and
+# games/ in bin/.
 # The launcher is NativeAOT (~2 MB): Windows Defender scans a new executable before its first run (12-27 s for the
 # 240 MB odx-app.exe); the launcher is scanned at once and shows the splash meanwhile.
 # Single-file: each executable embeds its own .NET runtime and libraries (WPF's native libraries are extracted at first
@@ -38,7 +39,8 @@ $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PAT
 $publishes = @(
     @{ Project = 'Odx.App'; Out = $bin; Framework = $null },
     @{ Project = 'Odx.Cli'; Out = $bin; Framework = 'net10.0-windows10.0.22621.0' },
-    @{ Project = 'Odx.Orchestrator'; Out = $bin; Framework = $null }
+    @{ Project = 'Odx.Orchestrator'; Out = $bin; Framework = $null },
+    @{ Project = 'Odx.Merge'; Out = $bin; Framework = $null }
 )
 foreach ($p in $publishes) {
     $frameworkArgs = if ($p.Framework) { @('-f', $p.Framework) } else { @() }

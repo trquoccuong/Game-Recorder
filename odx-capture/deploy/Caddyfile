@@ -1,4 +1,6 @@
-# HTTPS for the orchestrator's domain; Caddy passes WebSockets (/agents) and large uploads through as they are.
+# HTTPS for the orchestrator's domain; Caddy passes WebSockets (/agents) and large uploads through as they are. Uploads
+# (/sessions/…) go to odx-merge, everything else to the orchestrator.
 {$ODX_DOMAIN} {
+	reverse_proxy /sessions/* merge:5190
 	reverse_proxy orchestrator:5180
 }

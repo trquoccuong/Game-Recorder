@@ -8,13 +8,13 @@ using Odx.Session;
 namespace Odx.Orchestrator;
 
 /// <summary>
-/// HTTP API (AgentClient and the game server plugin are the clients):
-///   GET  /agents                                   WebSocket, one per agent (Hello → Welcome, rooms, Arm/Start/Stop ↔ state/done)
-///   POST /rooms                                    open a room without a host (game server plugin) → {"code": …}
-///   POST /rooms/{code}/events                      one GameEvents JSON object for that room
-///   GET  /rooms/{code}                             the room's members, round and sessions
-///   PUT  /sessions/{sid}/players/{pid}/files/{name} a capture file after the player's recording stopped
-///   GET  /status                                   every room
+/// HTTP API (AgentClient, GameServerAgent and a game server plugin are the clients):
+///   GET  /agents               WebSocket, one per agent (Hello → Welcome, rooms, Arm/Start/Stop ↔ state/done)
+///   POST /rooms                open a room without a host (game server plugin) → {"code": …}
+///   POST /rooms/{code}/events  one GameEvents JSON object for that room
+///   GET  /rooms/{code}         the room's members, round and sessions
+///   GET  /status               every room
+/// Captures are uploaded to odx-merge, not here.
 /// plus the NTP responder on UDP <see cref="OrchestratorOptions.TimePort"/>. With an access key, every HTTP and WebSocket
 /// request needs "Authorization: Bearer &lt;key&gt;" (401 otherwise); NTP stays open, it reveals only the time.
 /// </summary>
@@ -27,7 +27,6 @@ public static class OrchestratorHost
 
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls($"http://{bindAddress}:{options.HttpPort}");
-        builder.WebHost.ConfigureKestrel(k => k.Limits.MaxRequestBodySize = null);  // video.mp4 uploads
         builder.Services.AddSingleton(sp =>
             new MatchCoordinator(options, timePort, sp.GetRequiredService<ILogger<MatchCoordinator>>()));
         var app = builder.Build();
@@ -83,13 +82,6 @@ public static class OrchestratorHost
                 return Results.BadRequest(e.Message);
             }
         });
-        app.MapPut("/sessions/{sid}/players/{pid}/files/{name}",
-            async (string sid, string pid, string name, HttpRequest request, MatchCoordinator coordinator) =>
-            {
-                if (coordinator.UploadPath(sid, pid, name) is not { } path) return Results.NotFound();
-                await using (var file = File.Create(path)) await request.Body.CopyToAsync(file);
-                return Results.Ok();
-            });
         app.MapGet("/status", (MatchCoordinator coordinator) => Results.Text(coordinator.Status().ToJsonString(AgentMessage.Json), "application/json"));
         return app;
     }

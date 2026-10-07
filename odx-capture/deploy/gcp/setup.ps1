@@ -123,12 +123,14 @@ try {
 }
 catch { $pluginStatus = "FAILED: $_"; Step "plugin $pluginStatus" }
 
-# --- odx-orchestrator, laid out like the package (bin\ next to data\, games\ in bin\)
-Step 'publish odx-orchestrator'
-Get-Process odx-orchestrator -ErrorAction SilentlyContinue | Stop-Process -Force
-dotnet publish "$tc\capture-cs\src\Odx.Orchestrator" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true `
-    -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None -o "$odx\bin" | Out-Host
-if ($LASTEXITCODE) { throw 'dotnet publish odx-orchestrator failed' }
+# --- odx-orchestrator, odx-merge and odx (game-server), laid out like the package (bin\ next to data\, games\ in bin\)
+Get-Process odx-orchestrator, odx-merge, odx -ErrorAction SilentlyContinue | Stop-Process -Force
+foreach ($p in @(@('Odx.Orchestrator', @()), @('Odx.Merge', @()), @('Odx.Cli', @('-f', 'net10.0')))) {
+    Step "publish $($p[0])"
+    dotnet publish "$tc\capture-cs\src\$($p[0])" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true `
+        -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None @($p[1]) -o "$odx\bin" | Out-Host
+    if ($LASTEXITCODE) { throw "dotnet publish $($p[0]) failed" }
+}
 Copy-Item "$tc\games" "$odx\bin\" -Recurse -Force
 
 # --- secrets: RCON password and access key, readable by SYSTEM and Administrators only
@@ -144,37 +146,48 @@ NewSecret "$secrets\access-key.txt"
 icacls $secrets /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' | Out-Null
 
 # --- Windows firewall (docs/network.md); TCP 27015 (RCON) stays closed
-foreach ($r in @(@('CS2 server', 'UDP', 27015), @('Odx orchestrator', 'TCP', 5180), @('Odx time service', 'UDP', 12300))) {
+foreach ($r in @(@('CS2 server', 'UDP', 27015), @('Odx orchestrator', 'TCP', 5180), @('Odx time service', 'UDP', 12300),
+                 @('Odx merge', 'TCP', 5190))) {
     if (-not (Get-NetFirewallRule -DisplayName $r[0] -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -DisplayName $r[0] -Direction Inbound -Action Allow -Protocol $r[1] -LocalPort $r[2] | Out-Null
     }
 }
 
-# --- run both at boot as SYSTEM (docs/cs2-server.md §5, docs/orchestrator.md "Run")
+# --- run all four at boot as SYSTEM (docs/cs2-server.md §5, §6, docs/orchestrator.md "Run")
 [IO.File]::WriteAllText("$root\run-cs2.ps1", @'
 $pw = Get-Content C:\odx\secrets\rcon.txt -Raw
 Set-Location C:\odx\cs2-server\game\bin\win64
 & .\cs2.exe -dedicated -insecure -usercon -port 27015 +game_type 0 +game_mode 1 +map de_dust2 +rcon_password $pw *>> "C:\odx\logs\cs2-$(Get-Date -Format yyyyMMdd-HHmmss).log"
 '@)
+[IO.File]::WriteAllText("$root\run-merge.ps1", @'
+$env:ODX_ACCESS_KEY = Get-Content C:\odx\secrets\access-key.txt -Raw
+& C:\odx\odx\bin\odx-merge.exe *>> "C:\odx\logs\merge-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+'@)
 [IO.File]::WriteAllText("$root\run-orchestrator.ps1", @'
-# CS2 binds RCON to the NIC's address, not to 127.0.0.1.
-$ip = (Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias Ethernet).IPAddress
+# Players and the game server agent upload to odx-merge at the VM's external address.
+$ip = Invoke-RestMethod -Headers @{ 'Metadata-Flavor' = 'Google' } `
+    'http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip'
 $env:ODX_ACCESS_KEY = Get-Content C:\odx\secrets\access-key.txt -Raw
 $bin = 'C:\odx\odx\bin'
-& "$bin\odx-orchestrator.exe" --game-profile "$bin\games\cs2.json" --cs2-game-dir C:\odx\cs2-server\game\csgo `
-    --cs2-rcon "${ip}:27015" --cs2-rcon-password-file C:\odx\secrets\rcon.txt *>> "C:\odx\logs\orchestrator-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+& "$bin\odx-orchestrator.exe" --game-profile "$bin\games\cs2.json" --merge http://127.0.0.1:5190 --merge-public "http://${ip}:5190" `
+    *>> "C:\odx\logs\orchestrator-$(Get-Date -Format yyyyMMdd-HHmmss).log"
+'@)
+[IO.File]::WriteAllText("$root\run-game-server.ps1", @'
+# RCON: CS2 binds it to the NIC's address, which odx game-server uses by default.
+$env:ODX_ACCESS_KEY = Get-Content C:\odx\secrets\access-key.txt -Raw
+& C:\odx\odx\bin\odx.exe game-server --orchestrator http://127.0.0.1:5180 --cs2-game-dir C:\odx\cs2-server\game\csgo `
+    --cs2-rcon-password-file C:\odx\secrets\rcon.txt --work C:\odx\game-server *>> "C:\odx\logs\game-server-$(Get-Date -Format yyyyMMdd-HHmmss).log"
 '@)
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
 $principal = New-ScheduledTaskPrincipal -UserId SYSTEM -RunLevel Highest
-foreach ($t in 'cs2', 'orchestrator') {
+foreach ($t in 'cs2', 'merge', 'orchestrator', 'game-server') {
     $action = New-ScheduledTaskAction -Execute powershell.exe -Argument "-NoProfile -ExecutionPolicy Bypass -File $root\run-$t.ps1"
     Register-ScheduledTask -TaskName "odx-$t" -Action $action -Trigger (New-ScheduledTaskTrigger -AtStartup) `
         -Settings $settings -Principal $principal -Force | Out-Null
     Stop-ScheduledTask "odx-$t" -ErrorAction SilentlyContinue
 }
-Get-Process cs2, odx-orchestrator -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-ScheduledTask odx-cs2
-Start-ScheduledTask odx-orchestrator
+Get-Process cs2, odx-orchestrator, odx-merge, odx -ErrorAction SilentlyContinue | Stop-Process -Force
+foreach ($t in 'cs2', 'merge', 'orchestrator', 'game-server') { Start-ScheduledTask "odx-$t" }
 
 [IO.File]::WriteAllText("$root\setup-done.txt", (Get-Date -Format o))
 Step "DONE (plugin: $pluginStatus)"

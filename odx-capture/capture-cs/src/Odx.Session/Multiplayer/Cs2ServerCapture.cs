@@ -12,7 +12,7 @@ using Vec3 = Odx.Session.Proto.Vec3;
 namespace Odx.Session;
 
 /// <summary>
-/// The CS2 game server's side of a round (spec v3 §3), staged by the orchestrator in &lt;staging&gt;/server/:
+/// The CS2 game server's side of a round (spec v3 §3), uploaded by its <see cref="GameServerAgent"/> to &lt;staging&gt;/server/:
 /// <list type="bullet">
 /// <item><c>demo.dem</c>: the round's SourceTV demo (tv_record / tv_stoprecord over RCON): server_state.bin, events.</item>
 /// <item><c>netmessages.jsonl</c>: what the odx_netlog plugin logged during the round (cs2-plugin/README.md):
@@ -20,14 +20,15 @@ namespace Odx.Session;
 /// <item><c>senddata.jsonl</c>: the already serialized buffers the plugin saw sent (each joining client's signon data):
 /// split into messages for packets.bin, and the game event list, which a demo recorded mid-map does not carry.</item>
 /// <item><c>recording.json</c>: when tv_record was sent, the fallback for the demo's first tick without a log.</item>
+/// <item><c>ntp_samples.csv</c>: the agent's SNTP samples against the orchestrator's time service during the round.</item>
 /// </list>
-/// The plugin stamps messages with the game server machine's clock; the orchestrator runs on that machine, so its times are
-/// already on the orchestrator's clock.
+/// The plugin and the agent stamp everything with the game server machine's Windows clock; the samples put it on the
+/// orchestrator's clock (no samples: the same machine, offset 0).
 /// </summary>
 public static class Cs2ServerCapture
 {
     public const string DemoFile = "demo.dem", NetLogFile = "netmessages.jsonl", SendDataFile = "senddata.jsonl";
-    public const string RecordingFile = "recording.json";
+    public const string RecordingFile = "recording.json", ClockSamplesFile = "ntp_samples.csv";
     public const string StateFile = "server_state.bin";
 
     /// <param name="Events">For events.jsonl, with utc_ms; "source": "demo".</param>
@@ -62,15 +63,17 @@ public static class Cs2ServerCapture
         Directory.CreateDirectory(Path.Combine(sessionServerDir, "capture"));
         var info = new JsonObject();
         var events = new List<JsonObject>();
-        var lines = ReadNetLog(Path.Combine(stagingServerDir, NetLogFile));
+        var (offsetMs, clockSync) = MachineClock(stagingServerDir);
+        long offsetUs = (long)Math.Round(offsetMs * 1000);
+        var lines = ReadNetLog(Path.Combine(stagingServerDir, NetLogFile)).Select(l => l with { UtcUs = l.UtcUs + offsetUs }).ToList();
         var clock = TickClock.Fit(lines);
         string recordingPath = Path.Combine(stagingServerDir, RecordingFile);
         double? recordingStartMs = File.Exists(recordingPath)
-            ? JsonNode.Parse(File.ReadAllText(recordingPath))?["tv_record_utc_ms"]?.GetValue<double>()
+            ? JsonNode.Parse(File.ReadAllText(recordingPath))?["tv_record_utc_ms"]?.GetValue<double>() + offsetMs
             : null;
         // The staged signon data spans the server's run (clients join before rounds); this round's packets keep only what
         // was sent during it, the event list is the newest one.
-        var signon = ReadNetLog(Path.Combine(stagingServerDir, SendDataFile))
+        var signon = ReadNetLog(Path.Combine(stagingServerDir, SendDataFile)).Select(l => l with { UtcUs = l.UtcUs + offsetUs })
             .SelectMany(l => SplitSendData(l).Select(m => (Line: l, m.Id, m.Payload))).ToList();
         var eventList = signon.LastOrDefault(m => m.Id == GameEventListId) is { Payload: { } listBytes }
             ? CMsgSource1LegacyGameEventList.Parser.ParseFrom(listBytes)
@@ -79,7 +82,11 @@ public static class Cs2ServerCapture
         var records = lines.Select(PacketOf)
             .Concat(signon.Where(m => m.Line.UtcUs >= (recordingStartMs ?? 0) * 1000).Select(m => SignonPacketOf(m.Line, m.Id, m.Payload)))
             .OrderBy(r => r.ServerTimeUs).ToList();
-        foreach (var r in records) r.PeerPlayerId = playerIds.GetValueOrDefault(r.PeerId, "");
+        foreach (var r in records)
+        {
+            r.PeerPlayerId = playerIds.GetValueOrDefault(r.PeerId, "");
+            r.LocalTimeUs = r.ServerTimeUs - offsetUs;
+        }
         if (records.Count > 0)
         {
             PacketLog.WriteRecords(records, header.Clone(), Path.Combine(sessionServerDir, PacketLog.BinFile),
@@ -104,7 +111,30 @@ public static class Cs2ServerCapture
             File.Copy(demo, Path.Combine(sessionServerDir, "capture", DemoFile), true);
         }
         info["tick_clock"] = clock?.Describe();
+        if (clockSync is not null) info["clock_sync"] = clockSync;
         return new Result(events, info, cameras);
+    }
+
+    /// <summary>
+    /// Orchestrator clock − game server machine clock from the agent's samples, as session.json "server.clock_sync" tells
+    /// it; 0 and null without samples. One offset for the round: over minutes the machine clocks drift well under a tick.
+    /// </summary>
+    internal static (double OffsetMs, JsonObject? ClockSync) MachineClock(string stagingServerDir)
+    {
+        string path = Path.Combine(stagingServerDir, ClockSamplesFile);
+        var samples = File.Exists(path) ? NtpSampleReader.Read(path) : [];
+        if (samples.Count == 0) return (0, null);
+        // The lower-RTT half has the least path asymmetry; its median shrugs off a delayed reply.
+        var best = samples.OrderBy(s => s.RttMs).Take((samples.Count + 1) / 2).ToList();
+        double offset = best.Select(s => s.SystemOffsetMs).Order().ElementAt(best.Count / 2);
+        return (offset, new JsonObject
+        {
+            ["method"] = "SNTP against the orchestrator's time service; median offset over the lower-RTT half",
+            ["offset_definition"] = "server_clock - game_server_machine_clock",
+            ["offset_ms"] = Math.Round(offset, 3),
+            ["rtt_ms"] = Math.Round(best.Select(s => s.RttMs).Order().ElementAt(best.Count / 2), 3),
+            ["sample_count"] = samples.Count,
+        });
     }
 
     /// <summary>One line of the plugin's log (cs2-plugin/src/plugin.cpp writes them).</summary>
@@ -141,7 +171,6 @@ public static class Cs2ServerCapture
     private static PacketRecord PacketOf(NetLogLine l) => new()
     {
         ServerTimeUs = l.UtcUs,
-        LocalTimeUs = l.UtcUs,
         Direction = l.Direction == "out" ? PacketRecord.Types.Direction.Out : PacketRecord.Types.Direction.In,
         Transport = "netmessage",
         LocalEndpoint = "server",
@@ -178,7 +207,6 @@ public static class Cs2ServerCapture
         var record = new PacketRecord
         {
             ServerTimeUs = l.UtcUs,
-            LocalTimeUs = l.UtcUs,
             Direction = PacketRecord.Types.Direction.Out,
             Transport = "netmessage",
             LocalEndpoint = "server",
