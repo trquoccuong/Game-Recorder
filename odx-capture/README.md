@@ -12,14 +12,16 @@ Tooling for the client's canonical game-data format. See [`../document/software-
 | `games/*.json` | Game profiles: `game_title`, `platform`, `localization`, `input_mouse_convention`, `bindings` (key/button → action), optional `window_process` (the game's process: odx-app switches to that window, agents record it when the player picked the monitor) | v2 §1.1.2.1, §1.1.2.6 |
 | `Odx.Session` / `odx validate` | Every vendor check in v2 §1.5 (session.json, frames structure, C2W, intrinsics, input, video read with `Odx.Core.Mp4Reader` — no ffprobe) | v2 §1.5 |
 | `schemas/session_schema.json` | JSON Schema for `session.json`, extracted from the spec; embedded in `Odx.Session` | v2 §1.1.2.1 |
-| `odx-orchestrator` / `Odx.Session.Multiplayer` | Multiplayer capture: time service, agent hub, game events → per-player start/stop, assembly of the v3 session tree and its sync gate | v3 §2–§4 |
+| `odx-orchestrator` | Multiplayer coordination: rooms, time service, agent hub, game events → per-player (and game server) start/stop, room LANs | v3 §2, §4 |
+| `odx-merge` / `Odx.Session.Multiplayer` | Receives each round's uploads and assembles the v3 session tree and its sync gate, one round at a time | v3 §2–§4 |
+| `odx game-server` | The game server machine's agent: records the server's side of every round (CS2: SourceTV demo, plugin log) for odx-merge | v3 §3 |
 | `tests/Odx.Tests/SessionFixtures.cs` | Synthetic valid session + one mutator per validation rule | plan §7.10.2 |
 
 Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 10) in `capture-cs/`. The Python pose audit lives outside the product in [`../research/analyze-pose/`](../research/analyze-pose/).
 
 ## Capture tools (C#, `capture-cs/`)
 
-One command-line tool, `odx` (`src/Odx.Cli`): `odx input`, `odx record`, `odx build`, `odx validate`, plus `odx agent` and `odx simulate-game` for multiplayer (below). Its Windows build has all of them; its `net10.0` build (Linux servers) has `build`, `validate` and `simulate-game` only.
+One command-line tool, `odx` (`src/Odx.Cli`): `odx input`, `odx record`, `odx build`, `odx validate`, plus `odx agent`, `odx simulate-game` and `odx game-server` for multiplayer (below). Its Windows build has all of them; its `net10.0` build (Linux servers) has `build`, `validate`, `simulate-game` and `game-server` only.
 
 `odx input` records keyboard/mouse with Raw Input in its own process (never inside the game) and writes `input_events.csv` + `clock_samples.csv` (QPC ↔ UTC). `InputLogReader` reads the log back; the format is pinned by `tests/fixtures/input_events.csv` (writer output must match it byte for byte).
 
@@ -109,12 +111,23 @@ Exit code 1 when any error is found. Warnings (`c2w.roll`, `c2w.upright`) do not
 
 Step-by-step setup for a test with players on several machines (CS2 server, orchestrator, network, player PCs): [`docs/`](docs/README.md).
 
-`odx-orchestrator` (`src/Odx.Orchestrator`, ASP.NET Core, cross-platform) runs on one machine everybody can reach (next to the game server):
+Planned restructuring (four apps, local recordings merged per game, upload later): [`PLAN.md`](PLAN.md).
+
+Three parts, each its own process (ASP.NET Core or .NET, cross-platform), so the game server, the coordination and the heavy assembly never share a CPU unless you put them on one machine:
+
+| Process | Where | Does |
+|---|---|---|
+| `odx-orchestrator` (`src/Odx.Orchestrator`) | one machine everybody can reach | rooms, rounds (arm / start / stop every capture), the time service, room LANs; no files |
+| `odx-merge` (`src/Odx.Merge`) | anywhere the orchestrator and the agents reach; disk for every player's video | receives each round's uploads, assembles the session when the orchestrator asks, one at a time |
+| `odx game-server` (`src/Odx.Cli`) | the game server's machine | records the server's side of every round and uploads it to odx-merge |
 
 ```bash
 cd capture-cs
-dotnet run --project src/Odx.Orchestrator -- --game-profile ../games/example-fps.json [--out D:/odx_sessions] [--http-port 5180] [--time-port 12300] [--fps 30] [--min-valid K] [--max-rtt-ms 100]
+dotnet run --project src/Odx.Merge -- [--out D:/odx_sessions] [--staging DIR] [--http-port 5190] [--min-valid K] [--max-rtt-ms 100]
+dotnet run --project src/Odx.Orchestrator -- --game-profile ../games/example-fps.json --merge http://<merge>:5190 [--merge-public URL] [--http-port 5180] [--time-port 12300] [--fps 30]
 ```
+
+`--merge` is odx-merge as the orchestrator reaches it; `--merge-public` as players and the game server agent do (the orchestrator tells them in `welcome`; default: the same). Without `--merge` rounds are recorded but never assembled. Both take the same `--access-key`.
 
 **Rooms.** Players are recorded only with the other members of their room. Set the orchestrator's address once in `odx-capture.json` (`"orchestrator": "http://<host>:5180"`; empty: odx-app records on its own only, the room rows stay hidden). In odx-app:
 
@@ -141,12 +154,12 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
 `simulate-game` opens a room without a host (or uses `--room`), prints its invite code, waits until every `--players` member has joined, then plays scripted rounds: each has a kill and a permanent death halfway through. It waits for uploads between rounds, prints each session's gate result and exits 1 if any session fails. Run on one machine (orchestrator + two agents recording the monitor + simulator), three 10 s rounds all pass; first frames arrive 0.75–0.93 s after `round_start`.
 
 - **Time service:** an SNTP responder on UDP `--time-port`. Every player's capture measures QPC against it (`ntp_samples.csv`), so all players share one clock.
-- **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, creates or joins a room (`create_room`, `join_room`; the orchestrator answers with `room` updates), starts its capture on `start` and stops on `stop`. Then it uploads the built capture folder (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`. Once the round is assembled, the orchestrator sends each of its players `session_result` (PASS/FAIL, valid and required players, the session's and that player's problems). odx-app keeps the last round's outcome in the room status: uploaded (or why not), then the session's PASS/FAIL.
+- **Agents:** each player's machine runs `AgentClient` (`Odx.Session/Multiplayer`). It connects to `ws://<host>:5180/agents`, measures its offset on `welcome`, creates or joins a room (`create_room`, `join_room`; the orchestrator answers with `room` updates), starts its capture on `start` and stops on `stop`. Then it uploads the built capture folder to odx-merge (`PUT /sessions/{sid}/players/{pid}/files/{name}`) and reports `done`. Once the round is assembled, the orchestrator sends each of its players `session_result` (PASS/FAIL, valid and required players, the session's and that player's problems). odx-app keeps the last round's outcome in the room status: uploaded (or why not), then the session's PASS/FAIL.
 - **Game events:** a game server plugin opens a room without a host (`POST /rooms` → `{"code"}`), lets the players join it, and posts JSON events to `POST /rooms/{code}/events`; `GET /rooms/{code}` and `GET /status` show the rooms (`GameEvents`: `match_start`, `round_start`, `round_end`, `kill`, `player_death` with `permanent`, `player_connect`, `player_disconnect`, `match_end`). Events without `utc_ms` are stamped on arrival.
   - `round_start` arms and starts every idle agent at once. With `countdown_ms` it is recorded as `round_countdown` and the orchestrator adds `round_start` when play starts, so the video holds the start of play (`round_start_frame` in `player.json`). Players' starts differ by their capture start-up (~0.8 s warm; ~3 s on the first start after an install, while Windows Defender scans the new files); every frame is put on server time afterwards. Events between rounds (`match_start`, `player_ready`, `round_cancelled`) open the next round's events.
   - A permanent `player_death` stops that player.
   - `round_end` stops the rest.
-- **Assembly:** once every player is done (or 15 min later), `MultiplayerSession.Assemble` writes:
+- **Assembly:** the orchestrator registers each round with odx-merge when it starts (`PUT /sessions/{sid}/round/round.json`; uploads to unknown rounds or by players not in them are refused). Once every player and the game server agent are done (or 15 min later) it sends the round's final record and events and asks for the session (`POST /sessions/{sid}/assemble`); odx-merge queues rounds and assembles one at a time (`MultiplayerSession.Assemble`), then answers with the gate result, which the orchestrator passes to the players. A cancelled round is dropped (`DELETE /sessions/{sid}`). odx-merge writes:
 
   ```
   <out: data/delivery by default>/<vendor>/<mm-dd-yyyy>/<game>/<match>-rNN/
@@ -164,15 +177,17 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
     - `csgo` (CS:GO legacy 1.38.8.1, `games/csgo.json`): every UDP datagram of the game server port goes through the netchannel layers: connectionless packets (A2S_INFO, challenge, connect; a server's `S2A_INFO` also tells its build, which switches the key to it), split datagrams reassembled, ICE-2 decryption with the key derived from `network.version` (the build), unpadding, LZSS/Snappy decompression, the netchannel header (sequence, ack, flags, choked), reliable subchannel transfers (fragments across datagrams, compression, files) and the netmessages, named `svc_*` from the server and `clc_*` from the client (`net_*` both ways) after netmessages.proto. Message payloads are decoded by protobuf field number (`fields`), not yet by name. ICE is ported from the author's public-domain reference and passes its certification triplets.
     - `raw` (CS2, `games/cs2.json`): one record per UDP/TCP payload. CS2 encrypts every connection with its own AES-GCM key (GameNetworkingSockets), so nobody can decode it passively; its decoded game messages come from our own server (`server/packets.*`, below).
   - `capture/` holds the v2 `session.json` and the raw logs.
-- **CS2 game server (spec v3 §3):** with `--cs2-game-dir`, the orchestrator records the server's side of every round from a CS2 dedicated server on the same machine (its clock is the server's clock):
+- **CS2 game server (spec v3 §3):** `odx game-server` (`GameServerAgent`), on the CS2 dedicated server's machine, connects to the orchestrator like an agent (role `game_server`, no room) and records the server's side of every round:
 
   ```bash
-  odx-orchestrator --game-profile ../games/cs2.json --cs2-game-dir <cs2-server>/game/csgo \
-      [--cs2-rcon 127.0.0.1:27015] --cs2-rcon-password-file <file>     # or ODX_CS2_RCON_PASSWORD
+  odx game-server --orchestrator http://<host>:5180 --cs2-game-dir <cs2-server>/game/csgo \
+      --cs2-rcon-password-file <file> [--cs2-rcon <address>:27015] [--work DIR] [--access-key K]   # or ODX_CS2_RCON_PASSWORD
   ```
 
+  CS2 binds RCON to the machine's network address, not to 127.0.0.1; without `--cs2-rcon` the agent uses the first IPv4 address of a network interface that is up. While a round runs it samples its machine's clock against the orchestrator's time service every second (`server/ntp_samples.csv`); odx-merge puts the plugin's and the agent's times on the orchestrator's clock with the median offset over the lower-RTT half of them (`session.json` → `server.clock_sync`). Without samples (the agent on the orchestrator's machine) the offset is 0. `GET /status` names the connected game server agent (`game_server`).
+
   - The server: its own install (never a player's CS2), Metamod:Source 2.0 and the `odx_netlog` plugin (`cs2-plugin/README.md`), started with `-dedicated -usercon +rcon_password <password>`, and `tv_enable 1`, `tv_delay 0`, `tv_autorecord 0` in `game/csgo/cfg/gamemode_<mode>_server.cfg` (the stock gamemode configs set a 30–105 s SourceTV delay, which would cut the end of every round).
-  - When a round's countdown starts the orchestrator sends `tv_record replays/<session>` over RCON, and `tv_stoprecord` when the round ends (a cancelled round's demo is deleted). CS2 counts SourceTV as a bot: a match restart or a bot change can kick it, and it only comes back with a map load (`map <map>`; `changelevel` to the same map only restarts the match). The orchestrator checks that the demo appears after `tv_record`; if not, it logs an error and the session gets a `server.capture` warning (`session.json` → `server.problems`). The demo and the lines the plugin logged meanwhile are staged in `server/`; assembly waits for them.
+  - When a round's countdown starts the agent sends `tv_record replays/<session>` over RCON, and `tv_stoprecord` when the round ends (a cancelled round's demo is deleted). CS2 counts SourceTV as a bot: a match restart or a bot change can kick it, and it only comes back with a map load (`map <map>`; `changelevel` to the same map only restarts the match). The agent checks that the demo appears after `tv_record`; if not, it logs an error and the session gets a `server.capture` warning (`session.json` → `server.problems`). The demo, the lines the plugin logged meanwhile and the clock samples are uploaded to odx-merge (`PUT /sessions/{sid}/server/files/{name}`); assembly waits for the agent's `done`.
   - `server/server_state.bin`: `odx.capture.v1.ServerStateRecord`, one per server tick, read from the SourceTV demo (DemoFile.Net): every player's session `player_id`, Steam id, name, slot, team, alive, health, armor, position, eye position and angles, field of view, velocity, active weapon, ducking/scoped/walking, ping, kills/deaths/assists, connected, bot; grenades in flight, the bomb carried/dropped/planted (site, defusing); the game's phase (warmup, freeze, live, over), round start, length and time left, bomb planted, rounds played. `steam_id` matches `player.json` (odx agent reads the signed-in Steam account; one shared by several players maps to none).
   - **Camera per frame from the server:** CS2's client cannot be read (anti-cheat), so a player whose capture has no camera gets it from the server: the eye position and view angles at frame time + half the ping (the server applies a view about that long after the screen shows it), ticks interpolated, as a spec v2 C2W (the game's world is already right-handed Z-up) and PINHOLE intrinsics from CS2's field of view (horizontal at 4:3: 90°, less in a scope). Frames while the player is dead (someone else's view) get none and are listed in `player.json` → `frame_cleanliness.not_first_person_frame_ranges`; `player.json` → `camera` describes the source. `sync.input_camera` (advisory) checks the result against the player's own mouse: the camera's yaw change must follow `input_mouse_dx` in the same frame (on a real round: correlation 0.97).
   - `server/events.jsonl` adds the game's own events from the demo, all of them, decoded by the game's event list (name and key names of each of the ~270 events): `{"type": "game_event", "name": "player_death", "userid": {slot, player_id, steam_id, name, position}, "attacker": {…}, "weapon": "hkp2000", "headshot": true, …, "utc_ms", "tick", "source": "demo"}`. Player keys become the player (with where they were); a pawn key that repeats one is dropped. Per-shot, per-step and UI/SourceTV events (`weapon_fire`, `player_footstep`, `hltv_*`…) are left out (spec v3 §3.2: events that pace the game; their effects are in `server_state.bin`). CS2 does not send `round_start` / `round_freeze_end` / `round_end` to SourceTV; they come from the game rules entity (`"from": "game_rules"`). A demo recorded mid-map does not always carry the event list; the plugin's signon data supplies it (`session.json` → `server.game_event_names` says which). Players' `events.jsonl` get them with their video time.
@@ -189,16 +204,16 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
   - `capture.window` (advisory): only the game window is captured;
   - the session needs K of N valid players (K = N up to 3 players, else N − 1).
 
-## Deploy the orchestrator (Linux server)
+## Deploy the orchestrator and odx-merge (Linux server)
 
-`deploy/` runs odx-orchestrator in Docker behind Caddy, which gets the HTTPS certificate for your domain from Let's Encrypt and passes the agents' WebSocket and uploads through.
+`deploy/` runs odx-orchestrator and odx-merge in Docker behind Caddy, which gets the HTTPS certificate for your domain from Let's Encrypt and passes the agents' WebSocket (to the orchestrator) and uploads (`/sessions/…`, to odx-merge) through. The CS2 server runs on its own Windows machine with `odx game-server` ([docs/cs2-server.md](docs/cs2-server.md)).
 
 1. On the server: Docker with the compose plugin; the domain's DNS A record pointing at the server (directly, not behind a proxy such as Cloudflare's orange cloud: players also reach the time service at `<domain>:12300/udp`); ports 80/tcp, 443/tcp+udp, 12300/udp and 9993/udp (ZeroTier controller for LAN rooms) open. Never publish 9993/tcp: that is the controller's API, reached only by the orchestrator inside the compose network.
 2. Copy `odx-capture/` there (`git clone`, or `rsync -a --exclude bin --exclude obj --exclude dist --exclude .cache odx-capture/ server:odx-capture/`).
-3. `bash odx-capture/deploy/up.sh`. The first run writes `deploy/.env` with a random `ODX_ACCESS_KEY` (and later the ZeroTier controller's `ODX_ZT_TOKEN`); set `ODX_DOMAIN` (and `ODX_GAME_PROFILE`, a file of `games/`) in it and run it again. It builds the image, starts orchestrator + Caddy (restarting on reboot), and prints the address and the key. Run it again after an update.
+3. `bash odx-capture/deploy/up.sh`. The first run writes `deploy/.env` with a random `ODX_ACCESS_KEY` (and later the ZeroTier controller's `ODX_ZT_TOKEN`); set `ODX_DOMAIN` (and `ODX_GAME_PROFILE`, a file of `games/`) in it and run it again. It builds the image, starts orchestrator + odx-merge + Caddy (restarting on reboot), and prints the address and the key. Run it again after an update.
 4. Package odx-app for that server on Windows: `powershell -ExecutionPolicy Bypass -File publish.ps1 -Orchestrator https://<domain> -AccessKey <key>` writes both into the package's `bin/odx-capture.json`, so players only type invite codes.
 
-Sessions land in `deploy/sessions/` (`<vendor>/<mm-dd-yyyy>/<game>/<session>/`; plan disk space for every player's video). Logs: `docker compose -f deploy/compose.yaml logs -f orchestrator`. Every request needs the access key (`Authorization: Bearer <key>`, 401 otherwise); the time service is open (it only tells the time). A game server plugin calls `POST /rooms` and `POST /rooms/{code}/events` with the same key.
+Sessions land in `deploy/sessions/` (`<vendor>/<mm-dd-yyyy>/<game>/<session>/`; plan disk space for every player's video). Logs: `docker compose -f deploy/compose.yaml logs -f orchestrator merge`. Every request needs the access key (`Authorization: Bearer <key>`, 401 otherwise); the time service is open (it only tells the time). A game server plugin calls `POST /rooms` and `POST /rooms/{code}/events` with the same key.
 
 ## Decisions pending with the client
 
@@ -212,6 +227,7 @@ Sessions land in `deploy/sessions/` (`<vendor>/<mm-dd-yyyy>/<game>/<session>/`; 
   - The sync tolerances above (`GateTolerances`) and the K-of-N rule are proposals (v3 §4 leaves them open); the 10 s and 90 % camera floors come from the client's sample delivery, not the spec.
   - The 10 s floor does not apply to a player stopped by a permanent death: v3 §1 asks to cut that recording, so a player who dies early would otherwise always fail.
   - Agents still uploading the previous round are left out of the next one.
+  - The game server's machine clock is put on the orchestrator's with one offset per round (median over the lower-RTT half of its SNTP samples, sampled once a second during the round), not a drift fit: over a round of minutes two synced Windows clocks drift well under one 15.6 ms tick. Confirm this is precise enough for spec v3 §4 or ask for a fit.
   - Rooms: the player who creates a room is its only host; only the host (or a game server plugin) starts and ends rounds, once every other member is ready. There is no per-player stop without a game server, so everyone records the whole round. Match ids start with the room's code; a cancelled round's number is used again.
   - `player.json` / `session.json` layout: ours is flat where the client's sample delivery groups fields (`player`, `game`, `network`, `files`, `camera`); we added the groups that carry information we have (`files`, `network`, `camera`, `frame_cleanliness`, `rules`, `coordinate_system`) next to the existing keys. Confirm whether the client wants the sample's exact layout.
   - Player packets: Warcraft III decoded (field layouts from BNETDocs/gowarcraft3) and CS:GO legacy decoded down to netmessages (layout from Synacktiv's protocol notes and open Source engine client emulators; netmessage contents by field number for now), neither yet checked against a real game here; CS2 kept raw (encrypted per connection). Server side: CS2's `server_state.bin` / `server/packets.*` come from our own dedicated server (SourceTV demo + plugin log); the `ServerStateRecord` layout is our proposal (v3 §3.1 leaves the binary format to us, with extraction instructions: `capture.proto` and `schema.bin.gz`). Warcraft III has no server, its host's capture is the authoritative side; CS:GO legacy has none yet.

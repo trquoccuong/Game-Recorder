@@ -2,19 +2,20 @@ using System.Buffers.Binary;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 using Odx.Core;
-using Odx.Session;
 
-namespace Odx.Orchestrator;
+namespace Odx.Session;
 
 /// <summary>A CS2 dedicated server on this machine, with the odx_netlog plugin (cs2-plugin/README.md).</summary>
 /// <param name="GameDir">Its game/csgo directory: the plugin logs to odx-netlog/, demos go to replays/.</param>
 public sealed record Cs2ServerOptions(string RconHost, int RconPort, string RconPassword, string GameDir);
 
 /// <summary>
-/// Records the server's side of each round (spec v3 §3): SourceTV records from the countdown on (tv_record over RCON) until
-/// the round ends (tv_stoprecord); the demo and the lines the plugin logged meanwhile are then staged in &lt;staging&gt;/server/
-/// for <see cref="Cs2ServerCapture"/>. The server must run with tv_enable 1 and tv_delay 0, or the demo lags the round.
+/// Records the server's side of each round (spec v3 §3) for <see cref="GameServerAgent"/>: SourceTV records from the
+/// countdown on (tv_record over RCON) until the round ends (tv_stoprecord); the demo and the lines the plugin logged meanwhile
+/// are then staged in &lt;staging&gt;/server/ for <see cref="Cs2ServerCapture"/>. The server must run with tv_enable 1 and
+/// tv_delay 0, or the demo lags the round.
 /// </summary>
 public sealed class Cs2Server(Cs2ServerOptions options, ILogger log)
 {

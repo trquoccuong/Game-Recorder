@@ -1,8 +1,9 @@
 # CS2 dedicated server
 
 The server records each round's server side: a SourceTV demo (world state every tick, game events) and the
-`odx_netlog` plugin's log (every net message with each client, the server tick on every line). The orchestrator starts
-and stops the demo over RCON and collects both after the round.
+`odx_netlog` plugin's log (every net message with each client, the server tick on every line). Its agent,
+`odx game-server`, starts and stops the demo over RCON when the orchestrator says so and uploads both to odx-merge after
+the round.
 
 Requirements: Windows 10/11 x64, about 60 GB free on one drive (or see [hard links](#install-from-a-cs2-client-with-hard-links)),
 the Microsoft Visual C++ runtime (installed with Steam games).
@@ -14,6 +15,13 @@ the Microsoft Visual C++ runtime (installed with Steam games).
 ```powershell
 # SteamCMD: https://developer.valvesoftware.com/wiki/SteamCMD (unzip steamcmd.zip to e.g. D:\steamcmd)
 D:\steamcmd\steamcmd.exe +force_install_dir D:\cs2-server +login anonymous +app_update 730 validate +quit
+```
+
+About 74 GB to download. On a machine without the Steam client, the server also needs SteamCMD's Steam client libraries
+next to `cs2.exe`, or it exits while loading the map ([troubleshooting.md](troubleshooting.md#cs2-server-exits-while-loading-the-map)):
+
+```powershell
+Copy-Item D:\steamcmd\steamclient64.dll, D:\steamcmd\tier0_s64.dll, D:\steamcmd\vstdlib_s64.dll D:\cs2-server\game\bin\win64\
 ```
 
 ### Install from a CS2 client with hard links
@@ -47,6 +55,14 @@ New files (configs, Metamod, the plugin) are fine: they are not links. When Stea
    			Game	csgo
    ```
 
+4. That line also makes `addons\metamod` the folder the engine writes to, so SourceTV would put each round's demo in
+   `addons\metamod\replays\`; the agent looks in `csgo\replays\`. Join the two (as administrator):
+
+   ```powershell
+   New-Item -ItemType Directory -Force D:\cs2-server\game\csgo\replays | Out-Null
+   New-Item -ItemType Junction -Path D:\cs2-server\game\csgo\addons\metamod\replays -Target D:\cs2-server\game\csgo\replays
+   ```
+
 ## 3. The odx_netlog plugin
 
 Build it as `cs2-plugin/README.md` says (MSVC, hl2sdk branch `cs2`, Metamod's source tree), or take a `odx_netlog.dll`
@@ -65,7 +81,7 @@ built for the same CS2 version. Then:
 
 The plugin writes `game\csgo\odx-netlog\<UTC start>.jsonl` (about 7 MB per minute per player) and
 `odx-netlog\senddata\<UTC start>.jsonl` (each player's join data, which carries the game event list). Delete old
-files between test days; the orchestrator copies what each round needs.
+files between test days; the game server agent copies what each round needs.
 
 After a CS2 update, check that the plugin still loads and logs (see [troubleshooting.md](troubleshooting.md#after-a-cs2-update)).
 
@@ -76,7 +92,7 @@ The stock game mode configs set a SourceTV delay of 30 to 105 s, which would cut
 casual); CS2 runs it after the game mode's own config:
 
 ```
-// Odx capture server: the orchestrator starts and stops each round's demo over RCON.
+// Odx capture server: odx game-server starts and stops each round's demo over RCON.
 tv_enable 1
 tv_delay 0
 tv_autorecord 0
@@ -94,8 +110,9 @@ cd D:\cs2-server\game\bin\win64
 ```
 
 - `-insecure`: no VAC on this server (needed for Metamod; players launch CS2 with `-insecure` too).
-- `-usercon` and `+rcon_password`: RCON for the orchestrator. Pick a long random password and put the same in the file
-  the orchestrator reads ([orchestrator.md](orchestrator.md)). RCON listens on tcp/27015: never open TCP 27015 to the internet.
+- `-usercon` and `+rcon_password`: RCON for the game server agent (step 6). Pick a long random password and put the same
+  in the file the agent reads. RCON listens on tcp/27015 of the machine's network address (not 127.0.0.1): never open
+  TCP 27015 to the internet.
 - `+game_type 0 +game_mode 1`: competitive; `+game_mode 0` for casual.
 
 Check in the console:
@@ -128,3 +145,31 @@ The server can run on one player's PC (the player also runs CS2 and the app ther
 
 - That player connects to the server at `127.0.0.1:27015`. Their own game traffic then goes over loopback, which pktmon
   cannot see: their `packets.*` stay empty (the server's `server/packets.*` still hold their messages).
+
+## 6. The game server agent
+
+`odx game-server` runs next to the server (`odx.exe` is in the package's `bin\`). It connects to the orchestrator, and
+for every round the orchestrator starts it records the server's side, samples this machine's clock against the
+orchestrator's time service, and uploads everything to odx-merge when the round ends.
+
+```powershell
+# The RCON password from step 5, alone in a file only this user can read.
+Set-Content -Path D:\odx\rcon.txt -Value '<RCON password>' -NoNewline
+
+$bin = 'D:\odx\odx-capture-0.1.0-win-x64\bin'
+& "$bin\odx.exe" game-server --orchestrator http://<orchestrator>:5180 --cs2-game-dir D:\cs2-server\game\csgo `
+    --cs2-rcon-password-file D:\odx\rcon.txt
+```
+
+| Option | |
+|---|---|
+| `--orchestrator` | The orchestrator, as this machine reaches it. odx-merge's address comes from the orchestrator. |
+| `--cs2-game-dir` | The server's `game\csgo` folder (where `replays\` and `odx-netlog\` are). |
+| `--cs2-rcon-password-file` | Or the `ODX_CS2_RCON_PASSWORD` environment variable. |
+| `--cs2-rcon` | Where RCON listens; default this machine's first IPv4 address, port 27015 (`netstat -ano \| findstr :27015` shows it). |
+| `--access-key` | The orchestrator's; or `ODX_ACCESS_KEY`, else `access_key` of the `odx-capture.json` next to `odx.exe` (set when the package was built). |
+| `--work` | Where each round is staged until uploaded; default a temp folder. |
+| `--name` | How the orchestrator names it; default "CS2 server". |
+
+Check: the orchestrator logs `game server agent CS2 server (0.1.0) connected`, and its `/status` shows `"game_server"`.
+Start the agent after the server; it reconnects every 5 s if the orchestrator restarts.

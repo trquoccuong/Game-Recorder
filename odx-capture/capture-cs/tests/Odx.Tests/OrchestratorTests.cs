@@ -4,13 +4,16 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Odx.Core;
+using Odx.Merge;
 using Odx.Orchestrator;
 using Odx.Session;
 using Xunit;
 
 namespace Odx.Tests;
 
-/// <summary>Orchestrator + real AgentClients over loopback; the capture is faked with a copy of the fixture session.</summary>
+/// <summary>
+/// Orchestrator + odx-merge + real AgentClients over loopback; the capture is faked with a copy of the fixture session.
+/// </summary>
 public sealed class OrchestratorTests : IAsyncLifetime
 {
     private sealed class FakeCapture : ICaptureRun
@@ -47,6 +50,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
     private readonly string _root = Path.Combine(Path.GetTempPath(), "odx-orch-" + Guid.NewGuid().ToString("N"));
     private readonly CancellationTokenSource _stop = new();
     private WebApplication _app = null!;
+    private WebApplication _merge = null!;
     private HttpClient _http = null!;
     private MatchCoordinator _coordinator = null!;
     private readonly List<AgentClient> _agents = [];
@@ -61,12 +65,14 @@ public sealed class OrchestratorTests : IAsyncLifetime
             {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {"W": "Forward"}}
             """);
-        _app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(_root, "out"), profile, HttpPort: 0, TimePort: 0,
-            Fps: SessionFixtures.Fps)
+        _merge = MergeHost.Build(new MergeOptions(Path.Combine(_root, "out"), HttpPort: 0)
         {
             // The fixture session is 320x180 and 2 s long.
             Tolerances = GateTolerances.Default with { MinWidth = SessionFixtures.Width, MinHeight = SessionFixtures.Height, MinDurationMs = 1000 },
         }, "127.0.0.1");
+        await _merge.StartAsync();
+        _app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0, Fps: SessionFixtures.Fps)
+            { MergeUrl = new Uri(_merge.Urls.First()) }, "127.0.0.1");
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         _coordinator = _app.Services.GetRequiredService<MatchCoordinator>();
@@ -79,6 +85,8 @@ public sealed class OrchestratorTests : IAsyncLifetime
         _stop.Cancel();
         await _app.StopAsync();
         await _app.DisposeAsync();
+        await _merge.StopAsync();
+        await _merge.DisposeAsync();
         try
         {
             Directory.Delete(_root, true);
@@ -406,18 +414,6 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.Null(member.Room);
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await _http.GetAsync($"/rooms/{code}")).StatusCode);
     }
-
-    [Fact]
-    public async Task UploadsOnlyGoToKnownPlayersWithPlainFileNames()
-    {
-        ConnectAgents(null, "p1");
-        await WaitForAgents(1);
-        await Post(new { type = "round_start", match_id = "m9" });
-        Assert.NotNull(_coordinator.UploadPath("m9-r01", "p1", "video.mp4"));
-        Assert.Null(_coordinator.UploadPath("m9-r01", "p1", "..\\x"));
-        Assert.Null(_coordinator.UploadPath("m9-r01", "p7", "video.mp4"));
-        Assert.Null(_coordinator.UploadPath("m0-r01", "p1", "video.mp4"));
-    }
 }
 
 public sealed class OrchestratorAccessKeyTests : IAsyncLifetime
@@ -434,7 +430,7 @@ public sealed class OrchestratorAccessKeyTests : IAsyncLifetime
             {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
             """);
-        _app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(_root, "out"), profile, HttpPort: 0, TimePort: 0)
+        _app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0)
             { AccessKey = "s3cret" }, "127.0.0.1");
         await _app.StartAsync();
         _url = new Uri(_app.Urls.First());
@@ -497,7 +493,7 @@ public sealed class RoomLanTests
             {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
             """);
-        await using var app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(root, "out"), profile, HttpPort: 0, TimePort: 0)
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0)
             { ZeroTierApi = ZeroTierApi.Local, ZeroTierToken = token }, "127.0.0.1");
         await app.StartAsync();
         using var controller = new ZeroTierApi(ZeroTierApi.Local, token!);
@@ -533,7 +529,7 @@ public sealed class RoomLanTests
             {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
             """);
-        await using var app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(root, "out"), profile, HttpPort: 0, TimePort: 0),
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0),
             "127.0.0.1");
         await app.StartAsync();
         var host = new AgentClient(new AgentOptions(new Uri(app.Urls.First()), "p1", "P1", Path.Combine(root, "agent"), null,
@@ -592,7 +588,7 @@ public sealed class PacketCaptureTests
              "network": {"protocol": "w3gs", "ports": ["tcp/6112"]},
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
             """);
-        await using var app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(root, "out"), profile, HttpPort: 0, TimePort: 0),
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0),
             "127.0.0.1");
         await app.StartAsync();
         var packets = new FakePackets();

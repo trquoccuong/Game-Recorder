@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Receives each round's uploads (players, game server) and assembles v3 sessions, one at a time. Cross-platform. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>odx-merge</AssemblyName>
+    <RootNamespace>Odx.Merge</RootNamespace>
+    <!-- web.config is for IIS; odx-merge runs as its own process. -->
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
+    <!-- No static files are served; without this .NET 10 publishes a staticwebassets.endpoints.json manifest. -->
+    <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,6 +1,7 @@
 # A two-player test round
 
-Before: the server and orchestrator run ([cs2-server.md](cs2-server.md), [orchestrator.md](orchestrator.md)), both
+Before: the server, its agent, odx-merge and the orchestrator run ([cs2-server.md](cs2-server.md),
+[orchestrator.md](orchestrator.md)), both
 players have the package and CS2 with `-insecure` ([player-setup.md](player-setup.md)).
 
 ## Steps
@@ -16,12 +17,12 @@ players have the package and CS2 with `-insecure` ([player-setup.md](player-setu
 7. Player A: press F10 to end the round. Both see "Round …: recorded and uploaded", then "Session …: PASS" (or the
    reasons it failed) in the top right corner.
 
-The orchestrator's log shows `session <id>: PASS, 2/2 players valid -> <folder>`.
+The orchestrator's and odx-merge's logs show `session <id>: PASS, 2/2 players valid -> <folder>`.
 
 ## What to check in the session
 
 ```
-data\delivery\odx\<mm-dd-yyyy>\counter-strike-2\<session>\        (on the server machine)
+data\delivery\odx\<mm-dd-yyyy>\counter-strike-2\<session>\        (on odx-merge's machine)
   session.json  validation.json  schema.bin.gz
   server\  server_state.bin  events.jsonl  packets.bin  packets.txt  capture\(demo.dem, netmessages.jsonl, senddata.jsonl)
   players\<player-a>\  player.json  video.mp4  frames.csv  frames.bin  events.jsonl  packets.bin  packets.txt  capture\
@@ -34,6 +35,7 @@ data\delivery\odx\<mm-dd-yyyy>\counter-strike-2\<session>\        (on the server
 | Both players linked to the server | `session.json` → `players[].steam_id` | two different ids |
 | Server recorded | `session.json` → `server` | `server_state.records` > 0, `game_event_names` set, no `problems` |
 | Clock | `players\*\player.json` → `ping_ms`, `qa.checks` `sync.clock` | pass (median RTT ≤ 100 ms) |
+| Server clock | `session.json` → `server.clock_sync` | `sample_count` > 0, `rtt_ms` low (the agent's samples of the CS2 machine's clock) |
 | Camera per frame | `player.json` → `frame_stats.frames_with_camera`, check `floor.camera` | ≥ 90 % of frames; `sync.input_camera` pass (correlation ≥ 0.8) |
 | Deaths | `player.json` → `frame_cleanliness.not_first_person_frame_ranges` | the frames from a death to the round's end |
 | Events | `server\events.jsonl`, `players\*\events.jsonl` | `player_death` with `attacker` / `userid` naming the players by `player_id`, each with `video_time_ms` and `frame_index` |

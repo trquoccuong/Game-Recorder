@@ -8,14 +8,13 @@ using Odx.Session;
 
 namespace Odx.Orchestrator;
 
-/// <param name="OutRoot">Sessions go to &lt;OutRoot&gt;/&lt;vendor&gt;/…; uploads are staged in <see cref="StagingRoot"/>.</param>
-/// <param name="DoneTimeout">How long after a round ends to wait for uploads before assembling with what arrived.</param>
-public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath, string Vendor = "odx", int HttpPort = 5180,
-    int TimePort = 12300, int Fps = 30)
+public sealed record OrchestratorOptions(string GameProfilePath, int HttpPort = 5180, int TimePort = 12300, int Fps = 30)
 {
-    public GateTolerances Tolerances { get; init; } = GateTolerances.Default;
-    /// <summary>Where rounds are staged until assembled; null: &lt;OutRoot&gt;/.staging/.</summary>
-    public string? StagingRoot { get; init; }
+    /// <summary>odx-merge as this machine reaches it; null: rounds are recorded but never assembled.</summary>
+    public Uri? MergeUrl { get; init; }
+    /// <summary>odx-merge as the agents reach it (told in Welcome); null: <see cref="MergeUrl"/>.</summary>
+    public Uri? MergePublicUrl { get; init; }
+    /// <summary>How long after a round ends to wait for uploads before having it assembled with what arrived.</summary>
     public TimeSpan DoneTimeout { get; init; } = TimeSpan.FromMinutes(15);
     /// <summary>A room nobody is in is closed after this long (the host closes it otherwise).</summary>
     public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
@@ -24,8 +23,6 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
     /// <summary>ZeroTier controller API (and its token) for rooms with a virtual LAN; null: rooms have no LAN.</summary>
     public Uri? ZeroTierApi { get; init; }
     public string? ZeroTierToken { get; init; }
-    /// <summary>The CS2 dedicated server whose side of each round is recorded (spec v3 §3); null: none.</summary>
-    public Cs2ServerOptions? Cs2Server { get; init; }
 }
 
 /// <summary>
@@ -33,8 +30,9 @@ public sealed record OrchestratorOptions(string OutRoot, string GameProfilePath,
 /// are recorded. Rounds start and end only on request: the host's (once every other member is ready), or a game server
 /// plugin's round_start / round_end (/rooms/{code}/events). Ready is a signal for the host, never a start by itself. With a countdown, members record from round_countdown and play starts at round_start; a
 /// round_end, an unready or a member leaving during the countdown cancels the round (nothing is kept). A permanent
-/// player_death stops that player, round_end stops the rest; when all players have uploaded (or
-/// <see cref="OrchestratorOptions.DoneTimeout"/> passes) the round is assembled into a v3 session.
+/// player_death stops that player, round_end stops the rest. A connected game server agent records every round's server side
+/// (spec v3 §3) along with the players. Everyone uploads to odx-merge, which accepts a round from its start on; when all
+/// are done (or <see cref="OrchestratorOptions.DoneTimeout"/> passes) odx-merge assembles it into a v3 session.
 /// </summary>
 public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, ILogger<MatchCoordinator> log)
 {
@@ -72,17 +70,21 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public bool IsHost(AgentLink a) => a.Id == HostPlayerId;
     }
 
-    private sealed class OpenRound(Room room, RoundRecord record, string stagingDir)
+    private sealed class OpenRound(Room room, RoundRecord record)
     {
         public Room Room { get; } = room;
         public RoundRecord Record { get; set; } = record;
-        public string StagingDir { get; } = stagingDir;
         public List<JsonObject> Events { get; } = [];
         public bool Counting { get; set; }
         public bool Ended { get; set; }
         public int Finalized;
-        /// <summary>Set once the game server's side is in the staging (at once without a game server).</summary>
-        public TaskCompletionSource ServerStaged { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        /// <summary>The game server agent records this round; it is done once it uploaded (or failed to).</summary>
+        public bool ServerArmed { get; init; }
+        public bool ServerDone { get; set; }
+        /// <summary>Registering the round with odx-merge; dropping or assembling it waits for this.</summary>
+        public Task MergeOpened { get; set; } = Task.CompletedTask;
+        /// <summary>Set once a cancelled round is dropped from odx-merge.</summary>
+        public TaskCompletionSource MergeDropped { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int IndexOf(string playerId) => Record.Players.FindIndex(p => p.PlayerId == playerId);
     }
@@ -106,12 +108,16 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private readonly Dictionary<string, AgentLink> _agents = [];
     private readonly Dictionary<string, Room> _rooms = [];
     private readonly Dictionary<string, OpenRound> _rounds = [];
+    private AgentLink? _gameServer;
+    /// <summary>Cancelled rounds being dropped from odx-merge, by session id: the next round reuses the id and waits.</summary>
+    private readonly Dictionary<string, Task> _mergeDrops = [];
     private readonly string _profileJson = File.ReadAllText(options.GameProfilePath);
     private readonly string _profileGame = GameProfile.Load(options.GameProfilePath).GameTitle;
     private long _eventId;
     private ServerClock? _serverClock;
     private readonly ZeroTierApi? _zeroTier = options is { ZeroTierApi: { } api, ZeroTierToken: { } token } ? new ZeroTierApi(api, token) : null;
-    private readonly Cs2Server? _cs2 = options.Cs2Server is { } cs2 ? new Cs2Server(cs2, log) : null;
+    private readonly MergeClient? _merge = options.MergeUrl is { } merge ? new MergeClient(merge, options.AccessKey) : null;
+    private readonly string? _mergePublic = (options.MergePublicUrl ?? options.MergeUrl)?.ToString();
 
     public int TimePort => timePort;
 
@@ -130,9 +136,14 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             return;
         }
         var link = new AgentLink(hello, socket);
+        if (hello.Role == Hello.GameServerRole)
+        {
+            await HandleGameServerAsync(link, buffer, stop);
+            return;
+        }
         lock (_lock) _agents[hello.PlayerId] = link;
         log.LogInformation("agent {Player} ({Name}, {Version}) connected", hello.PlayerId, hello.Name, hello.ToolVersion);
-        await SendAsync(link, new Welcome(timePort, _profileJson));
+        await SendAsync(link, new Welcome(timePort, _profileJson, _mergePublic));
 
         try
         {
@@ -174,6 +185,33 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             await RunAsync(effects);
             foreach (string sid in RoundsWaitingFor(hello.PlayerId))
                 MarkDone(sid, hello.PlayerId, false, "agent disconnected");
+        }
+    }
+
+    /// <summary>The game server agent: told to start and stop with every round from now on, it answers with Done.</summary>
+    private async Task HandleGameServerAsync(AgentLink link, byte[] buffer, CancellationToken stop)
+    {
+        lock (_lock) _gameServer = link;
+        log.LogInformation("game server agent {Name} ({Version}) connected", link.Hello.Name, link.Hello.ToolVersion);
+        await SendAsync(link, new Welcome(timePort, _profileJson, _mergePublic));
+        try
+        {
+            while (!stop.IsCancellationRequested && await ReceiveAsync(link.Socket, buffer, stop) is { } message)
+                if (message is Done d) MarkServerDone(d.SessionId, d.Ok, d.Error);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            List<string> waiting;
+            lock (_lock)
+            {
+                if (_gameServer == link) _gameServer = null;
+                waiting = _rounds.Values.Where(r => r.ServerArmed && !r.ServerDone).Select(r => r.Record.SessionId).ToList();
+            }
+            log.LogWarning("game server agent disconnected");
+            foreach (string sid in waiting) MarkServerDone(sid, false, "game server agent disconnected");
         }
     }
 
@@ -402,19 +440,6 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         }
     }
 
-    /// <summary>Where an upload goes, or null when the session/player is unknown or the name is not a plain file name.</summary>
-    public string? UploadPath(string sessionId, string playerId, string fileName)
-    {
-        if (fileName != Path.GetFileName(fileName) || fileName is "." or "..") return null;
-        lock (_lock)
-        {
-            if (!_rounds.TryGetValue(sessionId, out var round) || round.Finalized != 0 || round.IndexOf(playerId) < 0) return null;
-            string dir = Path.Combine(round.StagingDir, "players", playerId);
-            Directory.CreateDirectory(dir);
-            return Path.Combine(dir, fileName);
-        }
-    }
-
     public JsonObject Status()
     {
         lock (_lock)
@@ -423,6 +448,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 ["rooms"] = new JsonArray(_rooms.Values.Select(r => (JsonNode)RoomStatus(r)).ToArray()),
                 ["agents_outside_rooms"] = new JsonArray(_agents.Values.Where(a => a.Room is null)
                     .Select(a => (JsonNode)a.Id).ToArray()),
+                ["game_server"] = _gameServer?.Hello.Name,
             };
     }
 
@@ -550,12 +576,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             players.Select(a => new RoundPlayer(a.Id, a.Hello.Name, ToolVersion: a.Hello.ToolVersion,
                 MachineId: a.Hello.MachineId, SteamId: a.Hello.SteamId)).ToList(), countdownMs,
             ServerClock: Volatile.Read(ref _serverClock));
-        // Unique per attempt: a cancelled round's number is used again while its staging may still be deleted.
-        string staging = Path.Combine(options.StagingRoot ?? Path.Combine(options.OutRoot, ".staging"),
-            $"{sid}-{Guid.NewGuid().ToString("N")[..8]}");
-        Directory.CreateDirectory(staging);
-        File.WriteAllText(Path.Combine(staging, RoundRecord.ProfileFileName), _profileJson);
-        var round = new OpenRound(room, record, staging) { Counting = countdownMs > 0 };
+        var round = new OpenRound(room, record) { Counting = countdownMs > 0, ServerArmed = _gameServer is not null };
         round.Events.AddRange(room.BetweenRounds);
         room.BetweenRounds.Clear();
         room.Current = round;
@@ -568,6 +589,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             effects.Sends.Add((a, new Arm(sid, _profileJson, options.Fps)));
             effects.Sends.Add((a, new Start(sid, countdownMs)));
         }
+        if (_gameServer is { } server) effects.Sends.Add((server, new Start(sid, countdownMs)));
         if (countdownMs > 0)
         {
             e["type"] = "round_countdown";
@@ -615,8 +637,10 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         round.Ended = true;
         room.Current = null;
         _rounds.Remove(round.Record.SessionId);
+        _mergeDrops[round.Record.SessionId] = round.MergeDropped.Task;
         room.RoundNumber = round.Record.Round - 1;
-        foreach (var p in round.Record.Players.ToList()) StopPlayer(round, p.PlayerId, utc, "cancelled", effects);
+        foreach (var p in round.Record.Players.ToList()) StopPlayer(round, p.PlayerId, utc, Stop.Cancelled, effects);
+        StopServer(round, Stop.Cancelled, effects);
         var e = new JsonObject { ["type"] = "round_cancelled", ["utc_ms"] = utc, ["cancelled_session_id"] = round.Record.SessionId,
             ["reason"] = reason };
         Stamp(e, utc);
@@ -635,6 +659,11 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         log.LogInformation("stop {Player} in {Session}: {Reason}", playerId, round.Record.SessionId, reason);
     }
 
+    private void StopServer(OpenRound round, string reason, Effects effects)
+    {
+        if (round.ServerArmed && _gameServer is { } server) effects.Sends.Add((server, new Stop(round.Record.SessionId, reason)));
+    }
+
     /// <param name="playerReason">Stop reason of every player still recording.</param>
     /// <param name="endReason">Why the round ended, for session.json.</param>
     private void EndRound(Room room, double utc, string playerReason, string endReason, Effects effects)
@@ -644,6 +673,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         round.Ended = true;
         round.Record = round.Record with { EndUtcMs = utc, EndReason = endReason };
         foreach (var p in round.Record.Players.ToList()) StopPlayer(round, p.PlayerId, utc, playerReason, effects);
+        StopServer(round, playerReason, effects);
         effects.Ended.Add(round);
         effects.Changed.Add(room);
     }
@@ -654,6 +684,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
 
     private async Task RunAsync(Effects effects)
     {
+        // Alongside the starts, not before them (it would delay every capture): uploads come only when the round ends.
+        foreach (var round in effects.Started) round.MergeOpened = OpenOnMergeAsync(round);
         List<(AgentLink, AgentMessage)> updates;
         lock (_lock)
             updates = effects.Changed.Where(r => _rooms.ContainsKey(r.Code)).SelectMany(r =>
@@ -676,36 +708,54 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             }
         }
         foreach (string network in effects.LanDelete) await DeleteLanAsync(network);
-        if (_cs2 is not null)
-        {
-            foreach (var round in effects.Started) await _cs2.StartAsync(round.Record.SessionId, round.StagingDir);
-            foreach (var round in effects.Ended) await _cs2.StopAsync(round.Record.SessionId, round.StagingDir, keep: true);
-            foreach (var round in effects.Cancelled) await _cs2.StopAsync(round.Record.SessionId, round.StagingDir, keep: false);
-        }
-        foreach (var round in effects.Ended) round.ServerStaged.TrySetResult();
         foreach (var round in effects.Ended)
         {
-            if (AllDone(round)) _ = Task.Run(() => Assemble(round));
-            else _ = Task.Delay(options.DoneTimeout).ContinueWith(_ => Assemble(round), TaskScheduler.Default);
+            bool done;
+            lock (_lock) done = AllDone(round);
+            if (done) _ = AssembleAsync(round);
+            else _ = Task.Delay(options.DoneTimeout).ContinueWith(_ => AssembleAsync(round), TaskScheduler.Default).Unwrap();
         }
         foreach (var round in effects.Cancelled)
         {
             Interlocked.Exchange(ref round.Finalized, 1);
-            _ = Task.Run(() =>
-            {
-                try
-                {
-                    Directory.Delete(round.StagingDir, true);
-                }
-                catch (IOException e)
-                {
-                    log.LogWarning("cannot delete {Dir}: {Error}", round.StagingDir, e.Message);
-                }
-            });
+            _ = DropOnMergeAsync(round);
             RoundCancelled?.Invoke(round.Record.SessionId);
         }
         if (effects.Countdown is { } counting)
             _ = Task.Delay(counting.Record.CountdownMs).ContinueWith(_ => CountdownEndedAsync(counting), TaskScheduler.Default).Unwrap();
+    }
+
+    private async Task OpenOnMergeAsync(OpenRound round)
+    {
+        if (_merge is null) return;
+        Task? drop;
+        lock (_lock) _mergeDrops.Remove(round.Record.SessionId, out drop);
+        try
+        {
+            if (drop is not null) await drop;
+            await _merge.OpenAsync(round.Record, _profileJson);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            log.LogError("odx-merge: cannot open {Session}: {Error}", round.Record.SessionId, e.Message);
+        }
+    }
+
+    private async Task DropOnMergeAsync(OpenRound round)
+    {
+        try
+        {
+            await round.MergeOpened;
+            if (_merge is not null) await _merge.DropAsync(round.Record.SessionId);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            log.LogWarning("odx-merge: cannot drop {Session}: {Error}", round.Record.SessionId, e.Message);
+        }
+        finally
+        {
+            round.MergeDropped.TrySetResult();
+        }
     }
 
     private async Task DeleteLanAsync(string network)
@@ -730,10 +780,24 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             if (!round.Ended || !AllDone(round)) return;
         }
         log.LogInformation("{Player} done with {Session}: {Result}", playerId, sessionId, ok ? "uploaded" : error);
-        _ = Task.Run(() => Assemble(round));
+        _ = AssembleAsync(round);
     }
 
-    private static bool AllDone(OpenRound round) => round.Record.Players.All(p => p.Done);
+    private void MarkServerDone(string sessionId, bool ok, string? error)
+    {
+        OpenRound? round;
+        lock (_lock)
+        {
+            if (!_rounds.TryGetValue(sessionId, out round) || !round.ServerArmed || round.ServerDone) return;
+            round.ServerDone = true;
+            if (!ok) log.LogWarning("game server agent, {Session}: {Error}", sessionId, error);
+            if (!round.Ended || !AllDone(round)) return;
+        }
+        _ = AssembleAsync(round);
+    }
+
+    /// <summary>Called with the lock held.</summary>
+    private static bool AllDone(OpenRound round) => round.Record.Players.All(p => p.Done) && (!round.ServerArmed || round.ServerDone);
 
     private List<string> RoundsWaitingFor(string playerId)
     {
@@ -742,37 +806,41 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 .Select(r => r.Record.SessionId).ToList();
     }
 
-    private void Assemble(OpenRound round)
+    private async Task AssembleAsync(OpenRound round)
     {
         if (Interlocked.Exchange(ref round.Finalized, 1) == 1) return;
-        // The last upload can arrive while the game server's demo is still being stopped and staged.
-        if (!round.ServerStaged.Task.Wait(TimeSpan.FromMinutes(2)))
-            log.LogWarning("{Session}: the game server's side was not staged in time", round.Record.SessionId);
-        // Stays in _rounds (pending in the status) until its report is recorded; uploads are refused from here on.
+        // Stays in _rounds (pending in the status) until its report is recorded.
+        RoundRecord record;
+        List<JsonObject> events;
         lock (_lock)
         {
-            round.Record.Save(round.StagingDir);
-            MultiplayerSession.WriteEvents(Path.Combine(round.StagingDir, RoundRecord.EventsFileName), round.Events);
+            record = round.Record;
+            events = round.Events.Select(e => e.DeepClone().AsObject()).ToList();
+        }
+        if (_merge is null)
+        {
+            log.LogWarning("{Session} recorded but not assembled: no odx-merge (--merge)", record.SessionId);
+            lock (_lock) _rounds.Remove(record.SessionId);
+            return;
         }
         try
         {
-            var (dir, report) = MultiplayerSession.Assemble(round.StagingDir, options.OutRoot, options.Vendor, options.Tolerances);
+            await round.MergeOpened;
+            var (dir, report) = await _merge.AssembleAsync(record, events);
             lock (_lock)
             {
                 round.Room.Reports.Add(report);
-                _rounds.Remove(round.Record.SessionId);
+                _rounds.Remove(record.SessionId);
             }
-            log.LogInformation("session {Session}: {Result}, {Valid}/{Count} players valid -> {Dir}", report.SessionId,
+            log.LogInformation("session {Session}: {Result}, {Valid}/{Count} players valid -> {Dir} (on odx-merge)", report.SessionId,
                 report.Pass ? "PASS" : "FAIL", report.ValidPlayers, report.Players.Count, dir);
-            foreach (var issue in report.Issues.Concat(report.Players.SelectMany(p => p.Issues)))
-                log.LogWarning("{Session}: [{Rule}] {Message}", report.SessionId, issue.Rule, issue.Message);
             _ = TellPlayersAsync(round, report);
             SessionAssembled?.Invoke(dir, report);
         }
         catch (Exception e)  // runs on its own task: anything uncaught would leave the round pending forever, unlogged
         {
-            log.LogError(e, "cannot assemble {Session}: {Error} (staged in {Dir})", round.Record.SessionId, e.Message, round.StagingDir);
-            lock (_lock) _rounds.Remove(round.Record.SessionId);
+            log.LogError(e, "odx-merge cannot assemble {Session}: {Error} (still staged there)", record.SessionId, e.Message);
+            lock (_lock) _rounds.Remove(record.SessionId);
         }
     }
 
