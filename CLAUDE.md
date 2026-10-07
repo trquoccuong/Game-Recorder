@@ -85,7 +85,7 @@ odx-capture/
     src/Odx.Cli/                  #   odx: input | record (Windows build) | build | validate | game-server | merge | simulate-game
     src/Odx.Input/                #   `odx input` (Raw Input)
     src/Odx.Recorder/             #   `odx record` (WGC + ffmpeg)
-    src/Odx.App/                  #   odx-app (WPF front end over Odx.Session)
+    src/Odx.App/                  #   odx-app (WPF front end over Odx.Session; RoomSession is a player's room, for the window and --headless)
     src/Odx.Launcher/             #   "Odx Capture.exe": NativeAOT launcher showing the splash before odx-app loads
     tests/Odx.Tests/              #   xUnit, incl. synthetic session + one mutator per validation rule
   games/                          # game profiles (session.json fields + key/button -> action bindings)
