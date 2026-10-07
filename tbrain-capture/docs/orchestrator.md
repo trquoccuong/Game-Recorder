@@ -62,6 +62,19 @@ still waiting for their participants (`pending_sessions`) and the finished ones 
 | `game server agent, <session>: …` | **Warning**: the server's side of that round was not kept (the reason follows). |
 | `round <session>: 2/2 players kept their recording` | Everyone is done; the round's files went to every participant. |
 
+## Load
+
+One orchestrator is far from its limit at the SOW's pace (about 13–26 rooms recording at once). Measured 2026-10-08 on a
+6-core i7-8750H laptop, with the 200 fake players on the same machine: 100 rooms of 2 players, 3 rounds of 20 s, one
+event a second per room, every player's clock sampled every second, state in SQLite. All 300 rounds were kept by both
+players; the orchestrator used 13% of one core on average (bursts to 94% when all 100 rooms start or end at once) and
+168 MB at most; round_start reached the players' captures in 266 ms (p50; p95 565 ms), round_end in 115 ms (p95 310 ms);
+event posts took 58 ms (p50; p95 183 ms) with 100 arriving together. Run it again (published orchestrator):
+
+```
+ODX_LOAD=<odx-orchestrator.exe> ODX_LOAD_ROOMS=100 ODX_LOAD_ROUNDS=3 ODX_LOAD_ROUND_S=20 dotnet test --filter LoadTests --logger "console;verbosity=detailed"
+```
+
 ## Hours recorded
 
 Every round stays in the state file: `rounds` (session, room, state `open` / `ended` / `finished` / `cancelled`, start
