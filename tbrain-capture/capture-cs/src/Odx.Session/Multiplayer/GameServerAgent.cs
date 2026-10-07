@@ -29,6 +29,10 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private ClientWebSocket? _socket;
     private string? _timeServer;
+    private int _reconnectGraceMs = new Welcome(0).ReconnectGraceMs;
+    private long _connection;
+    /// <summary>Done sent for rounds whose files have not come yet: sent again after a reconnect.</summary>
+    private readonly Dictionary<string, Done> _unconfirmed = [];
 
     /// <summary>Runs until <paramref name="stop"/>, reconnecting every 5 s; a refused access key ends it.</summary>
     public async Task RunUntilStoppedAsync(CancellationToken stop)
@@ -49,9 +53,13 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             {
                 log.LogWarning("{Orchestrator}: {Error}", options.Orchestrator, e.Message);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
                 return;
+            }
+            catch (OperationCanceledException e)
+            {
+                log.LogWarning("{Orchestrator}: {Error}", options.Orchestrator, e.Message);
             }
             try
             {
@@ -66,9 +74,7 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
 
     public async Task RunAsync(CancellationToken stop)
     {
-        using var socket = new ClientWebSocket();
-        socket.Options.CollectHttpResponseDetails = true;
-        if (options.AccessKey is { } key) socket.Options.SetRequestHeader("Authorization", $"Bearer {key}");
+        using var socket = AgentClient.NewSocket(options.AccessKey);
         var wsUri = new UriBuilder(options.Orchestrator)
         {
             Scheme = options.Orchestrator.Scheme == "https" ? "wss" : "ws",
@@ -83,9 +89,41 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             throw new UnauthorizedAccessException($"{options.Orchestrator} refused the access key");
         }
         _socket = socket;
-        await SendAsync(new Hello(options.Id, options.Name, BuildInfo.Version, Role: Hello.GameServerRole), stop);
-        log.LogInformation("connected to {Orchestrator}", options.Orchestrator);
+        long connection = Interlocked.Increment(ref _connection);
+        try
+        {
+            List<string> recording;
+            lock (_rounds) recording = [.. _rounds.Keys];
+            List<Done> unconfirmed;
+            lock (_unconfirmed) unconfirmed = [.. _unconfirmed.Values];
+            await SendAsync(new Hello(options.Id, options.Name, BuildInfo.Version, Role: Hello.GameServerRole,
+                Recording: recording.Count > 0 ? recording : null), stop);
+            log.LogInformation("connected to {Orchestrator}", options.Orchestrator);
+            foreach (var done in unconfirmed) await SendAsync(done, stop);
+            await ReceiveAsync(socket, stop);
+        }
+        finally
+        {
+            if (!stop.IsCancellationRequested) _ = StopIfStillGoneAsync(connection, stop);
+        }
+    }
 
+    /// <summary>Still no orchestrator after its grace: it has given up on this server's rounds, which stop and are kept.</summary>
+    private async Task StopIfStillGoneAsync(long connection, CancellationToken stop)
+    {
+        await Task.Delay(Volatile.Read(ref _reconnectGraceMs), CancellationToken.None);
+        if (Interlocked.Read(ref _connection) != connection) return;
+        List<string> open;
+        lock (_rounds) open = [.. _rounds.Keys];
+        foreach (string sid in open)
+        {
+            log.LogWarning("{Session}: no orchestrator for too long, stopping", sid);
+            await StopAsync(new Stop(sid, "disconnected"), stop);
+        }
+    }
+
+    private async Task ReceiveAsync(ClientWebSocket socket, CancellationToken stop)
+    {
         var buffer = new byte[64 * 1024];
         while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
         {
@@ -94,8 +132,10 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             {
                 case Welcome w:
                     _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
+                    Volatile.Write(ref _reconnectGraceMs, w.ReconnectGraceMs);
                     break;
                 case RoundFiles files:
+                    lock (_unconfirmed) _unconfirmed.Remove(files.SessionId);
                     string kept = Path.Combine(options.WorkDir, files.SessionId);
                     try
                     {
@@ -176,7 +216,9 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             Directory.Delete(round.Dir, true);
             return;
         }
-        await SendAsync(new Done(s.SessionId, true), stop);
+        var done = new Done(s.SessionId, true);
+        lock (_unconfirmed) _unconfirmed[s.SessionId] = done;
+        await SendAsync(done, stop);
         log.LogInformation("{Session}: kept in {Dir}", s.SessionId, round.Dir);
     }
 

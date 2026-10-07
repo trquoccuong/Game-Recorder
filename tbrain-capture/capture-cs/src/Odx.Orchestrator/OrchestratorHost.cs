@@ -54,7 +54,8 @@ public static class OrchestratorHost
                 await next();
             });
         }
-        app.UseWebSockets();
+        // PING/PONG both ways: a connection that died without closing (Wi-Fi gone) is noticed within 15 s, not minutes.
+        app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(5), KeepAliveTimeout = TimeSpan.FromSeconds(10) });
         app.Map("/agents", async (HttpContext context, MatchCoordinator coordinator) =>
         {
             if (!context.WebSockets.IsWebSocketRequest)

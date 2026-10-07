@@ -12,6 +12,11 @@ public sealed record OrchestratorOptions(string GameProfilePath, int HttpPort = 
 {
     /// <summary>How long after a round ends to wait for every participant's Done before sending the round's files anyway.</summary>
     public TimeSpan DoneTimeout { get; init; } = TimeSpan.FromMinutes(15);
+    /// <summary>
+    /// How long an agent that lost its connection keeps its place in a running round (recording on, on its own machine)
+    /// before it is stopped there; the agent stops by itself after as long.
+    /// </summary>
+    public TimeSpan ReconnectGrace { get; init; } = TimeSpan.FromSeconds(30);
     /// <summary>A room nobody is in is closed after this long (the host closes it otherwise).</summary>
     public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
     /// <summary>Every HTTP and WebSocket request must carry "Authorization: Bearer &lt;key&gt;"; null lets anyone in.</summary>
@@ -80,6 +85,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         /// <summary>The game server agent recording this round; it is done once it kept its side (or failed to).</summary>
         public string? Server { get; init; }
         public bool ServerDone { get; set; }
+        /// <summary>Players who lost their connection while recording it, kept until <see cref="OrchestratorOptions.ReconnectGrace"/>.</summary>
+        public HashSet<string> Away { get; } = [];
 
         public int IndexOf(string playerId) => Record.Players.FindIndex(p => p.PlayerId == playerId);
     }
@@ -103,6 +110,9 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private readonly Dictionary<string, Room> _rooms = [];
     private readonly Dictionary<string, OpenRound> _rounds = [];
     private readonly Dictionary<string, AgentLink> _gameServers = [];
+    /// <summary>Agents (players and game servers) whose connection was lost, by id: which loss, for its grace timer.</summary>
+    private readonly Dictionary<string, long> _absent = [];
+    private long _absences;
     private readonly string _profileJson = File.ReadAllText(options.GameProfilePath);
     private readonly string _profileGame = GameProfile.Load(options.GameProfilePath).GameTitle;
     private long _eventId;
@@ -131,9 +141,15 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             await HandleGameServerAsync(link, buffer, stop);
             return;
         }
-        lock (_lock) _agents[hello.PlayerId] = link;
+        var resumed = new Effects();
+        lock (_lock)
+        {
+            _agents[hello.PlayerId] = link;
+            Resume(link, resumed);
+        }
         log.LogInformation("agent {Player} ({Name}, {Version}) connected", hello.PlayerId, hello.Name, hello.ToolVersion);
-        await SendAsync(link, new Welcome(timePort, _profileJson));
+        await SendAsync(link, new Welcome(timePort, _profileJson, (int)options.ReconnectGrace.TotalMilliseconds));
+        await RunAsync(resumed);
 
         try
         {
@@ -166,24 +182,80 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         finally
         {
             var effects = new Effects();
+            long? absence = null;
             lock (_lock)
             {
-                if (_agents.GetValueOrDefault(hello.PlayerId) == link) _agents.Remove(hello.PlayerId);
-                Leave(link, "disconnected", effects);
+                if (_agents.GetValueOrDefault(hello.PlayerId) == link)
+                {
+                    _agents.Remove(hello.PlayerId);
+                    _absent[hello.PlayerId] = (long)(absence = ++_absences);
+                }
+                Leave(link, absence is null ? "reconnected" : "disconnected", effects);
             }
             log.LogWarning("agent {Player} disconnected", hello.PlayerId);
             await RunAsync(effects);
-            foreach (string sid in RoundsWaitingFor(hello.PlayerId))
-                MarkDone(sid, hello.PlayerId, false, "agent disconnected");
+            if (absence is { } a)
+                _ = Task.Delay(options.ReconnectGrace).ContinueWith(_ => PlayerGoneAsync(hello.PlayerId, a), TaskScheduler.Default).Unwrap();
         }
+    }
+
+    /// <summary>
+    /// After a lost connection, with the lock held: the rounds this agent still records go on (it is no longer away) or get
+    /// the Stop it missed; a round the orchestrator no longer knows is stopped too.
+    /// </summary>
+    private void Resume(AgentLink link, Effects effects)
+    {
+        _absent.Remove(link.Id);
+        foreach (string sid in link.Hello.Recording ?? [])
+        {
+            link.State = "recording";
+            var round = _rounds.GetValueOrDefault(sid);
+            bool server = round?.Server == link.Id;
+            int player = round?.IndexOf(link.Id) ?? -1;
+            if (round is null || !server && player < 0)
+            {
+                effects.Sends.Add((link, new Stop(sid, "disconnected")));
+                continue;
+            }
+            if (round.Away.Remove(link.Id)) log.LogInformation("{Agent} back in {Session}", link.Id, sid);
+            string? missed = server
+                ? round.Ended ? round.Record.EndReason ?? GameEvents.RoundEnd : null
+                : round.Record.Players[player].StopReason;
+            if (missed is not null) effects.Sends.Add((link, new Stop(sid, missed)));
+        }
+    }
+
+    /// <summary>A player still gone <see cref="OrchestratorOptions.ReconnectGrace"/> after losing the connection.</summary>
+    private async Task PlayerGoneAsync(string playerId, long absence)
+    {
+        var effects = new Effects();
+        lock (_lock)
+        {
+            if (_absent.GetValueOrDefault(playerId) != absence) return;
+            _absent.Remove(playerId);
+            double utc = NtpResponder.NowUnixMs();
+            foreach (var round in _rounds.Values.Where(r => r.Away.Remove(playerId)))
+            {
+                if (!round.Ended) StopPlayer(round, playerId, utc, "disconnected", effects);
+                effects.Changed.Add(round.Room);
+            }
+        }
+        await RunAsync(effects);
+        foreach (string sid in RoundsWaitingFor(playerId)) MarkDone(sid, playerId, false, "agent disconnected");
     }
 
     /// <summary>The game server agent: told to start and stop with every round from now on, it answers with Done.</summary>
     private async Task HandleGameServerAsync(AgentLink link, byte[] buffer, CancellationToken stop)
     {
-        lock (_lock) _gameServers[link.Id] = link;
+        var resumed = new Effects();
+        lock (_lock)
+        {
+            _gameServers[link.Id] = link;
+            Resume(link, resumed);
+        }
         log.LogInformation("game server agent {Id} ({Name}, {Version}) connected", link.Id, link.Hello.Name, link.Hello.ToolVersion);
-        await SendAsync(link, new Welcome(timePort, _profileJson));
+        await SendAsync(link, new Welcome(timePort, _profileJson, (int)options.ReconnectGrace.TotalMilliseconds));
+        await RunAsync(resumed);
         try
         {
             while (!stop.IsCancellationRequested && await ReceiveAsync(link.Socket, buffer, stop) is { } message)
@@ -194,15 +266,30 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         }
         finally
         {
-            List<string> waiting;
+            long? absence = null;
             lock (_lock)
-            {
-                if (_gameServers.GetValueOrDefault(link.Id) == link) _gameServers.Remove(link.Id);
-                waiting = _rounds.Values.Where(r => r.Server == link.Id && !r.ServerDone).Select(r => r.Record.SessionId).ToList();
-            }
+                if (_gameServers.GetValueOrDefault(link.Id) == link)
+                {
+                    _gameServers.Remove(link.Id);
+                    _absent[link.Id] = (long)(absence = ++_absences);
+                }
             log.LogWarning("game server agent {Id} disconnected", link.Id);
-            foreach (string sid in waiting) MarkServerDone(link.Id, sid, false, "game server agent disconnected");
+            if (absence is { } a)
+                _ = Task.Delay(options.ReconnectGrace).ContinueWith(_ => GameServerGone(link.Id, a), TaskScheduler.Default);
         }
+    }
+
+    /// <summary>A game server agent still gone <see cref="OrchestratorOptions.ReconnectGrace"/> after losing the connection.</summary>
+    private void GameServerGone(string serverId, long absence)
+    {
+        List<string> waiting;
+        lock (_lock)
+        {
+            if (_absent.GetValueOrDefault(serverId) != absence) return;
+            _absent.Remove(serverId);
+            waiting = _rounds.Values.Where(r => r.Server == serverId && !r.ServerDone).Select(r => r.Record.SessionId).ToList();
+        }
+        foreach (string sid in waiting) MarkServerDone(serverId, sid, false, "game server agent disconnected");
     }
 
     /// <summary>A ZeroTier network for a new room; null (and the host told why) when this server cannot make one.</summary>
@@ -315,11 +402,19 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         room.Members.Remove(link);
         link.Room = null;
         link.Ready = false;
-        if (room.LanNetworkId is { } network && link.LanNode is { } node) effects.LanRevoke.Add((network, node));
+        // "reconnected": this connection died after the agent's new one came in; the new one holds its LAN node and rounds.
+        bool replaced = reason == "reconnected";
+        if (!replaced && room.LanNetworkId is { } network && link.LanNode is { } node) effects.LanRevoke.Add((network, node));
         link.LanNode = null;
-        if (room.Current is { } round && round.IndexOf(link.Id) >= 0)
+        if (!replaced && room.Current is { } round && round.IndexOf(link.Id) is var i && i >= 0)
         {
             if (round.Counting) Cancel(round, $"player_left:{link.Id}", effects);
+            else if (reason == "disconnected" && round.Record.Players[i].StopReason is null)
+            {
+                round.Away.Add(link.Id);
+                log.LogWarning("{Player} lost the connection in {Session}; kept for {Grace} s", link.Id, round.Record.SessionId,
+                    options.ReconnectGrace.TotalSeconds);
+            }
             else StopPlayer(round, link.Id, NtpResponder.NowUnixMs(), reason, effects);
         }
         if (room.Members.Count == 0) room.EmptySinceUtc = DateTime.UtcNow;
