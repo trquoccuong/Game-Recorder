@@ -161,6 +161,16 @@ public sealed class LocalRoundTests
     }
 
     [Fact]
+    public void Merge_refuses_a_folder_without_sessions()
+    {
+        string root = Cs2Fixtures.TempDir();
+        Assert.Equal(2, Odx.Cli.MergeCommand.Run([]));
+        Assert.Equal(2, Odx.Cli.MergeCommand.Run([Path.Combine(root, "missing")]));
+        Assert.Equal(2, Odx.Cli.MergeCommand.Run([root]));
+        Assert.Equal(2, Odx.Cli.MergeCommand.Run([root, "--out"]));
+    }
+
+    [Fact]
     public async Task Two_players_and_the_game_server_each_keep_a_folder_of_the_staging_layout()
     {
         string root = Cs2Fixtures.TempDir(), game = Path.Combine(root, "csgo");
