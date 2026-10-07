@@ -89,8 +89,8 @@ odx-capture/
     src/Odx.Launcher/             #   "Odx Capture.exe": NativeAOT launcher showing the splash before odx-app loads
     tests/Odx.Tests/              #   xUnit, incl. synthetic session + one mutator per validation rule
   games/                          # game profiles (session.json fields + key/button -> action bindings)
-  deploy/                         # Docker + Caddy deployment of odx-orchestrator + odx-merge on a Linux server (up.sh)
-    gcp/                          #   CS2 server + its agent + orchestrator + merge on one Windows VM on Google Cloud (lessons)
+  deploy/                         # Docker + Caddy deployment of odx-orchestrator on a Linux server (up.sh)
+    gcp/                          #   CS2 server + its agent + orchestrator on one Windows VM on Google Cloud (lessons)
   docs/                           # How-to guides: multiplayer test setup (CS2 server, orchestrator, network, players)
   odx-capture.json             # deployment config copied next to the executables (time_server, orchestrator)
   cs2-plugin/                     # C++ Metamod:Source 2.0 plugin: CS2 dedicated server net message log (JSONL)
