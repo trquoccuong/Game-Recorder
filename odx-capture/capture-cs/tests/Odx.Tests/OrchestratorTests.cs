@@ -20,7 +20,8 @@ public sealed class OrchestratorTests : IAsyncLifetime
     {
         private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public FakeCapture(CaptureOptions options, string? template)
+        /// <param name="building">How long the capture takes to build after it is stopped.</param>
+        public FakeCapture(CaptureOptions options, string? template, TimeSpan building = default)
         {
             SessionDir = Path.Combine(options.OutputRoot, options.DirName ?? Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(SessionDir);
@@ -37,7 +38,11 @@ public sealed class OrchestratorTests : IAsyncLifetime
                      string.Create(CultureInfo.InvariantCulture, $"1000,{now},1,0,{options.NtpServer}"),
                      string.Create(CultureInfo.InvariantCulture, $"2000,{now + 1000},1,0,{options.NtpServer}")]);
             }
-            Completion = _stopped.Task.ContinueWith(_ => new RunResult(SessionDir, template is not null, null, 0, [], null));
+            Completion = _stopped.Task.ContinueWith(async _ =>
+            {
+                await Task.Delay(building);
+                return new RunResult(SessionDir, template is not null, null, 0, [], null);
+            }).Unwrap();
         }
 
         public string SessionDir { get; }
@@ -405,6 +410,43 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.Equal(["p1", "p2"], (await RoomStatus(a))["members"]!.AsArray().Select(m => (string)m!["player_id"]!).Order());
         Assert.True(otherHost.IsHost);
         Assert.False(_agents[1].IsHost);
+    }
+
+    [Fact]
+    public async Task TheHostAndAMemberRejoinTheirRoomAfterLosingTheConnection()
+    {
+        var connections = new Dictionary<string, CancellationTokenSource>();
+        AgentClient Agent(string player, string? room)
+        {
+            var agent = new AgentClient(new AgentOptions(_http.BaseAddress!, player, player, Path.Combine(_root, "agent-" + player), null,
+                RoomCode: room, CreateRoom: room is null), _ => throw new InvalidOperationException("no capture"));
+            connections[player] = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+            _ = agent.RunAsync(connections[player].Token);
+            return agent;
+        }
+        void Reconnect(AgentClient agent, string player)
+        {
+            connections[player].Cancel();
+            connections[player] = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
+            _ = agent.RunAsync(connections[player].Token);
+        }
+
+        var host = Agent("p1", null);
+        for (int i = 0; i < 100 && host.Room is null; i++) await Task.Delay(50);
+        string code = host.Room!.Code;
+        var member = Agent("p2", code);
+        await WaitForAgents(2, code);
+
+        Reconnect(member, "p2");
+        Reconnect(host, "p1");
+        await Task.Delay(300);
+        await WaitForAgents(2, code);
+        var status = await RoomStatus(code);
+        Assert.Equal("p1", (string?)status["host"]);
+        Assert.Equal(["p1", "p2"], status["members"]!.AsArray().Select(m => (string)m!["player_id"]!).Order());
+        for (int i = 0; i < 100 && host.Room?.Members.Count != 2; i++) await Task.Delay(50);
+        Assert.True(host.IsHost);
+        Assert.False(member.IsHost);
     }
 
     [Fact]

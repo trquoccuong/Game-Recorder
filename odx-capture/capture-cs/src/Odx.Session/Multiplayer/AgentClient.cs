@@ -42,6 +42,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private CancellationTokenSource? _stopBeforeStart;
     private string? _roomCode = options.RoomCode?.Trim().ToUpperInvariant();
     private string? _lanNetwork;
+    private int _reconnectGraceMs = new Welcome(0).ReconnectGraceMs;
+    private long _connection;
+    /// <summary>Done sent for rounds whose files have not come yet: sent again after a reconnect.</summary>
+    private readonly Dictionary<string, Done> _unconfirmed = [];
 
     /// <summary>Human-readable progress for a UI or console.</summary>
     public event Action<string>? Log;
@@ -106,9 +110,13 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             {
                 Log?.Invoke($"{options.Orchestrator}: {e.Message}");
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (stop.IsCancellationRequested)
             {
                 return;
+            }
+            catch (OperationCanceledException e)
+            {
+                Log?.Invoke($"{options.Orchestrator}: {e.Message}");
             }
             try
             {
@@ -123,9 +131,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
 
     public async Task RunAsync(CancellationToken stop)
     {
-        using var socket = new ClientWebSocket();
-        socket.Options.CollectHttpResponseDetails = true;
-        if (options.AccessKey is { } key) socket.Options.SetRequestHeader("Authorization", $"Bearer {key}");
+        using var socket = NewSocket(options.AccessKey);
         _socket = socket;
         var wsUri = new UriBuilder(options.Orchestrator)
         {
@@ -141,20 +147,65 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             throw new UnauthorizedAccessException(
                 $"{options.Orchestrator} refused the access key (access_key in odx-capture.json)");
         }
-        IsReady = false;
-        await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId, SignedInSteamId()), stop);
-        Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
-        if (_roomCode is not null) await SendAsync(new JoinRoom(_roomCode), stop);
-        else if (options.CreateRoom) await SendAsync(new CreateRoom(options.Lan), stop);
-
-        var buffer = new byte[64 * 1024];
-        while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
+        long connection = Interlocked.Increment(ref _connection);
+        try
         {
-            string? text = await ReceiveTextAsync(socket, buffer, stop);
-            if (text is null) break;
-            await HandleAsync(AgentMessage.Parse(text), stop);
+            IsReady = false;
+            List<string> recording;
+            List<Done> unconfirmed;
+            lock (_gate)
+            {
+                recording = new[] { _runSessionId, _startingSessionId }.OfType<string>().Distinct().ToList();
+                unconfirmed = [.. _unconfirmed.Values];
+            }
+            await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId, SignedInSteamId(),
+                Recording: recording.Count > 0 ? recording : null), stop);
+            Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
+            foreach (var done in unconfirmed) await SendAsync(done, stop);
+            if (_roomCode is not null) await SendAsync(new JoinRoom(_roomCode), stop);
+            else if (options.CreateRoom) await SendAsync(new CreateRoom(options.Lan), stop);
+
+            var buffer = new byte[64 * 1024];
+            while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
+            {
+                string? text = await ReceiveTextAsync(socket, buffer, stop);
+                if (text is null) break;
+                await HandleAsync(AgentMessage.Parse(text), stop);
+            }
         }
+        finally
+        {
+            if (stop.IsCancellationRequested) StopCapture();
+            else _ = StopIfStillGoneAsync(connection);
+        }
+    }
+
+    /// <summary>
+    /// A lost connection does not stop the capture: the round keeps this player for the orchestrator's grace. Still not
+    /// back after as long, the orchestrator has stopped it there, so the capture stops here too.
+    /// </summary>
+    private async Task StopIfStillGoneAsync(long connection)
+    {
+        await Task.Delay(Volatile.Read(ref _reconnectGraceMs));
+        if (Interlocked.Read(ref _connection) != connection) return;
+        lock (_gate)
+        {
+            if (_run is null && _startingSessionId is null) return;
+            _stopReason = "disconnected";
+        }
+        Log?.Invoke("no orchestrator for too long: stopping the recording");
         StopCapture();
+    }
+
+    /// <summary>PING/PONG keep-alive: a connection that died without closing (Wi-Fi gone) ends within 15 s, not minutes.</summary>
+    internal static ClientWebSocket NewSocket(string? accessKey)
+    {
+        var socket = new ClientWebSocket();
+        socket.Options.CollectHttpResponseDetails = true;
+        socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(5);
+        socket.Options.KeepAliveTimeout = TimeSpan.FromSeconds(10);
+        if (accessKey is { } key) socket.Options.SetRequestHeader("Authorization", $"Bearer {key}");
+        return socket;
     }
 
     public async Task SetReadyAsync(bool ready, CancellationToken stop)
@@ -273,6 +324,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         {
             case Welcome w:
                 _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
+                Volatile.Write(ref _reconnectGraceMs, w.ReconnectGraceMs);
                 MeasureClock();
                 if (w.GameProfileJson is { } welcomeProfile &&
                     GameProfile.Parse(JsonNode.Parse(welcomeProfile)!.AsObject(), "orchestrator").Network is { } network)
@@ -295,6 +347,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                     await SetReadyAsync(true, stop);
                 break;
             case RoundFiles files:
+                lock (_gate) _unconfirmed.Remove(files.SessionId);
                 string kept = Path.Combine(options.OutputRoot, files.SessionId);
                 try
                 {
@@ -424,11 +477,11 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             {
                 Log?.Invoke($"cannot move the cancelled recording aside: {e.Message}");
             }
-            await EndWithoutCaptureAsync(s.SessionId, $"round cancelled, recording kept locally only ({aside})", stop);
+            await EndWithoutCaptureAsync(s.SessionId, $"round cancelled, recording kept locally only ({aside})", stop, cancelled: true);
             return;
         }
         bool ok = result.CaptureOk;
-        await SendAsync(new Done(s.SessionId, ok, ok ? null : "capture failed"), stop);
+        await SendDoneAsync(new Done(s.SessionId, ok, ok ? null : "capture failed"), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{s.SessionId} done: {(ok ? $"kept in {result.SessionDir}" : "capture failed")}");
         RoundKept?.Invoke(s.SessionId, result.SessionDir, ok);
@@ -473,12 +526,20 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         }
     }
 
-    private async Task EndWithoutCaptureAsync(string sessionId, string reason, CancellationToken stop)
+    /// <param name="cancelled">A cancelled round: the orchestrator waits for nobody, so the Done is not sent again.</param>
+    private async Task EndWithoutCaptureAsync(string sessionId, string reason, CancellationToken stop, bool cancelled = false)
     {
         lock (_gate) _startingSessionId = null;
-        await SendAsync(new Done(sessionId, false, reason), stop);
+        var done = new Done(sessionId, false, reason);
+        await (cancelled ? SendAsync(done, stop) : SendDoneAsync(done, stop));
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{sessionId}: {reason}");
+    }
+
+    private Task SendDoneAsync(Done done, CancellationToken stop)
+    {
+        lock (_gate) _unconfirmed[done.SessionId] = done;
+        return SendAsync(done, stop);
     }
 
     /// <summary>Checks the time service answers before any round; the capture itself samples it at start and every 15 s.</summary>
@@ -528,6 +589,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             catch (WebSocketException)
             {
                 return null;
+            }
+            catch (OperationCanceledException) when (!stop.IsCancellationRequested)
+            {
+                return null;  // the keep-alive gave up on the peer
             }
             if (r.MessageType == WebSocketMessageType.Close) return null;
             message.Write(buffer, 0, r.Count);

@@ -72,8 +72,10 @@ public abstract record AgentMessage
 /// state; null without Steam.</param>
 /// <param name="Role"><see cref="PlayerRole"/>, or <see cref="GameServerRole"/>: the game server's agent, which records the
 /// server's side of every round (Start / Stop, then Done) and joins no room.</param>
+/// <param name="Recording">Sessions this agent is still recording, after a lost connection: the orchestrator sends the Stop
+/// it missed, or lets it go on.</param>
 public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null, string? SteamId = null,
-    string Role = Hello.PlayerRole) : AgentMessage
+    string Role = Hello.PlayerRole, List<string>? Recording = null) : AgentMessage
 {
     public const string PlayerRole = "player", GameServerRole = "game_server";
 }
@@ -82,7 +84,9 @@ public sealed record Hello(string PlayerId, string Name, string ToolVersion, str
 /// Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder) and the game profile its
 /// rounds use, so a player knows before any round whether packets will be captured.
 /// </summary>
-public sealed record Welcome(int TimePort, string? GameProfileJson = null) : AgentMessage;
+/// <param name="ReconnectGraceMs">How long a round keeps an agent that lost its connection; it records on meanwhile and
+/// stops by itself once this has passed without a reconnect.</param>
+public sealed record Welcome(int TimePort, string? GameProfileJson = null, int ReconnectGraceMs = 30_000) : AgentMessage;
 
 /// <summary>Orchestrator → agent: prepare a session; the game profile (JSON) is the one the build must use.</summary>
 public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;
@@ -103,7 +107,10 @@ public sealed record Stop(string SessionId, string Reason) : AgentMessage
 /// <summary>Agent → orchestrator: idle, armed, recording, building, error.</summary>
 public sealed record AgentState(string State, string? Detail = null) : AgentMessage;
 
-/// <summary>Agent → orchestrator: the session's files are kept (or why not).</summary>
+/// <summary>
+/// Agent → orchestrator: the session's files are kept (or why not). Sent again after every reconnect until the round's
+/// files (<see cref="RoundFiles"/>) arrive, since one sent while the connection was lost goes nowhere.
+/// </summary>
 public sealed record Done(string SessionId, bool Ok, string? Error = null) : AgentMessage;
 
 /// <summary>Agent → orchestrator: the player is (not) ready; when every player of the room is, a round starts after a countdown.</summary>

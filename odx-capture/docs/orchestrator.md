@@ -31,6 +31,7 @@ $bin = 'D:\odx\odx-capture-0.1.0-win-x64\bin'
 | `--access-key` | Or `ODX_ACCESS_KEY`. Every request must carry it; put the same key in the players' package and give it to the game server agent. Use one whenever the orchestrator is reachable from the internet. |
 | `--http-port`, `--time-port` | Default 5180 (TCP) and 12300 (UDP). |
 | `--fps` | The players' recording rate; default 30. |
+| `--reconnect-grace-s` | How long a player or game server that lost its connection keeps its place in a running round, recording on; default 30. Back within it, the round goes on; still gone after it, that player is stopped there (and stops by itself). |
 
 The orchestrator also measures its own clock against `time_server` of the `odx-capture.json` next to it
 (`time.windows.com` by default) and writes the result into each round's record.
