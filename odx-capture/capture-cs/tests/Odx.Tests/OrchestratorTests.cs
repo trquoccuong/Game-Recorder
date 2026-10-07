@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
+using Odx.Cli;
 using Odx.Core;
 using Odx.Merge;
 using Odx.Orchestrator;
@@ -47,6 +48,10 @@ public sealed class OrchestratorTests : IAsyncLifetime
         public void Stop() => _stopped.TrySetResult();
     }
 
+    // The fixture session is 320x180 and 2 s long.
+    private static readonly GateTolerances FixtureTolerances =
+        GateTolerances.Default with { MinWidth = SessionFixtures.Width, MinHeight = SessionFixtures.Height, MinDurationMs = 1000 };
+
     private readonly string _root = Path.Combine(Path.GetTempPath(), "odx-orch-" + Guid.NewGuid().ToString("N"));
     private readonly CancellationTokenSource _stop = new();
     private WebApplication _app = null!;
@@ -65,11 +70,8 @@ public sealed class OrchestratorTests : IAsyncLifetime
             {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {"W": "Forward"}}
             """);
-        _merge = MergeHost.Build(new MergeOptions(Path.Combine(_root, "out"), HttpPort: 0)
-        {
-            // The fixture session is 320x180 and 2 s long.
-            Tolerances = GateTolerances.Default with { MinWidth = SessionFixtures.Width, MinHeight = SessionFixtures.Height, MinDurationMs = 1000 },
-        }, "127.0.0.1");
+        _merge = MergeHost.Build(new MergeOptions(Path.Combine(_root, "out"), HttpPort: 0) { Tolerances = FixtureTolerances },
+            "127.0.0.1");
         await _merge.StartAsync();
         _app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0, Fps: SessionFixtures.Fps)
             { MergeUrl = new Uri(_merge.Urls.First()) }, "127.0.0.1");
@@ -219,6 +221,48 @@ public sealed class OrchestratorTests : IAsyncLifetime
             Assert.Equal("odx.capture.v1", schema.File.Single().Package);
             Assert.Contains(schema.File.Single().MessageType, m => m.Name == "FrameRecord");
         }
+    }
+
+    [SkippableFact]
+    public async Task RoundsCopiedFromTheirPlayersMergeToTheSessionOdxMergeAssembled()
+    {
+        Skip.IfNot(SessionFixtures.HasFfmpeg, "needs ffmpeg + ffprobe");
+        string template = SessionFixtures.MakeValidSession(Path.Combine(_root, "template"));
+        var started = ConnectAgents(template, "p1", "p2");
+        await WaitForAgents(2);
+        var session = NextSession();
+        await Post(new { type = "match_start", match_id = "m4" });
+        await Post(new { type = "round_start" });
+        await Task.WhenAll(started.Select(s => s.Task)).WaitAsync(TimeSpan.FromSeconds(10));
+        await Post(new { type = "kill", attacker = "p1", victim = "p2", weapon = "ak47" });
+        await Post(new { type = "round_end" });
+        var (assembled, report) = await session;
+        Assert.True(report.Pass, string.Join("; ", report.Players.SelectMany(p => p.Issues).Select(i => i.Message)));
+
+        string staging = Path.Combine(_root, "test", report.SessionId);
+        foreach (string p in new[] { "p1", "p2" })
+        {
+            string kept = Path.Combine(_root, "agent-" + p, report.SessionId);
+            Assert.True(await LocalRoundTests.WaitForFile(Path.Combine(kept, RoundRecord.FileName)));
+            CopyDir(kept, Path.Combine(staging, "players", p));
+            foreach (string f in new[] { RoundRecord.FileName, RoundRecord.EventsFileName, RoundRecord.ProfileFileName })
+                File.Copy(Path.Combine(kept, f), Path.Combine(staging, f), true);
+        }
+        Assert.Equal([staging], MergeCommand.Sessions(Path.Combine(_root, "test")));
+        var (merged, local) = MultiplayerSession.Assemble(staging, Path.Combine(_root, "local"), MergeCommand.Vendor, FixtureTolerances);
+
+        Assert.True(local.Pass);
+        Assert.Equal(report.ValidPlayers, local.ValidPlayers);
+        var files = Directory.GetFiles(assembled, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(assembled, f)).Order().ToList();
+        Assert.Equal(files, Directory.GetFiles(merged, "*", SearchOption.AllDirectories).Select(f => Path.GetRelativePath(merged, f)).Order());
+        Assert.All(files, f => Assert.True(File.ReadAllBytes(Path.Combine(assembled, f)).SequenceEqual(File.ReadAllBytes(Path.Combine(merged, f))), f));
+    }
+
+    private static void CopyDir(string src, string dst)
+    {
+        Directory.CreateDirectory(dst);
+        foreach (string f in Directory.GetFiles(src)) File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true);
+        foreach (string d in Directory.GetDirectories(src)) CopyDir(d, Path.Combine(dst, Path.GetFileName(d)));
     }
 
     [Fact]
