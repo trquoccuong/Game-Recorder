@@ -103,10 +103,14 @@ public sealed class OrchestratorStore : IDisposable
             r => new StoredRoom(r.GetString(0), Text(r, 1), Text(r, 2), Text(r, 3), Text(r, 4), Text(r, 5), r.GetString(6), r.GetInt32(7),
                 Events(r.GetString(8))));
 
-    public List<StoredRound> UnfinishedRounds() =>
-        Query("SELECT session_id, room, state, counting, server, server_done, record, events FROM rounds WHERE state IN ('open', 'ended')",
+    public List<StoredRound> UnfinishedRounds() => Rounds("WHERE state IN ('open', 'ended')");
+
+    public StoredRound? Round(string sessionId) => Rounds("WHERE session_id = $sid", ("$sid", sessionId)).SingleOrDefault();
+
+    private List<StoredRound> Rounds(string where, params (string Name, object? Value)[] parameters) =>
+        Query($"SELECT session_id, room, state, counting, server, server_done, record, events FROM rounds {where}",
             r => new StoredRound(r.GetString(0), r.GetString(1), r.GetString(2), r.GetBoolean(3), Text(r, 4), r.GetBoolean(5),
-                JsonSerializer.Deserialize<RoundRecord>(r.GetString(6), AgentMessage.Json)!, Events(r.GetString(7))));
+                JsonSerializer.Deserialize<RoundRecord>(r.GetString(6), AgentMessage.Json)!, Events(r.GetString(7))), parameters);
 
     public void Dispose() => _db.Dispose();
 
@@ -129,9 +133,9 @@ public sealed class OrchestratorStore : IDisposable
         return command.ExecuteScalar();
     }
 
-    private List<T> Query<T>(string sql, Func<SqliteDataReader, T> read)
+    private List<T> Query<T>(string sql, Func<SqliteDataReader, T> read, params (string Name, object? Value)[] parameters)
     {
-        using var command = Command(sql, []);
+        using var command = Command(sql, parameters);
         using var reader = command.ExecuteReader();
         var rows = new List<T>();
         while (reader.Read()) rows.Add(read(reader));
