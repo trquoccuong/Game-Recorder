@@ -24,7 +24,7 @@ public sealed class GameServerAgentTests
         File.WriteAllLines(Path.Combine(logs, "a.jsonl"), lines[..10]);
         string profile = Path.Combine(root, "game.json");
         File.WriteAllText(profile, """
-            {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
+            {"game_title": "Counter-Strike 2", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
             """);
         await using var app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0), "127.0.0.1");
@@ -130,5 +130,15 @@ public sealed class LocalRoundTests
         Assert.Equal(players, round.Players.Select(p => p.PlayerId).Order());
         Assert.All(round.Players, p => Assert.True(p.Done));
         Assert.Contains("round_end", File.ReadAllText(Path.Combine(serverKept, RoundRecord.EventsFileName)));
+    }
+}
+
+public sealed class GameMergerTests
+{
+    [Fact]
+    public void The_game_profile_picks_the_module_and_a_game_without_one_has_no_server_side()
+    {
+        Assert.IsType<Cs2Merger>(GameMergers.For("Counter-Strike 2"));
+        Assert.Null(GameMergers.For("Synthetic"));
     }
 }

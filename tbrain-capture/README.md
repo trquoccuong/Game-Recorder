@@ -169,7 +169,7 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
   - A permanent `player_death` stops that player.
   - `round_end` stops the rest.
 - **Round files:** once every player and the game server agent are done (or 15 min later) the orchestrator sends each participant `round_record` with the round's files: `round.json` (the final record), `server_events.jsonl` and `game_profile.json`; each writes them into its folder of that round. `GET /rooms/{code}` lists the finished rounds under `sessions` (`session_id`, `players`, `kept`).
-- **Assembly:** `odx merge` builds each copied round with `MultiplayerSession.Assemble` and writes:
+- **Assembly:** `odx merge` builds each copied round with `MultiplayerSession.Assemble`; the game server's side is read by the game's module (`IGameMerger`, chosen by the profile's `game_title`; CS2: `Cs2Merger`), and a game without one gets an empty `server/`. It writes:
 
   ```
   <out: data/delivery by default>/<vendor>/<mm-dd-yyyy>/<game>/<match>-rNN/

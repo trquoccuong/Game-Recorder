@@ -109,22 +109,18 @@ public static class MultiplayerSession
         JsonObject? serverInfo = null;
         string? serverError = null;
         List<string> serverProblems = [];
-        IReadOnlyDictionary<string, List<Cs2ServerCapture.CameraSample>> cameras = new Dictionary<string, List<Cs2ServerCapture.CameraSample>>();
-        // A Steam account several players share (two agents on one machine) names none of them.
-        var playerIds = round.Players.Where(p => p.SteamId is not null).GroupBy(p => p.SteamId!).Where(g => g.Count() == 1)
-            .ToDictionary(g => g.Key, g => g.Single().PlayerId);
-        if (Cs2ServerCapture.IsStaged(stagedServer))
+        IReadOnlyDictionary<string, IServerCameraTrack> cameras = new Dictionary<string, IServerCameraTrack>();
+        if (GameMergers.For(round.Game) is { } game && game.HasServerSide(stagedServer))
         {
             // The game server's recording is read by a third-party parser: a file it cannot read must not cost the
             // players' streams their session.
             try
             {
-                var server = Cs2ServerCapture.Write(stagedServer, Path.Combine(dir, "server"),
-                    new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, ToolVersion = BuildInfo.Version }, playerIds);
+                var server = game.WriteServer(stagedServer, Path.Combine(dir, "server"), round);
                 events = events.Concat(server.Events).OrderBy(GameEvents.UtcMs).ToList();
                 serverInfo = server.Info;
                 cameras = server.Cameras;
-                serverProblems = Cs2ServerCapture.Problems(stagedServer);
+                serverProblems = server.Problems;
                 if (serverProblems.Count > 0) serverInfo["problems"] = new JsonArray(serverProblems.Select(p => (JsonNode)p).ToArray());
             }
             catch (Exception e)
@@ -197,7 +193,7 @@ public static class MultiplayerSession
             {
                 ["schema"] = FramesBin.SchemaFileName,
                 ["server_events"] = "server/events.jsonl",
-                ["server_state"] = serverInfo?["server_state"] is null ? null : $"server/{Cs2ServerCapture.StateFile}",
+                ["server_state"] = serverInfo?["server_state"] is null ? null : $"server/{ServerSide.StateFile}",
                 ["server_packets"] = serverInfo?["packets"] is null ? null : $"server/{PacketLog.BinFile}",
                 ["players_root"] = "players/<player-id>/",
             },
@@ -223,7 +219,7 @@ public static class MultiplayerSession
     }
 
     private static PlayerReport AssemblePlayer(RoundRecord round, RoundPlayer player, List<JsonObject> events, JsonObject? profile,
-        IReadOnlyDictionary<string, List<Cs2ServerCapture.CameraSample>> cameras, string stagingDir, string sessionDir, GateTolerances tol)
+        IReadOnlyDictionary<string, IServerCameraTrack> cameras, string stagingDir, string sessionDir, GateTolerances tol)
     {
         string src = Path.Combine(stagingDir, "players", player.PlayerId);
         string dst = Path.Combine(sessionDir, "players", player.PlayerId);
@@ -268,7 +264,7 @@ public static class MultiplayerSession
             ["jitter_ms"] = info["clock_sync"]?["jitter_ms"]?.DeepClone(),
             ["measured_against"] = "the orchestrator's time service (next to the game server)",
         };
-        if (frameUtc is not null && player.SteamId is { } steamId && cameras.TryGetValue(steamId, out var track) &&
+        if (frameUtc is not null && cameras.TryGetValue(player.PlayerId, out var track) &&
             rows.All(r => r[Frames.C2wColumns[0]] == Frames.Null))
             AddServerCamera(rows, frameUtc, track, capture, info, checks, tol, Path.Combine(dst, "frames.csv"));
         AddPackets(round, player, profile, src, dst, info, checks);
@@ -311,31 +307,22 @@ public static class MultiplayerSession
     }
 
     /// <summary>
-    /// The camera from the game server's view of the player (<see cref="ServerCamera"/>) when their own capture has none:
-    /// rewrites frames.csv and checks the camera floor again on it.
+    /// The camera from the game server's view of the player when their own capture has none: rewrites frames.csv and checks
+    /// the camera floor again on it.
     /// </summary>
-    private static void AddServerCamera(List<Dictionary<string, string>> rows, List<double> frameUtc,
-        List<Cs2ServerCapture.CameraSample> track, JsonObject capture, JsonObject info, List<QaCheck> checks, GateTolerances tol,
-        string framesCsv)
+    private static void AddServerCamera(List<Dictionary<string, string>> rows, List<double> frameUtc, IServerCameraTrack track,
+        JsonObject capture, JsonObject info, List<QaCheck> checks, GateTolerances tol, string framesCsv)
     {
         double leadMs = (info["ping_ms"]?.GetValue<double>() ?? 0) / 2;
         int width = capture["record_width_px"]?.GetValue<int>() ?? 0, height = capture["record_height_px"]?.GetValue<int>() ?? 0;
-        var (withCamera, notFirstPerson) = ServerCamera.Fill(rows, frameUtc, track, leadMs, width, height);
+        var (withCamera, notFirstPerson) = track.Fill(rows, frameUtc, leadMs, width, height);
         using (var writer = new StreamWriter(framesCsv, false, new System.Text.UTF8Encoding(false)) { NewLine = "\n" })
         {
             writer.Write(Csv.Line(Frames.Columns));
             foreach (var row in rows) writer.Write(Csv.Line(Frames.Columns.Select(c => row[c])));
         }
 
-        info["camera"] = new JsonObject
-        {
-            ["source"] = "game server: the player's eye position and view angles in the server's recording, at frame time + half the ping",
-            ["lead_ms"] = Math.Round(leadMs, 3),
-            ["c2w_layout"] = "row-major 4x4, RUB camera axes (spec v2 §1.1.2.4)",
-            ["world_axes"] = "right-handed, Z up: X east, Y north (the game's own axes, the spec's RFU)",
-            ["world_units"] = "game units (CS2: 1 inch, 39.37 per metre)",
-            ["intrinsics"] = "PINHOLE from the field of view: horizontal at 4:3 as CS2 defines it (90 degrees, less when a scope zooms)",
-        };
+        info["camera"] = track.Describe(leadMs);
         info["frame_cleanliness"] = new JsonObject
         {
             ["source"] = "game server",

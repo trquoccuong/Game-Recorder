@@ -29,7 +29,7 @@ public static class Cs2ServerCapture
 {
     public const string DemoFile = "demo.dem", NetLogFile = "netmessages.jsonl", SendDataFile = "senddata.jsonl";
     public const string RecordingFile = "recording.json", ClockSamplesFile = "ntp_samples.csv";
-    public const string StateFile = "server_state.bin";
+    public const string StateFile = ServerSide.StateFile;
 
     /// <param name="Events">For events.jsonl, with utc_ms; "source": "demo".</param>
     /// <param name="Info">For session.json "server".</param>
