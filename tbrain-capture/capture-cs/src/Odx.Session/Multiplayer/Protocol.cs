@@ -29,7 +29,10 @@ public static class GameEvents
     public static string? Text(JsonObject e, string key) => e[key] is JsonValue v && v.TryGetValue(out string? s) ? s : null;
 }
 
-/// <summary>WebSocket messages between an agent (a player's capture machine) and the orchestrator, one JSON object each.</summary>
+/// <summary>
+/// WebSocket messages between an agent and the orchestrator, one JSON object each. An agent is a player's capture machine or
+/// the game server's (<see cref="Hello.Role"/>).
+/// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(Hello), "hello")]
 [JsonDerivedType(typeof(Welcome), "welcome")]
@@ -67,14 +70,20 @@ public abstract record AgentMessage
 /// <param name="MachineId">Stable per machine but not the machine name (a hash of it).</param>
 /// <param name="SteamId">The Steam account signed in on the machine (SteamID64), to match the player in the game server's
 /// state; null without Steam.</param>
-public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null, string? SteamId = null)
-    : AgentMessage;
+/// <param name="Role"><see cref="PlayerRole"/>, or <see cref="GameServerRole"/>: the game server's agent, which records the
+/// server's side of every round (Start / Stop, then Done) and joins no room.</param>
+public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null, string? SteamId = null,
+    string Role = Hello.PlayerRole) : AgentMessage
+{
+    public const string PlayerRole = "player", GameServerRole = "game_server";
+}
 
 /// <summary>
-/// Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder), and the game profile
-/// its rounds use, so a player knows before any round whether packets will be captured.
+/// Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder), the game profile its
+/// rounds use, so a player knows before any round whether packets will be captured, and where to upload each round
+/// (odx-merge; null when the orchestrator has none).
 /// </summary>
-public sealed record Welcome(int TimePort, string? GameProfileJson = null) : AgentMessage;
+public sealed record Welcome(int TimePort, string? GameProfileJson = null, string? MergeUrl = null) : AgentMessage;
 
 /// <summary>Orchestrator → agent: prepare a session; the game profile (JSON) is the one the build must use.</summary>
 public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;
@@ -86,8 +95,11 @@ public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : Ag
 /// </summary>
 public sealed record Start(string SessionId, int CountdownMs = 0) : AgentMessage;
 
-/// <summary>Orchestrator → agent: stop capturing ("round_end", "permanent_death", "abort", or "cancelled": discard).</summary>
-public sealed record Stop(string SessionId, string Reason) : AgentMessage;
+/// <summary>Orchestrator → agent: stop capturing ("round_end", "permanent_death", "abort", or <see cref="Cancelled"/>: discard).</summary>
+public sealed record Stop(string SessionId, string Reason) : AgentMessage
+{
+    public const string Cancelled = "cancelled";
+}
 
 /// <summary>Agent → orchestrator: idle, armed, recording, building, uploading, error.</summary>
 public sealed record AgentState(string State, string? Detail = null) : AgentMessage;

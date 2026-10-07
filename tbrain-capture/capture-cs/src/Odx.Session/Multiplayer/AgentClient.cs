@@ -32,12 +32,12 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly HttpClient _http = new()
     {
-        BaseAddress = options.Orchestrator,
         Timeout = TimeSpan.FromMinutes(30),
         DefaultRequestHeaders = { Authorization = options.AccessKey is { } key ? new AuthenticationHeaderValue("Bearer", key) : null },
     };
     private ClientWebSocket? _socket;
     private string? _timeServer;
+    private Uri? _merge;
     private Arm? _armed;
     private string? _profilePath;
     private string? _profileWindow;
@@ -282,6 +282,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         {
             case Welcome w:
                 _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
+                _merge = w.MergeUrl is { } merge ? new Uri(merge) : null;
                 MeasureClock();
                 if (w.GameProfileJson is { } welcomeProfile &&
                     GameProfile.Parse(JsonNode.Parse(welcomeProfile)!.AsObject(), "orchestrator").Network is { } network)
@@ -406,7 +407,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
 
         var result = await run.Completion;
         if (etl is not null) await StopPacketsAsync(etl, result.SessionDir, stop);
-        if (Volatile.Read(ref _stopReason) == "cancelled")
+        if (Volatile.Read(ref _stopReason) == Stop.Cancelled)
         {
             lock (_gate)
             {
@@ -422,7 +423,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         {
             await UploadAsync(s.SessionId, result.SessionDir, stop);
         }
-        catch (Exception e) when (e is HttpRequestException or IOException or TaskCanceledException)
+        catch (Exception e) when (e is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException)
         {
             error = $"upload failed: {e.Message}";
         }
@@ -482,13 +483,14 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
 
     private async Task UploadAsync(string sessionId, string dir, CancellationToken stop)
     {
+        var merge = _merge ?? throw new InvalidOperationException("the orchestrator has no odx-merge to upload to");
         foreach (string file in Directory.GetFiles(dir))
         {
             await using var stream = File.OpenRead(file);
             using var content = new StreamContent(stream);
             content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-            string url = $"/sessions/{Uri.EscapeDataString(sessionId)}/players/{Uri.EscapeDataString(options.PlayerId)}/files/" +
-                         Uri.EscapeDataString(Path.GetFileName(file));
+            var url = new Uri(merge, $"/sessions/{Uri.EscapeDataString(sessionId)}/players/{Uri.EscapeDataString(options.PlayerId)}/files/" +
+                                     Uri.EscapeDataString(Path.GetFileName(file)));
             using var response = await _http.PutAsync(url, content, stop);
             response.EnsureSuccessStatusCode();
         }

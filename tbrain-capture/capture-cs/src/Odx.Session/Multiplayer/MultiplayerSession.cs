@@ -33,8 +33,9 @@ public sealed record RoundRecord(string SessionId, string MatchId, string Game, 
         JsonSerializer.Deserialize<RoundRecord>(File.ReadAllText(Path.Combine(stagingDir, FileName)), AgentMessage.Json)
         ?? throw new InvalidDataException("empty round.json");
 
-    public void Save(string stagingDir) =>
-        File.WriteAllText(Path.Combine(stagingDir, FileName), JsonSerializer.Serialize(this, PrettyJson));
+    public void Save(string stagingDir) => File.WriteAllText(Path.Combine(stagingDir, FileName), ToJson());
+
+    public string ToJson() => JsonSerializer.Serialize(this, PrettyJson);
 
     internal static readonly JsonSerializerOptions PrettyJson = new(AgentMessage.Json) { WriteIndented = true };
 }
@@ -70,6 +71,9 @@ public sealed record PlayerReport(string PlayerId, bool Pass, List<Issue> Issues
 
 public sealed record SessionReport(string SessionId, bool Pass, int ValidPlayers, int RequiredPlayers, List<Issue> Issues,
     List<PlayerReport> Players);
+
+/// <summary>odx-merge's answer to POST /sessions/{sid}/assemble: where the session went (on odx-merge's machine), its gate.</summary>
+public sealed record AssembledSession(string Dir, SessionReport Report);
 
 /// <summary>
 /// Turns a staged round (round.json, server_events.jsonl, game_profile.json, players/&lt;id&gt;/ with each agent's uploaded
