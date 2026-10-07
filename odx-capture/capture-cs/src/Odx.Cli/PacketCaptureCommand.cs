@@ -1,7 +1,7 @@
 // odx packet-capture --pipe <name> --user <SID>
-// The elevated half of packet capture (pktmon needs administrator rights): odx-app starts it once per room with a UAC
-// prompt, then sends start/stop requests over the named pipe, which only that user's account may open. Exits, stopping
-// any capture, when the app closes the pipe.
+// The elevated half of packet capture (pktmon needs administrator rights): odx-app starts it with a UAC prompt the first
+// time a room wants it and keeps it until the app closes, sending start/stop requests over the named pipe, which only
+// that user's account may open. Exits, stopping any capture, when the app closes the pipe.
 #if WINDOWS
 using System.IO.Pipes;
 using System.Security.AccessControl;
@@ -55,7 +55,8 @@ public static class PacketCaptureCommand
 
         var capture = new PktmonCapture();
         using var reader = new StreamReader(pipe, new UTF8Encoding(false));
-        using var writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
+        // Not disposed: disposing flushes, and once the app has closed the pipe that throws (it has nothing left to flush).
+        var writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
         try
         {
             while (reader.ReadLine() is { } line)
