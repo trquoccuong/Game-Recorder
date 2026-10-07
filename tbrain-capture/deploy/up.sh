@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts (or updates) odx-orchestrator on this server: bash up.sh
+# Starts (or updates) odx-orchestrator and odx-merge on this server: bash up.sh
 # Needs Docker with the compose plugin, the domain's DNS pointing here, and ports 80/tcp, 443/tcp+udp, 12300/udp and
 # 9993/udp (ZeroTier, rooms with a LAN) open.
 set -euo pipefail
@@ -34,6 +34,8 @@ docker compose up -d --build
 
 echo
 echo "Orchestrator: https://$ODX_DOMAIN  (time service: $ODX_DOMAIN:12300/udp)"
-echo "Sessions:     $(pwd)/sessions"
+echo "Sessions:     $(pwd)/sessions  (odx-merge)"
 echo "Package odx-app for it on Windows:"
 echo "  powershell -ExecutionPolicy Bypass -File publish.ps1 -Orchestrator https://$ODX_DOMAIN -AccessKey $ODX_ACCESS_KEY"
+echo "On the CS2 server's machine (docs/cs2-server.md):"
+echo "  bin\\odx.exe game-server --orchestrator https://$ODX_DOMAIN --cs2-game-dir <cs2>\\game\\csgo --cs2-rcon-password-file <file>"

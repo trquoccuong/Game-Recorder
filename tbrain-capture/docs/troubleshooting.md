@@ -2,8 +2,8 @@
 
 ## SourceTV is not recording
 
-Orchestrator log: `CS2 server: <session>: SourceTV is not recording …`; the session gets a `server.capture` warning and
-has no `server_state.bin`.
+Game server agent log: `CS2 server: <session>: SourceTV is not recording …`; the session gets a `server.capture` warning
+(odx-merge logs it) and has no `server_state.bin`.
 
 CS2 counts SourceTV as a bot: a match restart (including `changelevel` to the map already running, which only restarts
 the match) or a bot quota change can kick it, and `tv_record` then records nothing without saying so. SourceTV comes back
@@ -16,9 +16,12 @@ map de_dust2
 Players are disconnected by it; they connect again. Then check with `tv_record replays/check` (a `check.dem` appears),
 `tv_stoprecord`. Add bots with `bot_add_t` / `bot_add_ct` rather than changing the quota mode.
 
-If the log also has `CS2 server: tv_record …: No connection could be made`, the orchestrator never reached RCON: CS2
-binds RCON to the machine's network address, not always to 127.0.0.1 (a cloud VM does). Check with `netstat -ano |
-findstr :27015` (the TCP line) and pass that address to `--cs2-rcon`.
+If the log also has `CS2 server: tv_record …: No connection could be made`, the game server agent never reached RCON: CS2
+binds RCON to the machine's network address, not to 127.0.0.1. Check with `netstat -ano | findstr :27015` (the TCP line)
+and pass that address to `odx game-server --cs2-rcon`.
+
+If the orchestrator's `/status` has `"game_server": null`, no agent is connected and rounds have no server side at all:
+start `odx game-server` ([cs2-server.md](cs2-server.md#6-the-game-server-agent)).
 
 ## CS2 server exits while loading the map
 
@@ -65,7 +68,8 @@ Median RTT to the time service above 100 ms: a slow or distant link to the serve
 ## No notice after a round
 
 The notices show in the top right corner of the main screen for 6–10 s. If none came, look at the app's status line and
-at the orchestrator's log: an upload failure (`upload failed: …`) or the session's build (`cannot assemble …`).
+at the orchestrator's log: an upload failure (`upload failed: …`), odx-merge unreachable (`odx-merge: cannot open …`) or
+the session's build (`odx-merge cannot assemble …`).
 
 ## After a CS2 update
 

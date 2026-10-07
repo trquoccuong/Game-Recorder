@@ -6,7 +6,8 @@
 //   agent          one player's capture machine under odx-orchestrator (Windows build only)
 //   packet-capture the elevated pktmon helper odx-app starts for a room's packet capture (Windows build only)
 //   simulate-game  posts a scripted match to odx-orchestrator in place of a game server
-// The net8.0 build (Linux servers) has build, validate and simulate-game only.
+//   game-server    the CS2 dedicated server's agent: records the server's side of every round for odx-merge
+// The net10.0 build (Linux servers) has build, validate, simulate-game and game-server only.
 using System.Text;
 using Odx.Cli;
 
@@ -24,15 +25,16 @@ return command switch
     "build" => BuildCommand.Run(rest),
     "validate" => ValidateCommand.Run(rest),
     "simulate-game" => SimulateGameCommand.Run(rest),
+    "game-server" => GameServerCommand.Run(rest),
     _ => Usage(),
 };
 
 static int Usage()
 {
 #if WINDOWS
-    Console.Error.WriteLine("usage: odx (input | record | build | validate | agent | simulate-game) [args]");
+    Console.Error.WriteLine("usage: odx (input | record | build | validate | agent | simulate-game | game-server) [args]");
 #else
-    Console.Error.WriteLine("usage: odx (build | validate | simulate-game) [args]");
+    Console.Error.WriteLine("usage: odx (build | validate | simulate-game | game-server) [args]");
 #endif
     return 2;
 }

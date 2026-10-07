@@ -6,7 +6,6 @@ using System.Text.Json.Nodes;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging.Abstractions;
 using Odx.Core;
-using Odx.Orchestrator;
 using Odx.Session;
 using Odx.Session.Proto;
 using Xunit;
@@ -83,6 +82,29 @@ public sealed class Cs2ServerCaptureTests
         Assert.Equal(211, text.Length);
         Assert.Equal("p1", text[1].Split('\t')[6]);  // the peer column
         Assert.True(File.Exists(Path.Combine(session, "capture", Cs2ServerCapture.NetLogFile)));
+    }
+
+    [Fact]
+    public void The_game_server_machines_clock_goes_on_the_orchestrators_by_its_samples()
+    {
+        string staging = Cs2Fixtures.TempDir(), session = Cs2Fixtures.TempDir();
+        File.Copy(Cs2Fixtures.NetLog, Path.Combine(staging, Cs2ServerCapture.NetLogFile));
+        using (var samples = new NtpSampleWriter(new StreamWriter(Path.Combine(staging, Cs2ServerCapture.ClockSamplesFile))))
+        {
+            samples.Write(new NtpSample(1000, 0, 2, 500, "orch:12300"));
+            samples.Write(new NtpSample(2000, 0, 50, 900, "orch:12300"));  // a slow reply, left out with the slower half
+            samples.Write(new NtpSample(3000, 0, 3, 502, "orch:12300"));
+            samples.Write(new NtpSample(4000, 0, 4, 498, "orch:12300"));
+        }
+
+        var result = Cs2ServerCapture.Write(staging, session, new FileHeader { SessionId = "s1" });
+
+        var (_, records) = PacketLog.Read(Path.Combine(session, PacketLog.BinFile));
+        long firstLogged = Cs2ServerCapture.ReadNetLog(Cs2Fixtures.NetLog).Min(l => l.UtcUs);
+        Assert.Equal(firstLogged, records.Min(r => r.LocalTimeUs));
+        Assert.All(records, r => Assert.Equal(502_000, r.ServerTimeUs - r.LocalTimeUs));
+        Assert.Equal(502, result.Info["clock_sync"]!["offset_ms"]!.GetValue<double>());
+        Assert.Equal(4, result.Info["clock_sync"]!["sample_count"]!.GetValue<int>());
     }
 
     [Fact]
