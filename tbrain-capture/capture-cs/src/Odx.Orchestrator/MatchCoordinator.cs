@@ -46,9 +46,11 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public string? LanNode { get; set; }
     }
 
-    private sealed class Room(string code, string? hostPlayerId)
+    private sealed class Room(string code, string? hostPlayerId, string? server = null)
     {
         public string Code { get; } = code;
+        /// <summary>The game server agent recording this room's rounds; null: the only one connected, if just one is.</summary>
+        public string? Server { get; } = server;
         /// <summary>Null for a room opened over HTTP (game server plugin, simulator): its round_start/round_end drive it.</summary>
         public string? HostPlayerId { get; } = hostPlayerId;
         public List<AgentLink> Members { get; } = [];
@@ -75,8 +77,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         public bool Counting { get; set; }
         public bool Ended { get; set; }
         public int Finalized;
-        /// <summary>The game server agent records this round; it is done once it kept its side (or failed to).</summary>
-        public bool ServerArmed { get; init; }
+        /// <summary>The game server agent recording this round; it is done once it kept its side (or failed to).</summary>
+        public string? Server { get; init; }
         public bool ServerDone { get; set; }
 
         public int IndexOf(string playerId) => Record.Players.FindIndex(p => p.PlayerId == playerId);
@@ -100,7 +102,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private readonly Dictionary<string, AgentLink> _agents = [];
     private readonly Dictionary<string, Room> _rooms = [];
     private readonly Dictionary<string, OpenRound> _rounds = [];
-    private AgentLink? _gameServer;
+    private readonly Dictionary<string, AgentLink> _gameServers = [];
     private readonly string _profileJson = File.ReadAllText(options.GameProfilePath);
     private readonly string _profileGame = GameProfile.Load(options.GameProfilePath).GameTitle;
     private long _eventId;
@@ -179,13 +181,13 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     /// <summary>The game server agent: told to start and stop with every round from now on, it answers with Done.</summary>
     private async Task HandleGameServerAsync(AgentLink link, byte[] buffer, CancellationToken stop)
     {
-        lock (_lock) _gameServer = link;
-        log.LogInformation("game server agent {Name} ({Version}) connected", link.Hello.Name, link.Hello.ToolVersion);
+        lock (_lock) _gameServers[link.Id] = link;
+        log.LogInformation("game server agent {Id} ({Name}, {Version}) connected", link.Id, link.Hello.Name, link.Hello.ToolVersion);
         await SendAsync(link, new Welcome(timePort, _profileJson));
         try
         {
             while (!stop.IsCancellationRequested && await ReceiveAsync(link.Socket, buffer, stop) is { } message)
-                if (message is Done d) MarkServerDone(d.SessionId, d.Ok, d.Error);
+                if (message is Done d) MarkServerDone(link.Id, d.SessionId, d.Ok, d.Error);
         }
         catch (OperationCanceledException)
         {
@@ -195,11 +197,11 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             List<string> waiting;
             lock (_lock)
             {
-                if (_gameServer == link) _gameServer = null;
-                waiting = _rounds.Values.Where(r => r.ServerArmed && !r.ServerDone).Select(r => r.Record.SessionId).ToList();
+                if (_gameServers.GetValueOrDefault(link.Id) == link) _gameServers.Remove(link.Id);
+                waiting = _rounds.Values.Where(r => r.Server == link.Id && !r.ServerDone).Select(r => r.Record.SessionId).ToList();
             }
-            log.LogWarning("game server agent disconnected");
-            foreach (string sid in waiting) MarkServerDone(sid, false, "game server agent disconnected");
+            log.LogWarning("game server agent {Id} disconnected", link.Id);
+            foreach (string sid in waiting) MarkServerDone(link.Id, sid, false, "game server agent disconnected");
         }
     }
 
@@ -351,16 +353,21 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     }
 
     /// <summary>A room without a host, for a game server plugin or the simulator; returns its invite code.</summary>
-    public string OpenRoom()
+    /// <param name="server">The game server agent that records its rounds; null: the only one connected.</param>
+    public string OpenRoom(string? server = null)
     {
         lock (_lock)
         {
-            var room = new Room(NewCode(), null);
+            var room = new Room(NewCode(), null, server);
             _rooms[room.Code] = room;
-            log.LogInformation("room {Room} opened (no host)", room.Code);
+            log.LogInformation("room {Room} opened (no host{Server})", room.Code, server is null ? "" : $", game server {server}");
             return room.Code;
         }
     }
+
+    /// <summary>Called with the lock held.</summary>
+    private AgentLink? ServerFor(Room room) =>
+        room.Server is { } id ? _gameServers.GetValueOrDefault(id) : _gameServers.Count == 1 ? _gameServers.Values.Single() : null;
 
     /// <summary>Applies one game server event to a room and returns it stamped; null when there is no such room.</summary>
     /// <exception cref="FormatException">The event has no "type".</exception>
@@ -436,7 +443,10 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                 ["rooms"] = new JsonArray(_rooms.Values.Select(r => (JsonNode)RoomStatus(r)).ToArray()),
                 ["agents_outside_rooms"] = new JsonArray(_agents.Values.Where(a => a.Room is null)
                     .Select(a => (JsonNode)a.Id).ToArray()),
-                ["game_server"] = _gameServer?.Hello.Name,
+                ["game_servers"] = new JsonArray(_gameServers.Values.Select(s => (JsonNode)new JsonObject
+                {
+                    ["id"] = s.Id, ["name"] = s.Hello.Name,
+                }).ToArray()),
             };
     }
 
@@ -450,6 +460,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     {
         ["code"] = room.Code,
         ["host"] = room.HostPlayerId,
+        ["server"] = room.Server,
         ["match_id"] = room.MatchId,
         ["game"] = room.Game,
         ["current_session"] = room.Current?.Record.SessionId,
@@ -563,7 +574,11 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             players.Select(a => new RoundPlayer(a.Id, a.Hello.Name, ToolVersion: a.Hello.ToolVersion,
                 MachineId: a.Hello.MachineId, SteamId: a.Hello.SteamId)).ToList(), countdownMs,
             ServerClock: Volatile.Read(ref _serverClock));
-        var round = new OpenRound(room, record) { Counting = countdownMs > 0, ServerArmed = _gameServer is not null };
+        var server = ServerFor(room);
+        if (server is null && (room.Server is not null || _gameServers.Count > 1))
+            log.LogWarning("{Session}: no game server records it (room bound to {Server}; connected: {Connected})", sid,
+                room.Server ?? "none", string.Join(", ", _gameServers.Keys));
+        var round = new OpenRound(room, record) { Counting = countdownMs > 0, Server = server?.Id };
         round.Events.AddRange(room.BetweenRounds);
         room.BetweenRounds.Clear();
         room.Current = round;
@@ -575,7 +590,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             effects.Sends.Add((a, new Arm(sid, _profileJson, options.Fps)));
             effects.Sends.Add((a, new Start(sid, countdownMs)));
         }
-        if (_gameServer is { } server) effects.Sends.Add((server, new Start(sid, countdownMs)));
+        if (server is not null) effects.Sends.Add((server, new Start(sid, countdownMs)));
         if (countdownMs > 0)
         {
             e["type"] = "round_countdown";
@@ -646,7 +661,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
 
     private void StopServer(OpenRound round, string reason, Effects effects)
     {
-        if (round.ServerArmed && _gameServer is { } server) effects.Sends.Add((server, new Stop(round.Record.SessionId, reason)));
+        if (round.Server is { } id && _gameServers.TryGetValue(id, out var server))
+            effects.Sends.Add((server, new Stop(round.Record.SessionId, reason)));
     }
 
     /// <param name="playerReason">Stop reason of every player still recording.</param>
@@ -732,21 +748,21 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         _ = FinishAsync(round);
     }
 
-    private void MarkServerDone(string sessionId, bool ok, string? error)
+    private void MarkServerDone(string serverId, string sessionId, bool ok, string? error)
     {
         OpenRound? round;
         lock (_lock)
         {
-            if (!_rounds.TryGetValue(sessionId, out round) || !round.ServerArmed || round.ServerDone) return;
+            if (!_rounds.TryGetValue(sessionId, out round) || round.Server != serverId || round.ServerDone) return;
             round.ServerDone = true;
-            if (!ok) log.LogWarning("game server agent, {Session}: {Error}", sessionId, error);
+            if (!ok) log.LogWarning("game server agent {Id}, {Session}: {Error}", serverId, sessionId, error);
             if (!round.Ended || !AllDone(round)) return;
         }
         _ = FinishAsync(round);
     }
 
     /// <summary>Called with the lock held.</summary>
-    private static bool AllDone(OpenRound round) => round.Record.Players.All(p => p.Done) && (!round.ServerArmed || round.ServerDone);
+    private static bool AllDone(OpenRound round) => round.Record.Players.All(p => p.Done) && (round.Server is null || round.ServerDone);
 
     private List<string> RoundsWaitingFor(string playerId)
     {
@@ -767,7 +783,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             record = round.Record;
             events = round.Events.Select(e => e.DeepClone().AsObject()).ToList();
             links = record.Players.Select(p => _agents.GetValueOrDefault(p.PlayerId)).OfType<AgentLink>().ToList();
-            if (round.ServerArmed && _gameServer is { } server) links.Add(server);
+            if (round.Server is { } id && _gameServers.TryGetValue(id, out var server)) links.Add(server);
         }
         var files = new RoundFiles(record.SessionId, record.ToJson(), RoundRecord.EventsJsonl(events), _profileJson);
         foreach (var link in links) await SendAsync(link, files);

@@ -20,8 +20,9 @@ If the log also has `CS2 server: tv_record …: No connection could be made`, th
 binds RCON to the machine's network address, not to 127.0.0.1. Check with `netstat -ano | findstr :27015` (the TCP line)
 and pass that address to `odx game-server --cs2-rcon`.
 
-If the orchestrator's `/status` has `"game_server": null`, no agent is connected and rounds have no server side at all:
-start `odx game-server` ([cs2-server.md](cs2-server.md#6-the-game-server-agent)).
+If the orchestrator's `/status` has an empty `"game_servers"`, no agent is connected and rounds have no server side at all:
+start `odx game-server` ([cs2-server.md](cs2-server.md#6-the-game-server-agent)). With several connected, a room opened
+without `?server=<id>` gets none either (the orchestrator logs `no game server records it`).
 
 ## CS2 server exits while loading the map
 

@@ -7,8 +7,9 @@ namespace Odx.Session;
 
 /// <param name="WorkDir">Each round is kept in &lt;WorkDir&gt;/&lt;session&gt;/ (server/ and the round's files).</param>
 /// <param name="AccessKey">The orchestrator's access key; null when it has none.</param>
+/// <param name="Id">Names this game server to the orchestrator; rooms opened for it (POST /rooms?server=…) are its own.</param>
 public sealed record GameServerAgentOptions(Uri Orchestrator, Cs2ServerOptions Cs2, string WorkDir, string? AccessKey = null,
-    string Name = "CS2 server");
+    string Name = "CS2 server", string Id = "game-server");
 
 /// <summary>
 /// The game server machine's agent (odx game-server). It connects to the orchestrator like a player's agent but joins no room:
@@ -18,7 +19,6 @@ public sealed record GameServerAgentOptions(Uri Orchestrator, Cs2ServerOptions C
 /// </summary>
 public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
 {
-    public const string Id = "game-server";
     private static readonly TimeSpan SampleEvery = TimeSpan.FromSeconds(1), NtpTimeout = TimeSpan.FromSeconds(2),
         Retry = TimeSpan.FromSeconds(5);
 
@@ -83,7 +83,7 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             throw new UnauthorizedAccessException($"{options.Orchestrator} refused the access key");
         }
         _socket = socket;
-        await SendAsync(new Hello(Id, options.Name, BuildInfo.Version, Role: Hello.GameServerRole), stop);
+        await SendAsync(new Hello(options.Id, options.Name, BuildInfo.Version, Role: Hello.GameServerRole), stop);
         log.LogInformation("connected to {Orchestrator}", options.Orchestrator);
 
         var buffer = new byte[64 * 1024];
