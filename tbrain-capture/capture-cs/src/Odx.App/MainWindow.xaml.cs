@@ -51,7 +51,7 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _agentStop;
     private AgentClient? _agent;
     private string _agentLog = "";
-    /// <summary>The last round's outcome for the status line (uploaded, then the session's gate result); null before any.</summary>
+    /// <summary>The last round's outcome for the status line; null before any.</summary>
     private Func<Strings, string>? _roundResult;
     private LanState? _lan;
     private PacketCaptureHelper? _packetHelper;
@@ -459,20 +459,11 @@ public partial class MainWindow : Window
             _agentLog = $"{DateTime.Now:HH:mm:ss} {line}";
             if (_run is null && _state == RunState.Agent) ShowAgentStatus();
         });
-        agent.RoundUploaded += (session, ok, error) => Dispatcher.BeginInvoke(() =>
+        agent.RoundKept += (session, dir, ok) => Dispatcher.BeginInvoke(() =>
         {
             if (_agent != agent) return;
-            _roundResult = ok ? t => t.RoundUploaded(session) : t => t.RoundUploadFailed(session, error!);
+            _roundResult = ok ? t => t.RoundKept(session, dir) : t => t.RoundCaptureFailed(session, dir);
             ToastOverlay.Notify(ok, _roundResult(_t));
-            if (_run is null) ShowAgentStatus();
-        });
-        agent.SessionResultReceived += result => Dispatcher.BeginInvoke(() =>
-        {
-            if (_agent != agent) return;
-            _roundResult = result.Pass
-                ? t => t.SessionPass(result.SessionId, result.ValidPlayers, result.RequiredPlayers)
-                : t => t.SessionFail(result.SessionId, string.Join("; ", result.Problems));
-            ToastOverlay.Notify(result.Pass, _roundResult(_t));
             if (_run is null) ShowAgentStatus();
         });
         agent.RoomChanged += room => Dispatcher.BeginInvoke(() =>
@@ -695,7 +686,7 @@ public partial class MainWindow : Window
     {
         _run = null;
         _clock.Stop();
-        // The notice comes once the upload is done (RoundUploaded).
+        // The notice comes once the capture is built (RoundKept).
         if (_state == RunState.Stopping) SetState(RunState.Idle, t => t.LeftRoom);
         else ShowAgentStatus();
         if (_closeWhenIdle) Close();

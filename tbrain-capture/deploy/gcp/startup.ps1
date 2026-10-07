@@ -36,7 +36,7 @@ foreach ($x in $procs) {
     if ($x.Proc.ExitCode) { Write-Host "tbrain-$($x.Name): FAILED exit $($x.Proc.ExitCode)"; Get-Content "$($x.Out).err" -Tail 20 | Write-Host }
 }
 
-# tbrain-remote: runs run-once.ps1 from the bucket and mirrors the sessions to it (remote-poll.ps1).
+# tbrain-remote: runs run-once.ps1 from the bucket and mirrors the server's rounds to it (remote-poll.ps1).
 if (-not (Get-ScheduledTask tbrain-remote -ErrorAction SilentlyContinue)) {
     gcloud storage cp gs://tbrain-game-server-setup/remote-poll.ps1 C:\tbrain\remote-poll.ps1 --quiet 2>$null
     $action = New-ScheduledTaskAction -Execute powershell.exe -Argument '-NoProfile -ExecutionPolicy Bypass -File C:\tbrain\remote-poll.ps1'

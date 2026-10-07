@@ -3,7 +3,7 @@
 // Stands in for a game server plugin: opens a room without a host (or uses --room), prints its invite code, waits until
 // every --players member has joined, then posts a scripted match to /rooms/<code>/events. Each round: round_start, a kill
 // and a permanent death of the last player halfway through, round_end. Before each round it waits until every member is
-// idle and the previous session is assembled; at the end it prints each session's gate result.
+// idle and the previous round is finished; at the end it prints how many players kept each round (odx merge gives the gate).
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
@@ -86,9 +86,9 @@ public static class SimulateGameCommand
         foreach (var s in status["sessions"]!.AsArray().Select(n => n!.AsObject())
                      .Where(s => ((string)s["session_id"]!).StartsWith(match + "-r", StringComparison.Ordinal)))
         {
-            bool ok = (bool)s["pass"]!;
+            bool ok = (int)s["kept"]! == (int)s["players"]!;
             pass &= ok;
-            Console.WriteLine($"{s["session_id"]}: {(ok ? "PASS" : "FAIL")} ({s["valid_players"]}/{s["required_players"]} players required)");
+            Console.WriteLine($"{s["session_id"]}: {s["kept"]}/{s["players"]} players kept their recording");
         }
         return pass ? 0 : 1;
     }
@@ -100,11 +100,11 @@ public static class SimulateGameCommand
         Console.WriteLine($"{DateTime.Now:HH:mm:ss} {await response.Content.ReadAsStringAsync()}");
     }
 
-    /// <summary>Waits until no session is waiting for uploads and every member is idle (members still busy would sit out the next round).</summary>
+    /// <summary>Waits until no round is waiting for its players and every member is idle (members still busy would sit out the next round).</summary>
     private static Task<JsonObject> WaitUntilSettled(HttpClient http, string room) =>
         WaitUntil(http, room, s => s["pending_sessions"]!.AsArray().Count == 0 &&
                                    s["members"]!.AsArray().All(m => (string?)m!["state"] == "idle"),
-            "agents did not finish uploading in time");
+            "agents did not finish their rounds in time");
 
     private static async Task<JsonObject> WaitUntil(HttpClient http, string room, Func<JsonObject, bool> done, string timeout)
     {

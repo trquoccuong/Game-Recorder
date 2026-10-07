@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Starts (or updates) odx-orchestrator and odx-merge on this server: bash up.sh
+# Starts (or updates) odx-orchestrator on this server: bash up.sh
 # Needs Docker with the compose plugin, the domain's DNS pointing here, and ports 80/tcp, 443/tcp+udp, 12300/udp and
 # 9993/udp (ZeroTier, rooms with a LAN) open.
 set -euo pipefail
@@ -18,8 +18,6 @@ if [ "$ODX_DOMAIN" = "capture.example.com" ] || [ "$ODX_ACCESS_KEY" = "change-me
   exit 1
 fi
 
-mkdir -p sessions
-[ "$(stat -c %u sessions)" = "1654" ] || sudo chown 1654:1654 sessions  # the container's non-root user
 
 # The ZeroTier controller's API token: written before its first start (zerotier-one keeps an existing one) and handed to
 # the orchestrator through .env.
@@ -34,7 +32,6 @@ docker compose up -d --build
 
 echo
 echo "Orchestrator: https://$ODX_DOMAIN  (time service: $ODX_DOMAIN:12300/udp)"
-echo "Sessions:     $(pwd)/sessions  (odx-merge)"
 echo "Package odx-app for it on Windows:"
 echo "  powershell -ExecutionPolicy Bypass -File publish.ps1 -Orchestrator https://$ODX_DOMAIN -AccessKey $ODX_ACCESS_KEY"
 echo "On the CS2 server's machine (docs/cs2-server.md):"

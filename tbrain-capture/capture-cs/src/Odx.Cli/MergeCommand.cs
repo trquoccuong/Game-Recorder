@@ -1,7 +1,8 @@
 // odx merge <folder> [--out DIR]
 // <folder> holds one session folder per round in the staging layout (round.json, server_events.jsonl, game_profile.json,
 // players/<id>/, server/), copied by hand from the participants; a session folder itself works too. Each is assembled into
-// <out>/<vendor>/<date>/<game>/<session>/ (default out: ./delivery). Exit code 1 if any session fails the gate.
+// <out>/<vendor>/<date>/<game>/<session>/ (default out: the package's data\delivery). Exit code 1 if any session fails the gate.
+using Odx.Core;
 using Odx.Session;
 
 namespace Odx.Cli;
@@ -12,7 +13,7 @@ public static class MergeCommand
 
     public static int Run(string[] args)
     {
-        string? folder = null, outRoot = "delivery";
+        string? folder = null, outRoot = PackageFolders.Delivery;
         bool usage = false;
         for (int i = 0; i < args.Length && !usage; i++)
         {

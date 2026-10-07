@@ -9,6 +9,5 @@ odx_capture/
 dist/
 .cache/
 deploy/.env
-deploy/sessions/
 deploy/zerotier/
 deploy/aws/.aws-credentials

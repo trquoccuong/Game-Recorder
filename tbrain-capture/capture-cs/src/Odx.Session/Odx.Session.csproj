@@ -4,7 +4,6 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Odx.Tests" />
     <InternalsVisibleTo Include="odx-orchestrator" />
-    <InternalsVisibleTo Include="odx-merge" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="JsonSchema.Net" Version="7.3.4" />

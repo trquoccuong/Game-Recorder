@@ -51,7 +51,6 @@ public static class GameEvents
 [JsonDerivedType(typeof(RoomError), "room_error")]
 [JsonDerivedType(typeof(RoomClosed), "room_closed")]
 [JsonDerivedType(typeof(LanMember), "lan_member")]
-[JsonDerivedType(typeof(SessionResult), "session_result")]
 [JsonDerivedType(typeof(RoundFiles), "round_record")]
 public abstract record AgentMessage
 {
@@ -80,11 +79,10 @@ public sealed record Hello(string PlayerId, string Name, string ToolVersion, str
 }
 
 /// <summary>
-/// Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder), the game profile its
-/// rounds use, so a player knows before any round whether packets will be captured, and where to upload each round
-/// (odx-merge; null when the orchestrator has none).
+/// Orchestrator → agent: where to measure the clock (UDP port of the orchestrator's NTP responder) and the game profile its
+/// rounds use, so a player knows before any round whether packets will be captured.
 /// </summary>
-public sealed record Welcome(int TimePort, string? GameProfileJson = null, string? MergeUrl = null) : AgentMessage;
+public sealed record Welcome(int TimePort, string? GameProfileJson = null) : AgentMessage;
 
 /// <summary>Orchestrator → agent: prepare a session; the game profile (JSON) is the one the build must use.</summary>
 public sealed record Arm(string SessionId, string GameProfileJson, int Fps) : AgentMessage;
@@ -102,10 +100,10 @@ public sealed record Stop(string SessionId, string Reason) : AgentMessage
     public const string Cancelled = "cancelled";
 }
 
-/// <summary>Agent → orchestrator: idle, armed, recording, building, uploading, error.</summary>
+/// <summary>Agent → orchestrator: idle, armed, recording, building, error.</summary>
 public sealed record AgentState(string State, string? Detail = null) : AgentMessage;
 
-/// <summary>Agent → orchestrator: the session's files are uploaded (or why not).</summary>
+/// <summary>Agent → orchestrator: the session's files are kept (or why not).</summary>
 public sealed record Done(string SessionId, bool Ok, string? Error = null) : AgentMessage;
 
 /// <summary>Agent → orchestrator: the player is (not) ready; when every player of the room is, a round starts after a countdown.</summary>
@@ -143,13 +141,6 @@ public sealed record RoomClosed(string Code) : AgentMessage;
 
 /// <summary>Agent → orchestrator: this machine (ZeroTier node) joined the room's LAN; the orchestrator authorizes it.</summary>
 public sealed record LanMember(string NodeId) : AgentMessage;
-
-/// <summary>
-/// Orchestrator → each player of a round, once it is assembled: whether the session passed the gate, and why not
-/// (the session's problems, then this player's own).
-/// </summary>
-public sealed record SessionResult(string SessionId, bool Pass, int ValidPlayers, int RequiredPlayers, List<string> Problems)
-    : AgentMessage;
 
 public sealed record RoundFiles(string SessionId, string Round, string Events, string GameProfile) : AgentMessage
 {

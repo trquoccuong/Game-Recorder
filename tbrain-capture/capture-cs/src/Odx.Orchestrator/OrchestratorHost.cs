@@ -14,7 +14,7 @@ namespace Odx.Orchestrator;
 ///   POST /rooms/{code}/events  one GameEvents JSON object for that room
 ///   GET  /rooms/{code}         the room's members, round and sessions
 ///   GET  /status               every room
-/// Captures are uploaded to odx-merge, not here.
+/// Captures stay with their participants; nothing is uploaded here.
 /// plus the NTP responder on UDP <see cref="OrchestratorOptions.TimePort"/>. With an access key, every HTTP and WebSocket
 /// request needs "Authorization: Bearer &lt;key&gt;" (401 otherwise); NTP stays open, it reveals only the time.
 /// </summary>
