@@ -97,7 +97,14 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
                     break;
                 case RoundFiles files:
                     string kept = Path.Combine(options.WorkDir, files.SessionId);
-                    if (Directory.Exists(kept)) files.WriteTo(kept);
+                    try
+                    {
+                        if (Directory.Exists(kept)) files.WriteTo(kept);
+                    }
+                    catch (IOException e)
+                    {
+                        log.LogError("{Session}: cannot write the round's files: {Error}", files.SessionId, e.Message);
+                    }
                     break;
                 case Start s:
                     await StartAsync(s.SessionId);

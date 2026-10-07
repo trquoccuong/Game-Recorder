@@ -4,7 +4,8 @@ namespace Odx.App;
 
 /// <summary>
 /// Single instance: a second start (e.g. the launcher clicked again while the app sits in the tray) only brings the
-/// running window back, so two apps never record at the same time.
+/// running window back, so two apps never record at the same time. --headless runs <see cref="HeadlessAgent"/> instead, as
+/// many as wanted (several players on one test machine).
 /// </summary>
 public partial class App : Application
 {
@@ -14,6 +15,11 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (HeadlessAgent.Wanted(e.Args))
+        {
+            Shutdown(HeadlessAgent.Run(e.Args));
+            return;
+        }
         _instance = new Mutex(true, InstanceName, out bool first);
         if (!first)
         {
