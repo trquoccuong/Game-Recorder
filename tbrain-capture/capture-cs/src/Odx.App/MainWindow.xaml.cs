@@ -49,21 +49,12 @@ public partial class MainWindow : Window
     /// <summary>Windows that can be recorded, listed off the UI thread (~200 ms) once the window is up and on Refresh.</summary>
     private List<SourceItem> _windows = [];
     private bool _windowsListed;
-    private CancellationTokenSource? _agentStop;
-    private AgentClient? _agent;
-    private string _agentLog = "";
+    /// <summary>The room this player is in; null outside one.</summary>
+    private RoomSession? _room;
+    private AgentClient? _agent => _room?.Agent;
     /// <summary>The last round's outcome for the status line; null before any.</summary>
     private Func<Strings, string>? _roundResult;
-    private LanState? _lan;
-    /// <summary>
-    /// The elevated packet capture helper, kept from the first room that wants it until the app closes: one UAC prompt per
-    /// run of the app, not one per room.
-    /// </summary>
-    private PacketCaptureHelper? _packetHelper;
-    /// <summary>The UAC prompt was declined in this run of the app: not asked again until it restarts.</summary>
-    private bool _packetsDeclined;
-    /// <summary>null: this room's game records no packets; true/false: the elevated helper is running or was refused.</summary>
-    private bool? _packets;
+    private readonly ElevatedPackets _packets = new();
 
     /// <summary>
     /// Idle → Countdown → Starting (odx record warming up) → Recording → Stopping (incl. build + validate) → Idle.
@@ -184,7 +175,7 @@ public partial class MainWindow : Window
     {
         UnregisterHotKey(_hwnd, HotkeyId);
         _tray.Dispose();
-        _packetHelper?.Dispose();  // the helper stops pktmon and exits when its pipe closes
+        _packets.Dispose();
         base.OnClosed(e);
     }
 
@@ -457,78 +448,55 @@ public partial class MainWindow : Window
             SetStatus(t => t.InvalidRoomCode);
             return;
         }
-        _agentStop = new CancellationTokenSource();
-        var agent = new AgentClient(new AgentOptions(orchestrator, _settings.PlayerId, Environment.UserName, PackageFolders.Captures,
+        var room = new RoomSession(new AgentOptions(orchestrator, _settings.PlayerId, Environment.UserName, PackageFolders.Captures,
             _settings.WindowProcess, RoomCode: code, CreateRoom: code is null, AccessKey: _config.AccessKey, Lan: lan),
-            StartAgentCapture);
+            StartAgentCapture, _packets.GetAsync);
+        var agent = room.Agent;
         agent.Countdown += (ms, cancelled) => Dispatcher.BeginInvoke(() => ShowAgentCountdown(ms, cancelled));
-        agent.Log += line => Dispatcher.BeginInvoke(() =>
+        room.Changed += () => Dispatcher.BeginInvoke(() =>
         {
-            _agentLog = $"{DateTime.Now:HH:mm:ss} {line}";
-            if (_run is null && _state == RunState.Agent) ShowAgentStatus();
+            if (_room == room && _run is null && _state == RunState.Agent) ShowAgentStatus();
+        });
+        room.LanMissing += () => Dispatcher.BeginInvoke(() =>
+        {
+            if (_room == room) OfferZeroTier(room);
         });
         agent.RoundKept += (session, dir, ok) => Dispatcher.BeginInvoke(() =>
         {
-            if (_agent != agent) return;
+            if (_room != room) return;
             _roundResult = ok ? t => t.RoundKept(session, dir) : t => t.RoundCaptureFailed(session, dir);
             ToastOverlay.Notify(ok, _roundResult(_t));
             if (_run is null) ShowAgentStatus();
         });
-        agent.RoomChanged += room => Dispatcher.BeginInvoke(() =>
+        agent.RoomChanged += update => Dispatcher.BeginInvoke(() =>
         {
-            if (_agent != agent) return;
-            if (room is null)
+            if (_room != room) return;
+            if (update is null)
             {
                 Disconnect(t => t.RoomClosed);
                 return;
             }
-            RoomBox.Text = room.Code;
+            RoomBox.Text = update.Code;
             SetState(_state);
             if (_run is null) ShowAgentStatus();
         });
-        agent.PacketCaptureWanted += _ => Dispatcher.BeginInvoke(async () =>
-        {
-            if (_agent != agent || agent.Packets is not null) return;
-            if (_packetHelper is { IsConnected: false })
-            {
-                _packetHelper.Dispose();
-                _packetHelper = null;
-            }
-            if (_packetHelper is null && !_packetsDeclined)
-            {
-                _packetHelper = await PacketCaptureHelper.LaunchAsync(ExternalTools.Odx());
-                _packetsDeclined = _packetHelper is null;
-            }
-            _packets = _packetHelper is not null;
-            if (_agent == agent) agent.Packets = _packetHelper;
-            if (_run is null && _state == RunState.Agent) ShowAgentStatus();
-        });
-        agent.LanChanged += lan => Dispatcher.BeginInvoke(() =>
-        {
-            if (_agent != agent) return;
-            _lan = lan;
-            if (_run is null) ShowAgentStatus();
-            if (lan is { Status: "zerotier_missing" }) OfferZeroTier(agent);
-        });
         agent.RoomError += error => Dispatcher.BeginInvoke(() =>
         {
-            if (_agent != agent) return;
+            if (_room != room) return;
             if (agent.Room is null) Disconnect(_ => error);
             else SetStatus(_ => error);
         });
-        _agent = agent;
-        _agentLog = "";
+        _room = room;
         _roundResult = null;
-        _lan = null;
         SetState(RunState.Agent, t => t.JoiningRoom);
-        _ = agent.RunUntilStoppedAsync(_agentStop.Token);
+        _ = room.RunAsync();
     }
 
     /// <summary>
     /// The room plays over a virtual LAN this machine cannot join yet: offer to install ZeroTier (winget, one UAC prompt),
     /// start its tray app (it gives the user a copy of the service's API token), then join again.
     /// </summary>
-    private async void OfferZeroTier(AgentClient agent)
+    private async void OfferZeroTier(RoomSession room)
     {
         if (MessageBox.Show(this, _t.LanInstallQuestion, _t.LanInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question)
             != MessageBoxResult.Yes) return;
@@ -553,13 +521,13 @@ public partial class MainWindow : Window
                 return false;
             }
         });
-        if (_agent != agent) return;
+        if (_room != room) return;
         if (!installed)
         {
             SetStatus(t => t.LanInstallFailed);
             return;
         }
-        if (_agentStop is { } stop) await agent.JoinLanAsync(stop.Token);
+        await room.JoinLanAsync();
     }
 
     private static readonly string ZeroTierTray =
@@ -567,59 +535,47 @@ public partial class MainWindow : Window
 
     private async void LeaveRoom()
     {
-        if (_agent is { } agent && _agentStop is { } stop)
+        if (_room is { } room)
         {
-            _agent = null;  // its RoomChanged(null) is ours, not the host's
-            try
-            {
-                await agent.LeaveRoomAsync(stop.Token);
-            }
-            catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
-            {
-            }
+            _room = null;  // its RoomChanged(null) is ours, not the host's
+            await room.LeaveAsync();
+            room.Dispose();
         }
         Disconnect(t => t.LeftRoom);
     }
 
     private async void CloseRoom()
     {
-        if (_agent is { } agent && _agentStop is { } stop)
+        if (_room is { } room)
         {
-            _agent = null;
-            try
-            {
-                await agent.CloseRoomAsync(stop.Token);
-            }
-            catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
-            {
-            }
+            _room = null;
+            await room.CloseAsync();
+            room.Dispose();
         }
         Disconnect(t => t.LeftRoom);
     }
 
     private void Disconnect(Func<Strings, string> status)
     {
-        _packets = null;
-        _agentStop?.Cancel();
-        _agentStop = null;
-        _agent = null;
+        _room?.Dispose();
+        _room = null;
         if (_run is null) SetState(RunState.Idle, status);
         else StopRecording();
     }
 
     private void ShowAgentStatus()
     {
-        if (_agent?.Room is not { } room)
+        if (_room is not { Agent.Room: { } room } session)
         {
             SetStatus(t => t.JoiningRoom);
             return;
         }
-        string log = _agentLog, hotkey = _settings.Hotkey.ToString();
-        bool host = _agent.IsHost, ready = _agent.IsReady;
+        string log = session.LastLog, hotkey = _settings.Hotkey.ToString();
+        bool host = session.Agent.IsHost, ready = session.Agent.IsReady;
         string members = string.Join(" · ", room.Members.Select(m =>
             m.Name + (m.PlayerId == room.HostPlayerId ? " (host)" : "") + (m.Ready ? " ✓" : "")));
-        var lan = _lan;
-        bool? packets = _packets;
+        var lan = session.Lan;
+        bool? packets = session.Packets;
         var round = _roundResult;
         SetStatus(t => t.RoomStatus(room.Code, host, members) + (round is null ? "" : "\n" + round(t)) +
                        (lan is null ? "" : "\n" + t.LanStatus(lan)) +
@@ -629,23 +585,17 @@ public partial class MainWindow : Window
 
     private async void ToggleReady()
     {
-        if (_agent is null || _agentStop is null) return;
-        try
-        {
-            await _agent.SetReadyAsync(!_agent.IsReady, _agentStop.Token);
-        }
-        catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
-        {
-        }
+        if (_room is not { } room) return;
+        await room.ToggleReadyAsync();
         if (_run is null) ShowAgentStatus();
     }
 
     private async void ToggleRound()
     {
-        if (_agent is null || _agentStop is null) return;
+        if (_room is not { } room) return;
         try
         {
-            await _agent.ToggleRoundAsync(CountdownSeconds * 1000, _agentStop.Token);
+            await room.ToggleRoundAsync(CountdownSeconds * 1000);
         }
         catch (Exception e) when (e is System.Net.WebSockets.WebSocketException or OperationCanceledException)
         {

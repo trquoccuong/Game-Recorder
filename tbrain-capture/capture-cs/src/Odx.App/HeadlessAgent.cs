@@ -47,22 +47,20 @@ public static class HeadlessAgent
             return 2;
         }
 
-        using var stop = new CancellationTokenSource();
+        using var session = new RoomSession(new AgentOptions(orchestrator, player, name ?? player, Path.GetFullPath(outRoot), window,
+            RoomCode: room, AutoReady: autoReady, AccessKey: accessKey), CaptureRun.Start, () =>
+        {
+            if (PktmonCapture.IsElevated) return Task.FromResult<IPacketCapture?>(new PktmonCapture());
+            Console.WriteLine($"{DateTime.Now:HH:mm:ss} {player}: this game's packets are recorded only when run as administrator");
+            return Task.FromResult<IPacketCapture?>(null);
+        });
         Console.CancelKeyPress += (_, e) =>
         {
             e.Cancel = true;
-            stop.Cancel();
+            session.Dispose();
         };
-        var agent = new AgentClient(new AgentOptions(orchestrator, player, name ?? player, Path.GetFullPath(outRoot), window,
-            RoomCode: room, AutoReady: autoReady, AccessKey: accessKey), CaptureRun.Start);
-        agent.Log += line => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {player}: {line}");
-        agent.PacketCaptureWanted += _ =>
-        {
-            if (PktmonCapture.IsElevated) agent.Packets ??= new PktmonCapture();
-            else Console.WriteLine($"{DateTime.Now:HH:mm:ss} {player}: this game's packets are recorded only when run as administrator");
-        };
-        // Off WPF's thread: its continuations would wait for the dispatcher this call blocks.
-        Task.Run(() => agent.RunUntilStoppedAsync(stop.Token)).GetAwaiter().GetResult();
+        session.Agent.Log += line => Console.WriteLine($"{DateTime.Now:HH:mm:ss} {player}: {line}");
+        session.RunAsync().GetAwaiter().GetResult();
         return 0;
     }
 
