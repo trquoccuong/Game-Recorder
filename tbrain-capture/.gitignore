@@ -11,3 +11,4 @@ dist/
 deploy/.env
 deploy/zerotier/
 deploy/aws/.aws-credentials
+deploy/state/

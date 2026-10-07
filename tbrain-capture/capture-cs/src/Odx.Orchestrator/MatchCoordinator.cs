@@ -17,6 +17,8 @@ public sealed record OrchestratorOptions(string GameProfilePath, int HttpPort = 
     /// before it is stopped there; the agent stops by itself after as long.
     /// </summary>
     public TimeSpan ReconnectGrace { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>The SQLite file keeping rooms and rounds across restarts (<see cref="OrchestratorStore"/>); null keeps none.</summary>
+    public string? StatePath { get; init; }
     /// <summary>A room nobody is in is closed after this long (the host closes it otherwise).</summary>
     public TimeSpan EmptyRoomTimeout { get; init; } = TimeSpan.FromMinutes(30);
     /// <summary>Every HTTP and WebSocket request must carry "Authorization: Bearer &lt;key&gt;"; null lets anyone in.</summary>
@@ -36,7 +38,7 @@ public sealed record OrchestratorOptions(string GameProfilePath, int HttpPort = 
 /// <see cref="OrchestratorOptions.DoneTimeout"/> passes) each participant gets the round's files (<see cref="RoundFiles"/>) to keep
 /// with it, and odx merge builds the v3 session from the copied folders.
 /// </summary>
-public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, ILogger<MatchCoordinator> log)
+public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, ILogger<MatchCoordinator> log) : IDisposable
 {
     private sealed class AgentLink(Hello hello, WebSocket socket)
     {
@@ -118,6 +120,12 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private long _eventId;
     private ServerClock? _serverClock;
     private readonly ZeroTierApi? _zeroTier = options is { ZeroTierApi: { } api, ZeroTierToken: { } token } ? new ZeroTierApi(api, token) : null;
+    private readonly OrchestratorStore? _store = options.StatePath is { } path ? new OrchestratorStore(path) : null;
+    /// <summary>Set once the orchestrator stops: timers still running then must not write to the store.</summary>
+    private bool _disposed;
+
+    /// <summary>Called with the lock held.</summary>
+    private OrchestratorStore? Store => _disposed ? null : _store;
 
     public int TimePort => timePort;
 
@@ -455,6 +463,9 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             var room = new Room(NewCode(), null, server);
             _rooms[room.Code] = room;
+            var opened = new Effects();
+            opened.Changed.Add(room);
+            Persist(opened);
             log.LogInformation("room {Room} opened (no host{Server})", room.Code, server is null ? "" : $", game server {server}");
             return room.Code;
         }
@@ -496,6 +507,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                                                               DateTime.UtcNow - r.EmptySinceUtc > options.EmptyRoomTimeout).ToList())
                 {
                     _rooms.Remove(room.Code);
+                    Store?.CloseRoom(room.Code);
                     if (room.LanNetworkId is { } network) _ = DeleteLanAsync(network);
                     log.LogInformation("room {Room} closed after staying empty", room.Code);
                 }
@@ -543,6 +555,91 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                     ["id"] = s.Id, ["name"] = s.Hello.Name,
                 }).ToArray()),
             };
+    }
+
+    /// <summary>
+    /// Takes back what the store kept from before a restart: the open rooms (empty until their members reconnect) and their
+    /// unfinished rounds. Everyone in those rounds counts as away, with the usual grace to come back; a round that was
+    /// counting down is cancelled, since its countdown cannot be resumed.
+    /// </summary>
+    public void Restore()
+    {
+        if (_store is null) return;
+        var gone = new List<(string Id, long Absence, bool Server)>();
+        var ended = new List<OpenRound>();
+        lock (_lock)
+        {
+            _eventId = _store.NextEventId;
+            foreach (var r in _store.OpenRooms())
+            {
+                var room = new Room(r.Code, r.Host, r.Server)
+                    { LanNetworkId = r.LanNetworkId, MatchId = r.MatchId, Map = r.Map, Game = r.Game, RoundNumber = r.RoundNumber };
+                room.BetweenRounds.AddRange(r.BetweenRounds);
+                _rooms[room.Code] = room;
+            }
+            foreach (var s in _store.UnfinishedRounds())
+            {
+                if (!_rooms.TryGetValue(s.Room, out var room)) continue;
+                if (s.Counting)
+                {
+                    _store.SaveRound(s with { State = "cancelled" });
+                    room.RoundNumber = s.Record.Round - 1;
+                    continue;
+                }
+                var round = new OpenRound(room, s.Record) { Server = s.Server, ServerDone = s.ServerDone, Ended = s.State == "ended" };
+                round.Events.AddRange(s.Events);
+                _rounds[s.SessionId] = round;
+                if (round.Ended) ended.Add(round);
+                else room.Current = round;
+                foreach (var p in round.Record.Players.Where(p => !p.Done))
+                {
+                    if (p.StopReason is null) round.Away.Add(p.PlayerId);
+                    gone.Add((p.PlayerId, _absent[p.PlayerId] = ++_absences, false));
+                }
+                if (round.Server is { } server && !round.ServerDone) gone.Add((server, _absent[server] = ++_absences, true));
+            }
+            log.LogInformation("restored {Rooms} room(s) and {Rounds} unfinished round(s) from {Store}", _rooms.Count, _rounds.Count,
+                options.StatePath);
+        }
+        foreach (var (id, absence, server) in gone)
+            _ = Task.Delay(options.ReconnectGrace).ContinueWith(_ => server ? Task.Run(() => GameServerGone(id, absence)) : PlayerGoneAsync(id, absence),
+                TaskScheduler.Default).Unwrap();
+        foreach (var round in ended)
+            _ = Task.Delay(options.DoneTimeout).ContinueWith(_ => FinishAsync(round), TaskScheduler.Default).Unwrap();
+    }
+
+    /// <summary>Called with the lock held, after every change.</summary>
+    private void Persist(Effects effects)
+    {
+        if (Store is not { } store) return;
+        store.NextEventId = _eventId;
+        // Cancelled first: a round_start during a countdown cancels the round and starts one with the same session id.
+        foreach (var round in effects.Cancelled) Save(round, "cancelled");
+        foreach (var room in effects.Changed)
+        {
+            if (!_rooms.ContainsKey(room.Code))
+            {
+                store.CloseRoom(room.Code);
+                continue;
+            }
+            store.SaveRoom(new StoredRoom(room.Code, room.HostPlayerId, room.Server, room.LanNetworkId, room.MatchId, room.Map,
+                room.Game, room.RoundNumber, room.BetweenRounds));
+            foreach (var round in _rounds.Values.Where(r => r.Room == room)) Save(round);
+        }
+    }
+
+    /// <summary>Called with the lock held.</summary>
+    private void Save(OpenRound round, string? state = null) =>
+        Store?.SaveRound(new StoredRound(round.Record.SessionId, round.Room.Code, state ?? (round.Ended ? "ended" : "open"),
+            round.Counting, round.Server, round.ServerDone, round.Record, round.Events));
+
+    public void Dispose()
+    {
+        lock (_lock)
+        {
+            _disposed = true;
+            _store?.Dispose();
+        }
     }
 
     /// <summary>Null when there is no room with this code.</summary>
@@ -782,6 +879,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     {
         List<(AgentLink, AgentMessage)> updates;
         lock (_lock)
+        {
+            Persist(effects);
             updates = effects.Changed.Where(r => _rooms.ContainsKey(r.Code)).SelectMany(r =>
             {
                 var update = new RoomUpdate(r.Code, r.HostPlayerId,
@@ -789,6 +888,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
                     r.Current?.Record.SessionId, r.Current?.Counting ?? false, r.LanNetworkId);
                 return r.Members.Select(a => (a, (AgentMessage)update));
             }).ToList();
+        }
         foreach (var (link, message) in effects.Sends.Concat(updates)) await SendAsync(link, message);
         foreach (var (network, node) in effects.LanRevoke)
         {
@@ -837,6 +937,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             if (!_rounds.TryGetValue(sessionId, out round) || round.IndexOf(playerId) is var i && i < 0) return;
             round.Record.Players[i] = round.Record.Players[i] with { Done = true, Kept = ok, Error = error };
+            Save(round);
             if (!round.Ended || !AllDone(round)) return;
         }
         log.LogInformation("{Player} done with {Session}: {Result}", playerId, sessionId, ok ? "kept" : error);
@@ -850,6 +951,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             if (!_rounds.TryGetValue(sessionId, out round) || round.Server != serverId || round.ServerDone) return;
             round.ServerDone = true;
+            Save(round);
             if (!ok) log.LogWarning("game server agent {Id}, {Session}: {Error}", serverId, sessionId, error);
             if (!round.Ended || !AllDone(round)) return;
         }
@@ -885,6 +987,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         lock (_lock)
         {
             round.Room.Recorded.Add(record);
+            Save(round, "finished");
             _rounds.Remove(record.SessionId);
         }
         log.LogInformation("round {Session}: {Kept}/{Count} players kept their recording", record.SessionId,

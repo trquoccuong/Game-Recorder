@@ -14,6 +14,8 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 COPY --from=build /app .
 COPY games games
+# The state (a bind mount) goes to /data; the image's non-root "app" user (uid 1654) must own it.
+RUN mkdir -p /data && chown app /data
 USER app
 EXPOSE 5180 12300/udp
 ENTRYPOINT ["dotnet"]

@@ -22,17 +22,17 @@ public sealed class ReconnectTests : IAsyncLifetime
     {
         private readonly TcpListener _listener = new(IPAddress.Loopback, 0);
         private readonly List<TcpClient> _open = [];
-        private readonly int _target;
 
         public TcpProxy(int target)
         {
-            _target = target;
+            Target = target;
             _listener.Start();
             _ = AcceptAsync();
         }
 
         public int Port => ((IPEndPoint)_listener.LocalEndpoint).Port;
         public bool Down { get; set; }
+        public int Target { get; set; }
 
         public void Cut()
         {
@@ -62,7 +62,16 @@ public sealed class ReconnectTests : IAsyncLifetime
                     continue;
                 }
                 var server = new TcpClient();
-                await server.ConnectAsync(IPAddress.Loopback, _target);
+                try
+                {
+                    await server.ConnectAsync(IPAddress.Loopback, Target);
+                }
+                catch (SocketException)
+                {
+                    client.Close();  // the target is down for now
+                    server.Dispose();
+                    continue;
+                }
                 lock (_open) _open.AddRange([client, server]);
                 _ = Pump(client, server);
                 _ = Pump(server, client);
@@ -99,18 +108,29 @@ public sealed class ReconnectTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        string profile = Path.Combine(_root, "game.json");
-        File.WriteAllText(profile, """
+        File.WriteAllText(Path.Combine(_root, "game.json"), """
             {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
             """);
-        _app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0)
-            { ReconnectGrace = TimeSpan.FromSeconds(2) }, "127.0.0.1");
-        await _app.StartAsync();
-        _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
-        _proxy = new TcpProxy(_http.BaseAddress.Port);
+        await StartOrchestrator(null);
         _template = SessionFixtures.MakeValidSession(Path.Combine(_root, "template"), video: false);
         _room = (string)(await (await _http.PostAsync("/rooms", null)).Content.ReadFromJsonAsync<JsonObject>())!["code"]!;
+    }
+
+    /// <summary>A new orchestrator behind the proxy (stopping the one before); agents reach it through the proxy only.</summary>
+    private async Task StartOrchestrator(string? state, int graceS = 2)
+    {
+        if (_app is not null)
+        {
+            await _app.StopAsync();
+            await _app.DisposeAsync();
+        }
+        _app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(_root, "game.json"), HttpPort: 0, TimePort: 0)
+            { ReconnectGrace = TimeSpan.FromSeconds(graceS), StatePath = state }, "127.0.0.1");
+        await _app.StartAsync();
+        _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
+        if (_proxy is null) _proxy = new TcpProxy(_http.BaseAddress.Port);
+        else _proxy.Target = _http.BaseAddress.Port;
     }
 
     public async Task DisposeAsync()
@@ -248,6 +268,33 @@ public sealed class ReconnectTests : IAsyncLifetime
 
         var round = await Kept("p1", "m4-r01");
         Assert.True(round.Players.Single().Kept);
+    }
+
+    [Fact]
+    public async Task A_restarted_orchestrator_takes_its_rooms_and_rounds_back()
+    {
+        string state = Path.Combine(_root, "state", "orchestrator.db");
+        await StartOrchestrator(state, graceS: 10);
+        _room = (string)(await (await _http.PostAsync("/rooms", null)).Content.ReadFromJsonAsync<JsonObject>())!["code"]!;
+        var (_, runs) = Player("p1");
+        await Until(s => Members(s, 1), "p1 did not join");
+        await Post(new { type = "round_start", match_id = "m5" });
+        await Until(s => s["members"]!.AsArray().Any(m => (string?)m!["state"] == "recording"), "p1 did not record");
+        await Post(new { type = "kill", attacker = "p1", victim = "bot" });
+
+        await StartOrchestrator(state, graceS: 10);  // the agent's connection goes with the old one
+        _proxy.Cut();
+        await Until(s => s["members"]!.AsArray().Count == 1 && (string?)s["current_session"] == "m5-r01", "p1 did not come back");
+        Assert.Null(runs.Single().StoppedAt);
+        await Post(new { type = "round_end" });
+
+        var round = await Kept("p1", "m5-r01");
+        Assert.True(round.Players.Single().Kept);
+        string events = File.ReadAllText(Path.Combine(_root, "p1", "m5-r01", RoundRecord.EventsFileName));
+        Assert.Contains("\"kill\"", events);  // from before the restart
+        await Until(s => Members(s, 1), "p1 is not idle again");
+        await Post(new { type = "round_start" });
+        await Until(s => (string?)s["current_session"] == "m5-r02", "the next round is not r02");
     }
 
     [Fact]
