@@ -1,5 +1,6 @@
 using System.Text.Json.Nodes;
 using Odx.Core;
+using Odx.Protocol;
 using Odx.Session.Proto;
 
 namespace Odx.Session;

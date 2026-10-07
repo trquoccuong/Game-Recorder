@@ -55,8 +55,8 @@ public static class SessionBuilder
             ["vendor_name"] = vendorName,
             ["game_title"] = profile.GameTitle,
             ["session_id"] = sessionId,
-            ["created_at_utc"] = IsoUtc(startUnixMs),
-            ["ended_at_utc"] = IsoUtc(startUnixMs + durationMs),
+            ["created_at_utc"] = UtcText.Iso(startUnixMs),
+            ["ended_at_utc"] = UtcText.Iso(startUnixMs + durationMs),
             ["duration_ms"] = durationMs,
             ["duration_seconds"] = durationMs / 1000,
             ["fps"] = fps,
@@ -192,10 +192,6 @@ public static class SessionBuilder
         if (c.SystemOffsetMs is double offset) json["system_clock_offset_ms"] = Math.Round(offset, 1);
         return json;
     }
-
-    internal static string IsoUtc(double unixMs) =>
-        DateTimeOffset.FromUnixTimeMilliseconds((long)Math.Round(unixMs)).UtcDateTime
-            .ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
 
     private static T Required<T>(JsonObject json, string key) =>
         json[key] is JsonValue v && v.TryGetValue(out T? value) && value is not null

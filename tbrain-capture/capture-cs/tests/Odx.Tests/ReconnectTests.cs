@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Odx.Orchestrator;
+using Odx.Protocol;
 using Odx.Session;
 using Xunit;
 

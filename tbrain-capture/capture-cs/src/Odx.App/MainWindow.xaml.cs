@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
 using Odx.Core;
+using Odx.Protocol;
 using Odx.Session;
 using Forms = System.Windows.Forms;
 

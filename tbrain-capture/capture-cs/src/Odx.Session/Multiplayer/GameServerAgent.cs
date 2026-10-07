@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
 using Odx.Core;
+using Odx.Protocol;
 
 namespace Odx.Session;
 
@@ -44,7 +45,7 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
                 await RunAsync(stop);
                 if (!stop.IsCancellationRequested) log.LogWarning("orchestrator closed the connection");
             }
-            catch (UnauthorizedAccessException e)
+            catch (Exception e) when (e is UnauthorizedAccessException or IncompatibleException)
             {
                 log.LogError("{Error}", e.Message);
                 return;
@@ -97,7 +98,7 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             List<Done> unconfirmed;
             lock (_unconfirmed) unconfirmed = [.. _unconfirmed.Values];
             await SendAsync(new Hello(options.Id, options.Name, BuildInfo.Version, Role: Hello.GameServerRole,
-                Recording: recording.Count > 0 ? recording : null), stop);
+                Recording: recording.Count > 0 ? recording : null, Protocol: AgentMessage.Version), stop);
             log.LogInformation("connected to {Orchestrator}", options.Orchestrator);
             foreach (var done in unconfirmed) await SendAsync(done, stop);
             await ReceiveAsync(socket, stop);
@@ -127,9 +128,11 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
         var buffer = new byte[64 * 1024];
         while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
         {
-            if (await AgentClient.ReceiveTextAsync(socket, buffer, stop) is not { } text) break;
+            if (await WebSocketText.ReceiveAsync(socket, buffer, stop) is not { } text) break;
             switch (AgentMessage.Parse(text))
             {
+                case Incompatible i:
+                    throw new IncompatibleException(i);
                 case Welcome w:
                     _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
                     Volatile.Write(ref _reconnectGraceMs, w.ReconnectGraceMs);

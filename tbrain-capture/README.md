@@ -12,6 +12,7 @@ Tooling for the client's canonical game-data format. See [`../document/software-
 | `games/*.json` | Game profiles: `game_title`, `platform`, `localization`, `input_mouse_convention`, `bindings` (key/button → action), optional `window_process` (the game's process: odx-app switches to that window, agents record it when the player picked the monitor) | v2 §1.1.2.1, §1.1.2.6 |
 | `Odx.Session` / `odx validate` | Every vendor check in v2 §1.5 (session.json, frames structure, C2W, intrinsics, input, video read with `Odx.Core.Mp4Reader` — no ffprobe) | v2 §1.5 |
 | `schemas/session_schema.json` | JSON Schema for `session.json`, extracted from the spec; embedded in `Odx.Session` | v2 §1.1.2.1 |
+| `Odx.Protocol` | What the orchestrator and its agents send each other (WebSocket messages, protocol version), `round.json` and the round files; the orchestrator needs nothing else of ours besides `Odx.Core` | v3 §2–§4 |
 | `odx-orchestrator` | Multiplayer coordination: rooms, time service, agent hub, game events → per-player (and game server) start/stop, room LANs | v3 §2, §4 |
 | `odx merge` / `Odx.Session.Multiplayer` | Assembles each round copied from its participants into the v3 session tree and its sync gate | v3 §2–§4 |
 | `odx game-server` | The game server machine's agent: records the server's side of every round (CS2: SourceTV demo, plugin log) and keeps it | v3 §3 |

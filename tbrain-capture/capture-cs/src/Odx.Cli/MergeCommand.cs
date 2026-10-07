@@ -3,6 +3,7 @@
 // players/<id>/, server/), copied by hand from the participants; a session folder itself works too. Each is assembled into
 // <out>/<vendor>/<date>/<game>/<session>/ (default out: the package's data\delivery). Exit code 1 if any session fails the gate.
 using Odx.Core;
+using Odx.Protocol;
 using Odx.Session;
 
 namespace Odx.Cli;

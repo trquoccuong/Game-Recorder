@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json.Nodes;
 using Odx.Core;
+using Odx.Protocol;
 
 namespace Odx.Session;
 
@@ -101,7 +102,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 await RunAsync(stop);
                 if (!stop.IsCancellationRequested) Log?.Invoke("orchestrator closed the connection");
             }
-            catch (UnauthorizedAccessException e)
+            catch (Exception e) when (e is UnauthorizedAccessException or IncompatibleException)
             {
                 Log?.Invoke(e.Message);
                 RoomError?.Invoke(e.Message);
@@ -161,7 +162,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 unconfirmed = [.. _unconfirmed.Values];
             }
             await SendAsync(new Hello(options.PlayerId, options.Name, BuildInfo.Version, MachineId, SignedInSteamId(),
-                Recording: recording.Count > 0 ? recording : null), stop);
+                Recording: recording.Count > 0 ? recording : null, Protocol: AgentMessage.Version), stop);
             Log?.Invoke($"connected to {options.Orchestrator} as {options.PlayerId}");
             foreach (var done in unconfirmed) await SendAsync(done, stop);
             if (_roomCode is not null) await SendAsync(new JoinRoom(_roomCode), stop);
@@ -170,7 +171,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             var buffer = new byte[64 * 1024];
             while (!stop.IsCancellationRequested && socket.State == WebSocketState.Open)
             {
-                string? text = await ReceiveTextAsync(socket, buffer, stop);
+                string? text = await WebSocketText.ReceiveAsync(socket, buffer, stop);
                 if (text is null) break;
                 await HandleAsync(AgentMessage.Parse(text), stop);
             }
@@ -328,6 +329,8 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     {
         switch (message)
         {
+            case Incompatible i:
+                throw new IncompatibleException(i);
             case Welcome w:
                 _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
                 Volatile.Write(ref _reconnectGraceMs, w.ReconnectGraceMs);
@@ -584,30 +587,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         finally
         {
             _sendLock.Release();
-        }
-    }
-
-    internal static async Task<string?> ReceiveTextAsync(WebSocket socket, byte[] buffer, CancellationToken stop)
-    {
-        using var message = new MemoryStream();
-        while (true)
-        {
-            WebSocketReceiveResult r;
-            try
-            {
-                r = await socket.ReceiveAsync(buffer, stop);
-            }
-            catch (WebSocketException)
-            {
-                return null;
-            }
-            catch (OperationCanceledException) when (!stop.IsCancellationRequested)
-            {
-                return null;  // the keep-alive gave up on the peer
-            }
-            if (r.MessageType == WebSocketMessageType.Close) return null;
-            message.Write(buffer, 0, r.Count);
-            if (r.EndOfMessage) return Encoding.UTF8.GetString(message.ToArray());
         }
     }
 }

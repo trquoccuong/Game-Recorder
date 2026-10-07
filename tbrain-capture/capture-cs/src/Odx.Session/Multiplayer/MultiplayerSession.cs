@@ -2,46 +2,10 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Odx.Core;
+using Odx.Protocol;
 using Odx.Session.Proto;
 
 namespace Odx.Session;
-
-/// <summary>The orchestrator's own clock against the configured NTP server (spec v3 §4 baseline: players and server).</summary>
-/// <param name="OffsetMs">NTP time − orchestrator clock.</param>
-public sealed record ServerClock(string Server, double OffsetMs, double RttMs, double MeasuredAtUtcMs);
-
-/// <param name="StopReason">"round_end", "permanent_death" or "abort"; null while recording.</param>
-/// <param name="StopUtcMs">Server UTC when this player's recording was stopped.</param>
-/// <param name="SteamId">The Steam account the player was signed in with (SteamID64), which the game server's state names.</param>
-public sealed record RoundPlayer(string PlayerId, string Name, string? StopReason = null, double? StopUtcMs = null,
-    bool Done = false, bool Kept = false, string? Error = null, string? ToolVersion = null, string? MachineId = null,
-    string? SteamId = null);
-
-/// <summary>
-/// One round as the orchestrator saw it (staging round.json). One round = one session (spec v3 §1: task boundaries are
-/// rounds). <c>StartUtcMs</c> is when play starts: the round_start event plus its countdown, during which players already
-/// record. <c>TimePort</c> is the UDP port of the orchestrator's NTP responder the players measured against; the host part
-/// of their samples' server differs with how each agent reaches the orchestrator.
-/// </summary>
-public sealed record RoundRecord(string SessionId, string MatchId, string Game, string? Map, int Round, double StartUtcMs,
-    double? EndUtcMs, int TimePort, List<RoundPlayer> Players, int CountdownMs = 0, string? EndReason = null,
-    ServerClock? ServerClock = null)
-{
-    public const string FileName = "round.json", EventsFileName = "server_events.jsonl", ProfileFileName = "game_profile.json";
-
-    public static RoundRecord Load(string stagingDir) =>
-        JsonSerializer.Deserialize<RoundRecord>(File.ReadAllText(Path.Combine(stagingDir, FileName)), AgentMessage.Json)
-        ?? throw new InvalidDataException("empty round.json");
-
-    public void Save(string stagingDir) => File.WriteAllText(Path.Combine(stagingDir, FileName), ToJson());
-
-    public string ToJson() => JsonSerializer.Serialize(this, PrettyJson);
-
-    public static string EventsJsonl(IEnumerable<JsonObject> events) =>
-        string.Concat(events.Select(e => e.ToJsonString(AgentMessage.Json) + "\n"));
-
-    internal static readonly JsonSerializerOptions PrettyJson = new(AgentMessage.Json) { WriteIndented = true };
-}
 
 /// <summary>
 /// Limits of the session gate. The sync limits are proposals (spec v3 §4: "more prototyping is needed to decide what a good
@@ -164,8 +128,8 @@ public static class MultiplayerSession
             ["round_index"] = round.Round,
             ["countdown_ms"] = round.CountdownMs,
             ["end_reason"] = round.EndReason,
-            ["created_at_utc"] = SessionBuilder.IsoUtc(round.StartUtcMs),
-            ["ended_at_utc"] = round.EndUtcMs is double end ? SessionBuilder.IsoUtc(end) : null,
+            ["created_at_utc"] = UtcText.Iso(round.StartUtcMs),
+            ["ended_at_utc"] = round.EndUtcMs is double end ? UtcText.Iso(end) : null,
             ["duration_ms"] = round.EndUtcMs is double e2 ? e2 - round.StartUtcMs : null,
             ["players"] = new JsonArray(round.Players.Select(p => (JsonNode)new JsonObject
             {
@@ -185,7 +149,7 @@ public static class MultiplayerSession
                     ["ntp_server"] = c.Server,
                     ["ntp_offset_ms"] = Math.Round(c.OffsetMs, 3),
                     ["ntp_round_trip_ms"] = Math.Round(c.RttMs, 3),
-                    ["measured_at_utc"] = SessionBuilder.IsoUtc(c.MeasuredAtUtcMs),
+                    ["measured_at_utc"] = UtcText.Iso(c.MeasuredAtUtcMs),
                 }
                 : null,
             ["server"] = serverInfo,
@@ -273,8 +237,8 @@ public static class MultiplayerSession
         FramesBin.Write(Path.Combine(dst, "frames.csv"), frameUtc, header, Path.Combine(dst, FramesBin.FileName));
         if (frameUtc is null) return Finish(dst, info, player.PlayerId, checks);
 
-        info["first_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[0]);
-        info["last_frame_utc"] = SessionBuilder.IsoUtc(frameUtc[^1]);
+        info["first_frame_utc"] = UtcText.Iso(frameUtc[0]);
+        info["last_frame_utc"] = UtcText.Iso(frameUtc[^1]);
         int roundStartFrame = frameUtc.FindIndex(t => t >= round.StartUtcMs);
         info["round_start_frame"] = roundStartFrame < 0 ? null : roundStartFrame;
         info["round_start_video_time_ms"] = Math.Round(round.StartUtcMs - frameUtc[0], 1);
@@ -526,7 +490,7 @@ public static class MultiplayerSession
         ["sample_count"] = samples.Count,
         ["samples"] = new JsonArray(samples.Select(s => (JsonNode)new JsonObject
         {
-            ["utc"] = SessionBuilder.IsoUtc(s.UtcUnixMs),
+            ["utc"] = UtcText.Iso(s.UtcUnixMs),
             ["offset_ms"] = Math.Round(s.SystemOffsetMs, 3),
             ["rtt_ms"] = Math.Round(s.RttMs, 3),
         }).ToArray()),
