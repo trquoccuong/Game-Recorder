@@ -11,6 +11,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Microsoft.Extensions.Logging;
+using Odx.Games.Cs2;
 using Odx.Session;
 
 namespace Odx.Cli;
@@ -56,9 +57,10 @@ public static class GameServerCommand
             stop.Cancel();
         };
         using var logging = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.TimestampFormat = "HH:mm:ss "));
-        var agent = new GameServerAgent(new GameServerAgentOptions(uri, cs2,
+        var log = logging.CreateLogger("game-server");
+        var agent = new GameServerAgent(new GameServerAgentOptions(uri,
             work ?? Path.Combine(Path.GetTempPath(), "odx-game-server"), accessKey ?? Odx.Core.CaptureConfig.Load().AccessKey,
-            name ?? "CS2 server", id ?? "game-server"), logging.CreateLogger("game-server"));
+            name ?? "CS2 server", id ?? "game-server"), new Cs2Server(cs2, log), log);
         agent.RunUntilStoppedAsync(stop.Token).GetAwaiter().GetResult();
         return 0;
     }

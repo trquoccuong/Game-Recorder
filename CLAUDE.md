@@ -80,8 +80,9 @@ odx-capture/
     src/Odx.Protocol/             #   orchestrator <-> agent messages (with a protocol version), round.json and round files
     src/Odx.Session/              #   capture host (runs odx input + odx record), session builder, validator (v2 §1.5),
                                   #   Multiplayer/: agent clients (player, game server), v3 session assembly (odx merge) and sync gate
+    src/Odx.Games.Cs2/            #   CS2's server side: recording (RCON, SourceTV, plugin log) and reading it (demo, server camera)
     src/Odx.Orchestrator/         #   odx-orchestrator (ASP.NET Core): time service, rooms, agent hub, game events, LAN, SQLite state (v3)
-    src/Odx.Cli/                  #   odx: input | record (Windows build) | build | validate | agent | game-server
+    src/Odx.Cli/                  #   odx: input | record (Windows build) | build | validate | game-server | merge | simulate-game
     src/Odx.Input/                #   `odx input` (Raw Input)
     src/Odx.Recorder/             #   `odx record` (WGC + ffmpeg)
     src/Odx.App/                  #   odx-app (WPF front end over Odx.Session)

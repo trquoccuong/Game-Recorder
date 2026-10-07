@@ -1,9 +1,10 @@
 using System.Text.Json.Nodes;
 using Odx.Core;
 using Odx.Protocol;
+using Odx.Session;
 using Odx.Session.Proto;
 
-namespace Odx.Session;
+namespace Odx.Games.Cs2;
 
 /// <summary>Counter-Strike 2: the SourceTV demo and the odx_netlog log (<see cref="Cs2ServerCapture"/>).</summary>
 public sealed class Cs2Merger : IGameMerger

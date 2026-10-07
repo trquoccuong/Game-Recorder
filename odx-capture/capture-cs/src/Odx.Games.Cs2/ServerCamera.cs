@@ -1,6 +1,7 @@
 using Odx.Core;
+using Odx.Session;
 
-namespace Odx.Session;
+namespace Odx.Games.Cs2;
 
 /// <summary>
 /// A player's camera per video frame from the game server's view of them (spec v2 §1.1.2.4 C2W, §1.1.2.5 intrinsics), for

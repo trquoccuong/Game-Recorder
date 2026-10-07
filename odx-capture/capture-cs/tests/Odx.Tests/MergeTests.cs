@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
+using Odx.Games.Cs2;
 using Odx.Orchestrator;
 using Odx.Protocol;
 using Odx.Session;
@@ -33,8 +34,8 @@ public sealed class GameServerAgentTests
         using var http = new HttpClient { BaseAddress = new Uri(app.Urls.First()) };
         using var rcon = new FakeRcon("pw");
         using var stop = new CancellationTokenSource();
-        var agent = new GameServerAgent(new GameServerAgentOptions(new Uri(app.Urls.First()),
-            new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), Path.Combine(root, "work")), NullLogger.Instance);
+        var agent = new GameServerAgent(new GameServerAgentOptions(new Uri(app.Urls.First()), Path.Combine(root, "work")),
+            new Cs2Server(new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), NullLogger.Instance), NullLogger.Instance);
         _ = agent.RunUntilStoppedAsync(stop.Token);
         await LocalRoundTests.WaitForGameServers(http, 1);
 
@@ -47,7 +48,8 @@ public sealed class GameServerAgentTests
         string kept = Path.Combine(root, "work", "g1-r01");
         Assert.True(await LocalRoundTests.WaitForFile(Path.Combine(kept, RoundRecord.FileName)));
         stop.Cancel();
-        var (dir, report) = MultiplayerSession.Assemble(kept, Path.Combine(root, "out"), Odx.Cli.MergeCommand.Vendor);
+        var (dir, report) = MultiplayerSession.Assemble(kept, Path.Combine(root, "out"), Odx.Cli.MergeCommand.Vendor,
+            games: Odx.Cli.MergeCommand.Games);
         Assert.Equal(["tv_record replays/g1-r01", "tv_stoprecord"], rcon.Commands);
         Assert.Equal(lines[10..20], File.ReadAllLines(Path.Combine(dir, "server", "capture", Cs2ServerCapture.NetLogFile)));
         Assert.True(File.Exists(Path.Combine(dir, "server", PacketLog.BinFile)));
@@ -93,8 +95,9 @@ public sealed class LocalRoundTests
             string game = Path.Combine(root, s, "csgo");
             Directory.CreateDirectory(Path.Combine(game, "odx-netlog"));
             Directory.CreateDirectory(Path.Combine(game, "replays"));
-            _ = new GameServerAgent(new GameServerAgentOptions(orchestrator, new Cs2ServerOptions("127.0.0.1", rcons[s].Port, "pw", game),
-                Path.Combine(root, s, "work"), Id: s), NullLogger.Instance).RunUntilStoppedAsync(stop.Token);
+            _ = new GameServerAgent(new GameServerAgentOptions(orchestrator, Path.Combine(root, s, "work"), Id: s),
+                new Cs2Server(new Cs2ServerOptions("127.0.0.1", rcons[s].Port, "pw", game), NullLogger.Instance), NullLogger.Instance)
+                .RunUntilStoppedAsync(stop.Token);
         }
         await WaitForGameServers(http, 2);
 
@@ -147,8 +150,8 @@ public sealed class LocalRoundTests
         using var http = new HttpClient { BaseAddress = orchestrator };
         using var rcon = new FakeRcon("pw");
         using var stop = new CancellationTokenSource();
-        var server = new GameServerAgent(new GameServerAgentOptions(orchestrator,
-            new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), Path.Combine(root, "server")), NullLogger.Instance);
+        var server = new GameServerAgent(new GameServerAgentOptions(orchestrator, Path.Combine(root, "server")),
+            new Cs2Server(new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), NullLogger.Instance), NullLogger.Instance);
         _ = server.RunUntilStoppedAsync(stop.Token);
         await LocalRoundTests.WaitForGameServers(http, 1);
 
@@ -203,9 +206,9 @@ public sealed class LocalRoundTests
 public sealed class GameMergerTests
 {
     [Fact]
-    public void The_game_profile_picks_the_module_and_a_game_without_one_has_no_server_side()
+    public void Odx_merge_knows_counter_strike_2_by_its_profile_title()
     {
-        Assert.IsType<Cs2Merger>(GameMergers.For("Counter-Strike 2"));
-        Assert.Null(GameMergers.For("Synthetic"));
+        Assert.Equal(["Counter-Strike 2"], Odx.Cli.MergeCommand.Games.Select(g => g.Game));
+        Assert.IsType<Cs2Merger>(Odx.Cli.MergeCommand.Games.Single());
     }
 }

@@ -58,8 +58,9 @@ public static class MultiplayerSession
     /// <summary>Version of the client's multiplayer spec this tree follows (document header of spec v3).</summary>
     public const string SpecVersion = "3.1";
 
+    /// <param name="games">The game modules that can read a game server's side; the round's game picks one by its title.</param>
     public static (string Dir, SessionReport Report) Assemble(string stagingDir, string outRoot, string vendor,
-        GateTolerances? tolerances = null)
+        GateTolerances? tolerances = null, IEnumerable<IGameMerger>? games = null)
     {
         var tol = tolerances ?? GateTolerances.Default;
         var round = RoundRecord.Load(stagingDir);
@@ -74,7 +75,7 @@ public static class MultiplayerSession
         string? serverError = null;
         List<string> serverProblems = [];
         IReadOnlyDictionary<string, IServerCameraTrack> cameras = new Dictionary<string, IServerCameraTrack>();
-        if (GameMergers.For(round.Game) is { } game && game.HasServerSide(stagedServer))
+        if (games?.FirstOrDefault(g => g.Game == round.Game) is { } game && game.HasServerSide(stagedServer))
         {
             // The game server's recording is read by a third-party parser: a file it cannot read must not cost the
             // players' streams their session.

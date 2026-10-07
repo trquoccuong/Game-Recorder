@@ -9,23 +9,35 @@ namespace Odx.Session;
 /// <param name="WorkDir">Each round is kept in &lt;WorkDir&gt;/&lt;session&gt;/ (server/ and the round's files).</param>
 /// <param name="AccessKey">The orchestrator's access key; null when it has none.</param>
 /// <param name="Id">Names this game server to the orchestrator; rooms opened for it (POST /rooms?server=…) are its own.</param>
-public sealed record GameServerAgentOptions(Uri Orchestrator, Cs2ServerOptions Cs2, string WorkDir, string? AccessKey = null,
-    string Name = "CS2 server", string Id = "game-server");
+public sealed record GameServerAgentOptions(Uri Orchestrator, string WorkDir, string? AccessKey = null,
+    string Name = "game server", string Id = "game-server");
+
+/// <summary>A game's own recording of the server's side of a round (CS2: Odx.Games.Cs2.Cs2Server).</summary>
+public interface IGameServerRecorder
+{
+    /// <summary>Starts recording into &lt;<paramref name="dir"/>&gt;/server/.</summary>
+    Task StartAsync(string sessionId, string dir);
+
+    /// <param name="keep">False for a cancelled round: what it recorded goes.</param>
+    Task StopAsync(string sessionId, string dir, bool keep);
+}
 
 /// <summary>
 /// The game server machine's agent (odx game-server). It connects to the orchestrator like a player's agent but joins no room:
-/// every round's Start records the server's side (<see cref="Cs2Server"/>) and samples this machine's clock against the
-/// orchestrator's time service; Stop keeps both and reports Done.
+/// every round's Start records the server's side (<see cref="IGameServerRecorder"/>) and samples this machine's clock against
+/// the orchestrator's time service; Stop keeps both and reports Done.
 /// The round's files (<see cref="RoundFiles"/>) join them once everyone is done. A cancelled round is dropped.
 /// </summary>
-public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
+public sealed class GameServerAgent(GameServerAgentOptions options, IGameServerRecorder recorder, ILogger log)
 {
+    /// <summary>This machine's clock against the orchestrator's during a round, in &lt;round&gt;/server/.</summary>
+    public const string ClockSamplesFile = "ntp_samples.csv";
+
     private static readonly TimeSpan SampleEvery = TimeSpan.FromSeconds(1), NtpTimeout = TimeSpan.FromSeconds(2),
         Retry = TimeSpan.FromSeconds(5);
 
     private sealed record OpenRound(string Dir, CancellationTokenSource StopSampling, Task Sampling);
 
-    private readonly Cs2Server _cs2 = new(options.Cs2, log);
     private readonly Dictionary<string, OpenRound> _rounds = [];
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private ClientWebSocket? _socket;
@@ -166,9 +178,9 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
         Directory.CreateDirectory(Path.Combine(dir, "server"));
         // Sampling first: starting SourceTV waits up to 3 s for its demo, and a short round may end meanwhile.
         var stopSampling = new CancellationTokenSource();
-        var sampling = Task.Run(() => SampleClockAsync(Path.Combine(dir, "server", Cs2ServerCapture.ClockSamplesFile), stopSampling.Token));
+        var sampling = Task.Run(() => SampleClockAsync(Path.Combine(dir, "server", ClockSamplesFile), stopSampling.Token));
         lock (_rounds) _rounds[sessionId] = new OpenRound(dir, stopSampling, sampling);
-        await _cs2.StartAsync(sessionId, dir);
+        await recorder.StartAsync(sessionId, dir);
         log.LogInformation("{Session}: recording", sessionId);
     }
 
@@ -213,7 +225,7 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
         await round.StopSampling.CancelAsync();
         await round.Sampling;
         bool keep = s.Reason != Stop.Cancelled;
-        await _cs2.StopAsync(s.SessionId, round.Dir, keep);
+        await recorder.StopAsync(s.SessionId, round.Dir, keep);
         if (!keep)
         {
             Directory.Delete(round.Dir, true);

@@ -3,6 +3,7 @@
 // players/<id>/, server/), copied by hand from the participants; a session folder itself works too. Each is assembled into
 // <out>/<vendor>/<date>/<game>/<session>/ (default out: the package's data\delivery). Exit code 1 if any session fails the gate.
 using Odx.Core;
+using Odx.Games.Cs2;
 using Odx.Protocol;
 using Odx.Session;
 
@@ -11,6 +12,9 @@ namespace Odx.Cli;
 public static class MergeCommand
 {
     public const string Vendor = "odx";
+
+    /// <summary>Every game whose server side odx merge can read; one module per game (IGameMerger).</summary>
+    public static readonly IGameMerger[] Games = [new Cs2Merger()];
 
     public static int Run(string[] args)
     {
@@ -40,7 +44,7 @@ public static class MergeCommand
         bool allPass = true;
         foreach (string staging in sessions)
         {
-            var (dir, report) = MultiplayerSession.Assemble(staging, outRoot, Vendor);
+            var (dir, report) = MultiplayerSession.Assemble(staging, outRoot, Vendor, games: Games);
             allPass &= report.Pass;
             Console.WriteLine($"{(report.Pass ? "PASS" : "FAIL")}  {report.SessionId}  {report.ValidPlayers}/{report.Players.Count} players " +
                               $"valid, {report.RequiredPlayers} required -> {dir}");

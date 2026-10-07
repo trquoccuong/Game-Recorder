@@ -16,6 +16,7 @@ Tooling for the client's canonical game-data format. See [`../document/software-
 | `odx-orchestrator` | Multiplayer coordination: rooms, time service, agent hub, game events → per-player (and game server) start/stop, room LANs | v3 §2, §4 |
 | `odx merge` / `Odx.Session.Multiplayer` | Assembles each round copied from its participants into the v3 session tree and its sync gate | v3 §2–§4 |
 | `odx game-server` | The game server machine's agent: records the server's side of every round (CS2: SourceTV demo, plugin log) and keeps it | v3 §3 |
+| `Odx.Games.Cs2` | Everything that knows CS2: `Cs2Server` (RCON, SourceTV, the plugin log; an `IGameServerRecorder` for `odx game-server`) and `Cs2Merger` / `Cs2ServerCapture` / `ServerCamera` (an `IGameMerger` for `odx merge`). A new game is a new `Odx.Games.*` project with these two modules, added in `Odx.Cli` | v3 §3 |
 | `tests/Odx.Tests/SessionFixtures.cs` | Synthetic valid session + one mutator per validation rule | plan §7.10.2 |
 
 Everything except the in-game extractor (C++, `extractor/`) is C# (.NET 10) in `capture-cs/`. The Python pose audit lives outside the product in [`../research/analyze-pose/`](../research/analyze-pose/).
