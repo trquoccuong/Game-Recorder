@@ -44,7 +44,9 @@ powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0 -Orchestrato
 ## 4. Packet capture
 
 The CS2 profile records each player's game traffic (pktmon, built into Windows). It needs administrator rights, so the
-app asks once per room with a UAC prompt. Declining is fine: that player's `packets.*` stay empty, the rest is recorded.
+app asks with a UAC prompt in the first room that wants it, and keeps that permission until the app closes: later rooms
+do not ask again. Declining is fine: that player's `packets.*` stay empty, the rest is recorded, and the app does not ask
+again until it is restarted.
 CS2 encrypts its traffic, so these files only hold sizes and timings; the decoded messages come from the server.
 
 ## 5. In the app
