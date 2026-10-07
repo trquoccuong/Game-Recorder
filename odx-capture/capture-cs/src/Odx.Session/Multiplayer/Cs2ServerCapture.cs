@@ -6,6 +6,7 @@ using DemoFile;
 using DemoFile.Game.Cs;
 using Google.Protobuf;
 using Odx.Core;
+using Odx.Protocol;
 using Odx.Session.Proto;
 using Vec3 = Odx.Session.Proto.Vec3;
 

@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Odx.Orchestrator;
+using Odx.Protocol;
 using Odx.Session;
 using Xunit;
 

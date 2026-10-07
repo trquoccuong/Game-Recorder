@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Google.Protobuf;
 using Odx.Core;
+using Odx.Protocol;
 using Odx.Session.Proto;
 
 namespace Odx.Session;

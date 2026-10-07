@@ -13,7 +13,8 @@
     <InternalsVisibleTo Include="Odx.Tests" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+    <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
+    <ProjectReference Include="../Odx.Protocol/Odx.Protocol.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../../odx-capture.json" Link="odx-capture.json" CopyToOutputDirectory="PreserveNewest" />

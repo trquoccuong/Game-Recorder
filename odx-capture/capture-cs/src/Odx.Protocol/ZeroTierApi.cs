@@ -3,7 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
-namespace Odx.Session;
+namespace Odx.Protocol;
 
 /// <summary>
 /// ZeroTier One's HTTP API, for a room's virtual LAN (layer 2, so LAN games find each other by broadcast). On a player's

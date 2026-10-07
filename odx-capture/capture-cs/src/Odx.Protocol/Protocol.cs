@@ -1,9 +1,11 @@
+using System.Net.WebSockets;
+using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
-namespace Odx.Session;
+namespace Odx.Protocol;
 
 /// <summary>
 /// One event from the game server (POST /game/events), game-agnostic: a game's server plugin maps its own events to
@@ -52,8 +54,12 @@ public static class GameEvents
 [JsonDerivedType(typeof(RoomClosed), "room_closed")]
 [JsonDerivedType(typeof(LanMember), "lan_member")]
 [JsonDerivedType(typeof(RoundFiles), "round_record")]
+[JsonDerivedType(typeof(Incompatible), "incompatible")]
 public abstract record AgentMessage
 {
+    /// <summary>Raised whenever a message changes in a way the other side cannot read; sent in <see cref="Hello"/>.</summary>
+    public const int Version = 1;
+
     public static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
@@ -74,10 +80,47 @@ public abstract record AgentMessage
 /// server's side of every round (Start / Stop, then Done) and joins no room.</param>
 /// <param name="Recording">Sessions this agent is still recording, after a lost connection: the orchestrator sends the Stop
 /// it missed, or lets it go on.</param>
+/// <param name="Protocol">The agent's <see cref="AgentMessage.Version"/>; 0 from agents older than the field.</param>
 public sealed record Hello(string PlayerId, string Name, string ToolVersion, string? MachineId = null, string? SteamId = null,
-    string Role = Hello.PlayerRole, List<string>? Recording = null) : AgentMessage
+    string Role = Hello.PlayerRole, List<string>? Recording = null, int Protocol = 0) : AgentMessage
 {
     public const string PlayerRole = "player", GameServerRole = "game_server";
+}
+
+/// <summary>Orchestrator → agent, instead of <see cref="Welcome"/>: they speak different protocol versions; the agent needs
+/// the same release as the orchestrator, and connecting again cannot help.</summary>
+public sealed record Incompatible(int Protocol, string OrchestratorVersion) : AgentMessage;
+
+/// <summary>What an agent throws on <see cref="Incompatible"/>: it stops instead of reconnecting.</summary>
+public sealed class IncompatibleException(Incompatible answer) : Exception(
+    $"the orchestrator ({answer.OrchestratorVersion}) speaks protocol {answer.Protocol}, this one {AgentMessage.Version}: install the same release");
+
+public static class WebSocketText
+{
+    /// <summary>One whole text message; null once the connection is closed, broken or given up by the keep-alive.</summary>
+    public static async Task<string?> ReceiveAsync(WebSocket socket, byte[] buffer, CancellationToken stop)
+    {
+        using var message = new MemoryStream();
+        while (true)
+        {
+            WebSocketReceiveResult r;
+            try
+            {
+                r = await socket.ReceiveAsync(buffer, stop);
+            }
+            catch (WebSocketException)
+            {
+                return null;
+            }
+            catch (OperationCanceledException) when (!stop.IsCancellationRequested)
+            {
+                return null;  // the keep-alive gave up on the peer
+            }
+            if (r.MessageType == WebSocketMessageType.Close) return null;
+            message.Write(buffer, 0, r.Count);
+            if (r.EndOfMessage) return Encoding.UTF8.GetString(message.ToArray());
+        }
+    }
 }
 
 /// <summary>

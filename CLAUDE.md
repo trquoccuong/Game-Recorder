@@ -77,10 +77,10 @@ document/                         # Specs and plans (Markdown, source of truth f
 odx-capture/
   capture-cs/                     # C# .NET 10 — everything outside the game process
     src/Odx.Core/                 #   portable: Input/ (logs, IPC, keys), Video/ (grid, status), Formats/ (frames.csv, CSV), Geometry/
+    src/Odx.Protocol/             #   orchestrator <-> agent messages (with a protocol version), round.json and round files
     src/Odx.Session/              #   capture host (runs odx input + odx record), session builder, validator (v2 §1.5),
-                                  #   Multiplayer/: agent protocol + clients (player, game server), v3 session assembly and sync gate
-    src/Odx.Orchestrator/         #   odx-orchestrator (ASP.NET Core): time service, rooms, agent hub, game events, LAN (v3)
-    src/Odx.Merge/                #   odx-merge (ASP.NET Core): receives each round's uploads, assembles sessions one at a time
+                                  #   Multiplayer/: agent clients (player, game server), v3 session assembly (odx merge) and sync gate
+    src/Odx.Orchestrator/         #   odx-orchestrator (ASP.NET Core): time service, rooms, agent hub, game events, LAN, SQLite state (v3)
     src/Odx.Cli/                  #   odx: input | record (Windows build) | build | validate | agent | game-server
     src/Odx.Input/                #   `odx input` (Raw Input)
     src/Odx.Recorder/             #   `odx record` (WGC + ffmpeg)

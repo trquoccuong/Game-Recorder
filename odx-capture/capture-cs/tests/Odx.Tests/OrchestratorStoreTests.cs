@@ -1,6 +1,7 @@
 using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Odx.Orchestrator;
+using Odx.Protocol;
 using Odx.Session;
 using Xunit;
 

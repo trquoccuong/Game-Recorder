@@ -4,7 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using Odx.Core;
-using Odx.Session;
+using Odx.Protocol;
 
 namespace Odx.Orchestrator;
 
@@ -118,7 +118,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private readonly Dictionary<string, (string Network, string Node)> _awayLan = [];
     private long _absences;
     private readonly string _profileJson = File.ReadAllText(options.GameProfilePath);
-    private readonly string _profileGame = GameProfile.Load(options.GameProfilePath).GameTitle;
+    private readonly string _profileGame = JsonNode.Parse(File.ReadAllText(options.GameProfilePath))?["game_title"]?.GetValue<string>()
+        ?? throw new InvalidDataException($"{options.GameProfilePath}: no game_title");
     private long _eventId;
     private ServerClock? _serverClock;
     private readonly ZeroTierApi? _zeroTier = options is { ZeroTierApi: { } api, ZeroTierToken: { } token } ? new ZeroTierApi(api, token) : null;
@@ -143,6 +144,15 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         if (await ReceiveAsync(socket, buffer, stop) is not Hello hello)
         {
             await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "expected hello", stop);
+            return;
+        }
+        if (hello.Protocol != AgentMessage.Version)
+        {
+            log.LogWarning("agent {Agent} ({Version}) speaks protocol {Protocol}, not {Ours}: refused", hello.PlayerId,
+                hello.ToolVersion, hello.Protocol, AgentMessage.Version);
+            await socket.SendAsync(Encoding.UTF8.GetBytes(new Incompatible(AgentMessage.Version, BuildInfo.Version).ToJson()),
+                WebSocketMessageType.Text, true, stop);
+            await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "incompatible protocol", stop);
             return;
         }
         var link = new AgentLink(hello, socket);
@@ -741,7 +751,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private void Stamp(JsonObject e, double utc)
     {
         e["event_id"] = ++_eventId;
-        e["utc"] = SessionBuilder.IsoUtc(utc);
+        e["utc"] = UtcText.Iso(utc);
         e["server_time_us"] = (long)Math.Round(utc * 1000);
     }
 
@@ -1047,7 +1057,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
 
     private async Task<AgentMessage?> ReceiveAsync(WebSocket socket, byte[] buffer, CancellationToken stop)
     {
-        while (await AgentClient.ReceiveTextAsync(socket, buffer, stop) is { } text)
+        while (await WebSocketText.ReceiveAsync(socket, buffer, stop) is { } text)
         {
             try
             {

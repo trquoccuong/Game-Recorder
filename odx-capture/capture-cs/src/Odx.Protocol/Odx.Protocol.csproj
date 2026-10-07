@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- What the orchestrator and its agents say to each other, and the round files they keep. No other dependency, so the
+       orchestrator does not carry the capture, merge or game code. -->
+</Project>

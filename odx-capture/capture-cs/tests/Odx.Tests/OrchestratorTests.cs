@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Odx.Cli;
 using Odx.Core;
 using Odx.Orchestrator;
+using Odx.Protocol;
 using Odx.Session;
 using Xunit;
 
@@ -685,6 +686,40 @@ public sealed class PacketCaptureTests
         for (int i = 0; i < 100 && packets.Calls.Count < 2; i++) await Task.Delay(50);
         Assert.Equal("start tcp/6112", packets.Calls[0]);
         Assert.StartsWith("stop odx-packets-p1-", packets.Calls[1]);  // the capture failed, so its packets are discarded
+        stop.Cancel();
+        await app.StopAsync();
+    }
+}
+
+public sealed class ProtocolVersionTests
+{
+    [Fact]
+    public async Task An_agent_speaking_another_protocol_is_told_so_and_stops()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "odx-proto-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string profile = Path.Combine(root, "game.json");
+        File.WriteAllText(profile, """
+            {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
+             "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
+            """);
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0), "127.0.0.1");
+        await app.StartAsync();
+        var http = new Uri(app.Urls.First());
+
+        using var old = new System.Net.WebSockets.ClientWebSocket();
+        await old.ConnectAsync(new UriBuilder(http) { Scheme = "ws", Path = "/agents" }.Uri, default);
+        await old.SendAsync(System.Text.Encoding.UTF8.GetBytes("""{"type":"hello","player_id":"old","name":"Old","tool_version":"0.0.9"}"""),
+            System.Net.WebSockets.WebSocketMessageType.Text, true, default);
+        var answer = AgentMessage.Parse((await WebSocketText.ReceiveAsync(old, new byte[4096], default))!);
+        Assert.Equal(AgentMessage.Version, Assert.IsType<Incompatible>(answer).Protocol);
+
+        var agent = new AgentClient(new AgentOptions(http, "p1", "P1", Path.Combine(root, "p1"), null, CreateRoom: true),
+            _ => throw new InvalidOperationException("no capture in this test"));
+        using var stop = new CancellationTokenSource();
+        _ = agent.RunUntilStoppedAsync(stop.Token);
+        for (int i = 0; i < 100 && agent.Room is null; i++) await Task.Delay(50);
+        Assert.NotNull(agent.Room);  // the same release gets in
         stop.Cancel();
         await app.StopAsync();
     }

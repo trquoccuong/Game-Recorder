@@ -3,7 +3,6 @@
        capture folder and validate it (spec v2 §1.5). -->
   <ItemGroup>
     <InternalsVisibleTo Include="Odx.Tests" />
-    <InternalsVisibleTo Include="odx-orchestrator" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
@@ -14,6 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
+    <ProjectReference Include="../Odx.Protocol/Odx.Protocol.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../../schemas/session_schema.json" LogicalName="session_schema.json" />
