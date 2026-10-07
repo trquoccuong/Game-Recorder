@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using Microsoft.Extensions.Logging;
@@ -7,14 +6,14 @@ using Odx.Core;
 namespace Odx.Session;
 
 /// <param name="WorkDir">Each round is kept in &lt;WorkDir&gt;/&lt;session&gt;/ (server/ and the round's files).</param>
-/// <param name="AccessKey">The orchestrator's (and odx-merge's) access key; null when they have none.</param>
+/// <param name="AccessKey">The orchestrator's access key; null when it has none.</param>
 public sealed record GameServerAgentOptions(Uri Orchestrator, Cs2ServerOptions Cs2, string WorkDir, string? AccessKey = null,
     string Name = "CS2 server");
 
 /// <summary>
 /// The game server machine's agent (odx game-server). It connects to the orchestrator like a player's agent but joins no room:
 /// every round's Start records the server's side (<see cref="Cs2Server"/>) and samples this machine's clock against the
-/// orchestrator's time service; Stop keeps both (and uploads them when the orchestrator has odx-merge) and reports Done.
+/// orchestrator's time service; Stop keeps both and reports Done.
 /// The round's files (<see cref="RoundFiles"/>) join them once everyone is done. A cancelled round is dropped.
 /// </summary>
 public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
@@ -26,16 +25,10 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
     private sealed record OpenRound(string Dir, CancellationTokenSource StopSampling, Task Sampling);
 
     private readonly Cs2Server _cs2 = new(options.Cs2, log);
-    private readonly HttpClient _http = new()
-    {
-        Timeout = TimeSpan.FromMinutes(10),
-        DefaultRequestHeaders = { Authorization = options.AccessKey is { } key ? new AuthenticationHeaderValue("Bearer", key) : null },
-    };
     private readonly Dictionary<string, OpenRound> _rounds = [];
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private ClientWebSocket? _socket;
     private string? _timeServer;
-    private Uri? _merge;
 
     /// <summary>Runs until <paramref name="stop"/>, reconnecting every 5 s; a refused access key ends it.</summary>
     public async Task RunUntilStoppedAsync(CancellationToken stop)
@@ -101,8 +94,6 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             {
                 case Welcome w:
                     _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
-                    _merge = w.MergeUrl is { } merge ? new Uri(merge) : null;
-                    if (_merge is null) log.LogInformation("the orchestrator has no odx-merge: rounds are kept in {WorkDir}", options.WorkDir);
                     break;
                 case RoundFiles files:
                     string kept = Path.Combine(options.WorkDir, files.SessionId);
@@ -112,7 +103,7 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
                     await StartAsync(s.SessionId);
                     break;
                 case Stop s:
-                    // Off the receive loop: stopping and uploading take seconds, and the next round may start meanwhile.
+                    // Off the receive loop: stopping takes seconds, and the next round may start meanwhile.
                     _ = Task.Run(() => StopAsync(s, stop), CancellationToken.None);
                     break;
             }
@@ -178,33 +169,8 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
             Directory.Delete(round.Dir, true);
             return;
         }
-        string? error = null;
-        if (_merge is { } merge)
-        {
-            try
-            {
-                await UploadAsync(merge, s.SessionId, Path.Combine(round.Dir, "server"), stop);
-            }
-            catch (Exception e) when (e is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException)
-            {
-                error = $"upload to odx-merge failed: {e.Message}";
-            }
-        }
-        await SendAsync(new Done(s.SessionId, error is null, error), stop);
-        log.LogInformation("{Session}: {Result}", s.SessionId, error ?? (_merge is null ? $"kept in {round.Dir}" : "uploaded"));
-    }
-
-    private async Task UploadAsync(Uri merge, string sessionId, string dir, CancellationToken stop)
-    {
-        foreach (string file in Directory.GetFiles(dir))
-        {
-            await using var stream = File.OpenRead(file);
-            using var content = new StreamContent(stream);
-            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-            var url = new Uri(merge, $"/sessions/{Uri.EscapeDataString(sessionId)}/server/files/{Uri.EscapeDataString(Path.GetFileName(file))}");
-            using var response = await _http.PutAsync(url, content, stop);
-            response.EnsureSuccessStatusCode();
-        }
+        await SendAsync(new Done(s.SessionId, true), stop);
+        log.LogInformation("{Session}: kept in {Dir}", s.SessionId, round.Dir);
     }
 
     private async Task SendAsync(AgentMessage message, CancellationToken stop)

@@ -14,7 +14,7 @@ public sealed record ServerClock(string Server, double OffsetMs, double RttMs, d
 /// <param name="StopUtcMs">Server UTC when this player's recording was stopped.</param>
 /// <param name="SteamId">The Steam account the player was signed in with (SteamID64), which the game server's state names.</param>
 public sealed record RoundPlayer(string PlayerId, string Name, string? StopReason = null, double? StopUtcMs = null,
-    bool Done = false, bool UploadOk = false, string? Error = null, string? ToolVersion = null, string? MachineId = null,
+    bool Done = false, bool Kept = false, string? Error = null, string? ToolVersion = null, string? MachineId = null,
     string? SteamId = null);
 
 /// <summary>
@@ -75,11 +75,8 @@ public sealed record PlayerReport(string PlayerId, bool Pass, List<Issue> Issues
 public sealed record SessionReport(string SessionId, bool Pass, int ValidPlayers, int RequiredPlayers, List<Issue> Issues,
     List<PlayerReport> Players);
 
-/// <summary>odx-merge's answer to POST /sessions/{sid}/assemble: where the session went (on odx-merge's machine), its gate.</summary>
-public sealed record AssembledSession(string Dir, SessionReport Report);
-
 /// <summary>
-/// Turns a staged round (round.json, server_events.jsonl, game_profile.json, players/&lt;id&gt;/ with each agent's uploaded
+/// Turns a staged round (round.json, server_events.jsonl, game_profile.json, players/&lt;id&gt;/ with each agent's kept
 /// capture, server/ with the game server's own capture when there is one) into the spec v3 tree and checks it:
 /// <code>
 /// &lt;vendor&gt;/&lt;mm-dd-yyyy&gt;/&lt;game&gt;/&lt;session-id&gt;/
@@ -243,11 +240,11 @@ public static class MultiplayerSession
             ["stop_reason"] = player.StopReason,
         };
 
-        bool uploaded = File.Exists(Path.Combine(src, "frames.csv")) && File.Exists(Path.Combine(src, "video_frames.csv")) &&
-                        File.Exists(Path.Combine(src, "session.json"));
-        checks.Add(new QaCheck("player.missing", "the player's built capture was uploaded", uploaded,
-            uploaded ? "frames.csv, video_frames.csv, session.json" : player.Error ?? "no built capture was uploaded"));
-        if (!uploaded) return Finish(dst, info, player.PlayerId, checks);
+        bool present = File.Exists(Path.Combine(src, "frames.csv")) && File.Exists(Path.Combine(src, "video_frames.csv")) &&
+                       File.Exists(Path.Combine(src, "session.json"));
+        checks.Add(new QaCheck("player.missing", "the player's built capture is there", present,
+            present ? "frames.csv, video_frames.csv, session.json" : player.Error ?? "no built capture"));
+        if (!present) return Finish(dst, info, player.PlayerId, checks);
 
         foreach (string f in CaptureFiles.Where(f => File.Exists(Path.Combine(src, f))))
             File.Copy(Path.Combine(src, f), Path.Combine(dst, "capture", f), true);

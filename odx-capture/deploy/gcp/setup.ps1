@@ -123,9 +123,9 @@ try {
 }
 catch { $pluginStatus = "FAILED: $_"; Step "plugin $pluginStatus" }
 
-# --- odx-orchestrator, odx-merge and odx (game-server), laid out like the package (bin\ next to data\, games\ in bin\)
-Get-Process odx-orchestrator, odx-merge, odx -ErrorAction SilentlyContinue | Stop-Process -Force
-foreach ($p in @(@('Odx.Orchestrator', @()), @('Odx.Merge', @()), @('Odx.Cli', @('-f', 'net10.0')))) {
+# --- odx-orchestrator and odx (game-server), laid out like the package (bin\ next to data\, games\ in bin\)
+Get-Process odx-orchestrator, odx -ErrorAction SilentlyContinue | Stop-Process -Force
+foreach ($p in @(@('Odx.Orchestrator', @()), @('Odx.Cli', @('-f', 'net10.0')))) {
     Step "publish $($p[0])"
     dotnet publish "$tc\capture-cs\src\$($p[0])" -c Release -r win-x64 --self-contained -p:PublishSingleFile=true `
         -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=None @($p[1]) -o "$odx\bin" | Out-Host
@@ -146,30 +146,22 @@ NewSecret "$secrets\access-key.txt"
 icacls $secrets /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'Administrators:(OI)(CI)F' | Out-Null
 
 # --- Windows firewall (docs/network.md); TCP 27015 (RCON) stays closed
-foreach ($r in @(@('CS2 server', 'UDP', 27015), @('Odx orchestrator', 'TCP', 5180), @('Odx time service', 'UDP', 12300),
-                 @('Odx merge', 'TCP', 5190))) {
+foreach ($r in @(@('CS2 server', 'UDP', 27015), @('Odx orchestrator', 'TCP', 5180), @('Odx time service', 'UDP', 12300))) {
     if (-not (Get-NetFirewallRule -DisplayName $r[0] -ErrorAction SilentlyContinue)) {
         New-NetFirewallRule -DisplayName $r[0] -Direction Inbound -Action Allow -Protocol $r[1] -LocalPort $r[2] | Out-Null
     }
 }
 
-# --- run all four at boot as SYSTEM (docs/cs2-server.md §5, §6, docs/orchestrator.md "Run")
+# --- run all three at boot as SYSTEM (docs/cs2-server.md §5, §6, docs/orchestrator.md "Run")
 [IO.File]::WriteAllText("$root\run-cs2.ps1", @'
 $pw = Get-Content C:\odx\secrets\rcon.txt -Raw
 Set-Location C:\odx\cs2-server\game\bin\win64
 & .\cs2.exe -dedicated -insecure -usercon -port 27015 +game_type 0 +game_mode 1 +map de_dust2 +rcon_password $pw *>> "C:\odx\logs\cs2-$(Get-Date -Format yyyyMMdd-HHmmss).log"
 '@)
-[IO.File]::WriteAllText("$root\run-merge.ps1", @'
-$env:ODX_ACCESS_KEY = Get-Content C:\odx\secrets\access-key.txt -Raw
-& C:\odx\odx\bin\odx-merge.exe *>> "C:\odx\logs\merge-$(Get-Date -Format yyyyMMdd-HHmmss).log"
-'@)
 [IO.File]::WriteAllText("$root\run-orchestrator.ps1", @'
-# Players and the game server agent upload to odx-merge at the VM's external address.
-$ip = Invoke-RestMethod -Headers @{ 'Metadata-Flavor' = 'Google' } `
-    'http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip'
 $env:ODX_ACCESS_KEY = Get-Content C:\odx\secrets\access-key.txt -Raw
 $bin = 'C:\odx\odx\bin'
-& "$bin\odx-orchestrator.exe" --game-profile "$bin\games\cs2.json" --merge http://127.0.0.1:5190 --merge-public "http://${ip}:5190" `
+& "$bin\odx-orchestrator.exe" --game-profile "$bin\games\cs2.json" `
     *>> "C:\odx\logs\orchestrator-$(Get-Date -Format yyyyMMdd-HHmmss).log"
 '@)
 [IO.File]::WriteAllText("$root\run-game-server.ps1", @'
@@ -180,14 +172,15 @@ $env:ODX_ACCESS_KEY = Get-Content C:\odx\secrets\access-key.txt -Raw
 '@)
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
 $principal = New-ScheduledTaskPrincipal -UserId SYSTEM -RunLevel Highest
-foreach ($t in 'cs2', 'merge', 'orchestrator', 'game-server') {
+Unregister-ScheduledTask -TaskName odx-merge -Confirm:$false -ErrorAction SilentlyContinue
+foreach ($t in 'cs2', 'orchestrator', 'game-server') {
     $action = New-ScheduledTaskAction -Execute powershell.exe -Argument "-NoProfile -ExecutionPolicy Bypass -File $root\run-$t.ps1"
     Register-ScheduledTask -TaskName "odx-$t" -Action $action -Trigger (New-ScheduledTaskTrigger -AtStartup) `
         -Settings $settings -Principal $principal -Force | Out-Null
     Stop-ScheduledTask "odx-$t" -ErrorAction SilentlyContinue
 }
-Get-Process cs2, odx-orchestrator, odx-merge, odx -ErrorAction SilentlyContinue | Stop-Process -Force
-foreach ($t in 'cs2', 'merge', 'orchestrator', 'game-server') { Start-ScheduledTask "odx-$t" }
+Get-Process cs2, odx-orchestrator, odx -ErrorAction SilentlyContinue | Stop-Process -Force
+foreach ($t in 'cs2', 'orchestrator', 'game-server') { Start-ScheduledTask "odx-$t" }
 
 [IO.File]::WriteAllText("$root\setup-done.txt", (Get-Date -Format o))
 Step "DONE (plugin: $pluginStatus)"

@@ -3,7 +3,7 @@
 ## SourceTV is not recording
 
 Game server agent log: `CS2 server: <session>: SourceTV is not recording …`; the session gets a `server.capture` warning
-(odx-merge logs it) and has no `server_state.bin`.
+(`odx merge` prints it) and has no `server_state.bin`.
 
 CS2 counts SourceTV as a bot: a match restart (including `changelevel` to the map already running, which only restarts
 the match) or a bot quota change can kick it, and `tv_record` then records nothing without saying so. SourceTV comes back
@@ -68,8 +68,8 @@ Median RTT to the time service above 100 ms: a slow or distant link to the serve
 ## No notice after a round
 
 The notices show in the top right corner of the main screen for 6–10 s. If none came, look at the app's status line and
-at the orchestrator's log: an upload failure (`upload failed: …`), odx-merge unreachable (`odx-merge: cannot open …`) or
-the session's build (`odx-merge cannot assemble …`).
+at the orchestrator's log: `round <session>: k/n players kept their recording` says whether a capture failed, and
+`<player> is <state>, left out of <session>` names a player still busy with the previous round.
 
 ## After a CS2 update
 
@@ -80,7 +80,7 @@ the session's build (`odx-merge cannot assemble …`).
   updated hl2sdk (branch `cs2`) and check the slots again.
 - **The demo reader:** server_state and events come from DemoFile.Net. If a session's `session.json` → `server` has
   `server_state.records` 0 or a `server.capture` warning about reading the demo, update the `DemoFile.Game.Cs` package
-  in `capture-cs/src/Odx.Session/Odx.Session.csproj`, rebuild, and rebuild the session from its staging folder.
+  in `capture-cs/src/Odx.Session/Odx.Session.csproj`, rebuild, and run `odx merge` again on the copied round.
 
 ## Packets of a player are empty
 

@@ -1,6 +1,6 @@
 // odx agent --orchestrator http://<host>:5180 --room <invite code> --player <id> --out <dir> [--name <name>] [--window <process>]
 //           [--auto-ready]
-// One player's capture machine in a room of odx-orchestrator (spec v3): records each round when told to, uploads it, repeats.
+// One player's capture machine in a room of odx-orchestrator (spec v3): records each round when told to into --out, keeps it, repeats.
 // Reconnects every 5 s while the orchestrator is unreachable; Ctrl+C quits. --auto-ready: says ready on connect and after
 // every round, so a headless machine does not keep the host waiting. The access key is access_key of odx-capture.json
 // next to odx, or --access-key.

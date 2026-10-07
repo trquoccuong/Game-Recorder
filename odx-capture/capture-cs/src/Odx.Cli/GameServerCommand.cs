@@ -1,7 +1,7 @@
 // odx game-server --orchestrator http://<host>:5180 --cs2-game-dir <cs2>/game/csgo --cs2-rcon-password-file <file>
 //                 [--cs2-rcon <address>:27015] [--work <dir>] [--name <name>] [--access-key K]
 // The CS2 dedicated server's agent (GameServerAgent), on the server's machine: records the server's side of every round the
-// orchestrator starts (SourceTV demo + odx_netlog log) and uploads it to odx-merge. --cs2-rcon: where RCON listens
+// orchestrator starts (SourceTV demo + odx_netlog log) and keeps it in --work. --cs2-rcon: where RCON listens
 // (default: this machine's address, port 27015; CS2 binds RCON to the network address, not to 127.0.0.1). The RCON password
 // may come from ODX_CS2_RCON_PASSWORD, the access key from ODX_ACCESS_KEY or access_key of odx-capture.json next to odx.
 using System.Globalization;

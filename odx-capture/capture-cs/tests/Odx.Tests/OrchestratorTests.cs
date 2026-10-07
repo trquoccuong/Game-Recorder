@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Odx.Cli;
 using Odx.Core;
-using Odx.Merge;
 using Odx.Orchestrator;
 using Odx.Session;
 using Xunit;
@@ -55,7 +54,6 @@ public sealed class OrchestratorTests : IAsyncLifetime
     private readonly string _root = Path.Combine(Path.GetTempPath(), "odx-orch-" + Guid.NewGuid().ToString("N"));
     private readonly CancellationTokenSource _stop = new();
     private WebApplication _app = null!;
-    private WebApplication _merge = null!;
     private HttpClient _http = null!;
     private MatchCoordinator _coordinator = null!;
     private readonly List<AgentClient> _agents = [];
@@ -70,11 +68,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
             {"game_title": "Synthetic", "platform": "PC", "localization": "en-US",
              "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {"W": "Forward"}}
             """);
-        _merge = MergeHost.Build(new MergeOptions(Path.Combine(_root, "out"), HttpPort: 0) { Tolerances = FixtureTolerances },
-            "127.0.0.1");
-        await _merge.StartAsync();
-        _app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0, Fps: SessionFixtures.Fps)
-            { MergeUrl = new Uri(_merge.Urls.First()) }, "127.0.0.1");
+        _app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0, Fps: SessionFixtures.Fps), "127.0.0.1");
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         _coordinator = _app.Services.GetRequiredService<MatchCoordinator>();
@@ -87,8 +81,6 @@ public sealed class OrchestratorTests : IAsyncLifetime
         _stop.Cancel();
         await _app.StopAsync();
         await _app.DisposeAsync();
-        await _merge.StopAsync();
-        await _merge.DisposeAsync();
         try
         {
             Directory.Delete(_root, true);
@@ -101,7 +93,17 @@ public sealed class OrchestratorTests : IAsyncLifetime
     private Task<(string Dir, SessionReport Report)> NextSession()
     {
         var tcs = new TaskCompletionSource<(string, SessionReport)>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _coordinator.SessionAssembled += (dir, report) => tcs.TrySetResult((dir, report));
+        _coordinator.RoundRecorded += files => Task.Run(() =>
+        {
+            string staging = Path.Combine(_root, "test", files.SessionId);
+            Directory.CreateDirectory(staging);
+            files.WriteTo(staging);
+            foreach (var p in RoundRecord.Load(staging).Players)
+                if (Directory.Exists(Path.Combine(_root, "agent-" + p.PlayerId, files.SessionId)))
+                    CopyDir(Path.Combine(_root, "agent-" + p.PlayerId, files.SessionId), Path.Combine(staging, "players", p.PlayerId));
+            tcs.TrySetResult(MultiplayerSession.Assemble(MergeCommand.Sessions(staging).Single(), Path.Combine(_root, "out"),
+                MergeCommand.Vendor, FixtureTolerances));
+        });
         return tcs.Task.WaitAsync(TimeSpan.FromSeconds(30));
     }
 
@@ -224,7 +226,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
     }
 
     [SkippableFact]
-    public async Task RoundsCopiedFromTheirPlayersMergeToTheSessionOdxMergeAssembled()
+    public async Task PlayersOwnCopiesOfTheRoundFilesMergeToTheSameSession()
     {
         Skip.IfNot(SessionFixtures.HasFfmpeg, "needs ffmpeg + ffprobe");
         string template = SessionFixtures.MakeValidSession(Path.Combine(_root, "template"));
@@ -239,7 +241,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         var (assembled, report) = await session;
         Assert.True(report.Pass, string.Join("; ", report.Players.SelectMany(p => p.Issues).Select(i => i.Message)));
 
-        string staging = Path.Combine(_root, "test", report.SessionId);
+        string staging = Path.Combine(_root, "copied", report.SessionId);
         foreach (string p in new[] { "p1", "p2" })
         {
             string kept = Path.Combine(_root, "agent-" + p, report.SessionId);
@@ -248,7 +250,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
             foreach (string f in new[] { RoundRecord.FileName, RoundRecord.EventsFileName, RoundRecord.ProfileFileName })
                 File.Copy(Path.Combine(kept, f), Path.Combine(staging, f), true);
         }
-        Assert.Equal([staging], MergeCommand.Sessions(Path.Combine(_root, "test")));
+        Assert.Equal([staging], MergeCommand.Sessions(Path.Combine(_root, "copied")));
         var (merged, local) = MultiplayerSession.Assemble(staging, Path.Combine(_root, "local"), MergeCommand.Vendor, FixtureTolerances);
 
         Assert.True(local.Pass);
@@ -271,25 +273,11 @@ public sealed class OrchestratorTests : IAsyncLifetime
         ConnectAgents(null, "p1", "p2");
         await WaitForAgents(2);
         var session = NextSession();
-        var told = _agents.Select(agent =>
-        {
-            var result = new TaskCompletionSource<SessionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-            agent.SessionResultReceived += r => result.TrySetResult(r);
-            return result.Task;
-        }).ToList();
 
         await Post(new { type = "round_start", round = 3 });
         await Post(new { type = "round_end" });
 
         var (dir, report) = await session;
-        Assert.All(await Task.WhenAll(told).WaitAsync(TimeSpan.FromSeconds(10)), result =>
-        {
-            Assert.Equal(report.SessionId, result.SessionId);
-            Assert.False(result.Pass);
-            Assert.Equal(0, result.ValidPlayers);
-            Assert.Contains(result.Problems, problem => problem.Contains("player streams valid", StringComparison.Ordinal));
-            Assert.Contains(result.Problems, problem => problem.StartsWith("player.missing", StringComparison.Ordinal));
-        });
         Assert.False(report.Pass);
         Assert.Equal(0, report.ValidPlayers);
         Assert.Contains(report.Issues, i => i.Rule == "session.min_players");

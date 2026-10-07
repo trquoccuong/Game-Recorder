@@ -2,8 +2,8 @@
 
 The server records each round's server side: a SourceTV demo (world state every tick, game events) and the
 `odx_netlog` plugin's log (every net message with each client, the server tick on every line). Its agent,
-`odx game-server`, starts and stops the demo over RCON when the orchestrator says so and uploads both to odx-merge after
-the round.
+`odx game-server`, starts and stops the demo over RCON when the orchestrator says so and keeps both, per round, on this
+machine.
 
 Requirements: Windows 10/11 x64, about 60 GB free on one drive (or see [hard links](#install-from-a-cs2-client-with-hard-links)),
 the Microsoft Visual C++ runtime (installed with Steam games).
@@ -150,7 +150,10 @@ The server can run on one player's PC (the player also runs CS2 and the app ther
 
 `odx game-server` runs next to the server (`odx.exe` is in the package's `bin\`). It connects to the orchestrator, and
 for every round the orchestrator starts it records the server's side, samples this machine's clock against the
-orchestrator's time service, and uploads everything to odx-merge when the round ends.
+orchestrator's time service, and keeps everything in `<work>\<session>\`: `server\` (demo, plugin log,
+`ntp_samples.csv`) and, once every participant is done, the round's files from the orchestrator (`round.json`,
+`server_events.jsonl`, `game_profile.json`). A cancelled round is deleted. Copy these folders for `odx merge`
+([orchestrator.md](orchestrator.md#build-the-sessions)).
 
 ```powershell
 # The RCON password from step 5, alone in a file only this user can read.
@@ -158,17 +161,17 @@ Set-Content -Path D:\odx\rcon.txt -Value '<RCON password>' -NoNewline
 
 $bin = 'D:\odx\odx-capture-0.1.0-win-x64\bin'
 & "$bin\odx.exe" game-server --orchestrator http://<orchestrator>:5180 --cs2-game-dir D:\cs2-server\game\csgo `
-    --cs2-rcon-password-file D:\odx\rcon.txt
+    --cs2-rcon-password-file D:\odx\rcon.txt --work D:\odx\game-server
 ```
 
 | Option | |
 |---|---|
-| `--orchestrator` | The orchestrator, as this machine reaches it. odx-merge's address comes from the orchestrator. |
+| `--orchestrator` | The orchestrator, as this machine reaches it. |
 | `--cs2-game-dir` | The server's `game\csgo` folder (where `replays\` and `odx-netlog\` are). |
 | `--cs2-rcon-password-file` | Or the `ODX_CS2_RCON_PASSWORD` environment variable. |
 | `--cs2-rcon` | Where RCON listens; default this machine's first IPv4 address, port 27015 (`netstat -ano \| findstr :27015` shows it). |
 | `--access-key` | The orchestrator's; or `ODX_ACCESS_KEY`, else `access_key` of the `odx-capture.json` next to `odx.exe` (set when the package was built). |
-| `--work` | Where each round is staged until uploaded; default a temp folder. |
+| `--work` | Where the rounds are kept; default `odx-game-server` in the temp folder (`%TEMP%`): set one that stays. |
 | `--name` | How the orchestrator names it; default "CS2 server". |
 
 Check: the orchestrator logs `game server agent CS2 server (0.1.0) connected`, and its `/status` shows `"game_server"`.

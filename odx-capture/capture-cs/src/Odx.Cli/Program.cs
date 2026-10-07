@@ -6,7 +6,7 @@
 //   agent          one player's capture machine under odx-orchestrator (Windows build only)
 //   packet-capture the elevated pktmon helper odx-app starts for a room's packet capture (Windows build only)
 //   simulate-game  posts a scripted match to odx-orchestrator in place of a game server
-//   game-server    the CS2 dedicated server's agent: records the server's side of every round for odx-merge
+//   game-server    the CS2 dedicated server's agent: records and keeps the server's side of every round
 //   merge          rounds copied from their participants -> v3 sessions
 // The net10.0 build (Linux servers) has build, validate, simulate-game, game-server and merge only.
 using System.Text;

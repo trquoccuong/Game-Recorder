@@ -12,7 +12,7 @@ using Vec3 = Odx.Session.Proto.Vec3;
 namespace Odx.Session;
 
 /// <summary>
-/// The CS2 game server's side of a round (spec v3 §3), uploaded by its <see cref="GameServerAgent"/> to &lt;staging&gt;/server/:
+/// The CS2 game server's side of a round (spec v3 §3), kept by its <see cref="GameServerAgent"/> in &lt;staging&gt;/server/:
 /// <list type="bullet">
 /// <item><c>demo.dem</c>: the round's SourceTV demo (tv_record / tv_stoprecord over RCON): server_state.bin, events.</item>
 /// <item><c>netmessages.jsonl</c>: what the odx_netlog plugin logged during the round (cs2-plugin/README.md):

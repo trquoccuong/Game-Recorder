@@ -1,6 +1,6 @@
 # A two-player test round
 
-Before: the server, its agent, odx-merge and the orchestrator run ([cs2-server.md](cs2-server.md),
+Before: the server, its agent and the orchestrator run ([cs2-server.md](cs2-server.md),
 [orchestrator.md](orchestrator.md)), both
 players have the package and CS2 with `-insecure` ([player-setup.md](player-setup.md)).
 
@@ -14,15 +14,18 @@ players have the package and CS2 with `-insecure` ([player-setup.md](player-setu
 5. Player A: press F10. A 3 s countdown shows on both screens; both start recording.
 6. Play at least 30 s (the gate needs 10 s). To exercise the whole pipeline: kills, damage, a death (the frames after it
    get no camera), the bomb.
-7. Player A: press F10 to end the round. Both see "Round …: recorded and uploaded", then "Session …: PASS" (or the
-   reasons it failed) in the top right corner.
-
-The orchestrator's and odx-merge's logs show `session <id>: PASS, 2/2 players valid -> <folder>`.
+7. Player A: press F10 to end the round. Both see "✓ Round …: recorded, kept in …" in the top right corner; the
+   orchestrator logs `round <session>: 2/2 players kept their recording`.
+8. Copy the round into one folder ([orchestrator.md](orchestrator.md#build-the-sessions)): each player's
+   `data\captures\<session>\` to `<test>\<session>\players\<pid>\`, the game server agent's `<work>\<session>\server\` to
+   `<test>\<session>\server\`, and `round.json`, `server_events.jsonl`, `game_profile.json` from any of them to
+   `<test>\<session>\`.
+9. `odx merge <test>` prints `PASS  <session>  2/2 players valid, 2 required -> <folder>` (or FAIL with the issues).
 
 ## What to check in the session
 
 ```
-data\delivery\odx\<mm-dd-yyyy>\counter-strike-2\<session>\        (on odx-merge's machine)
+data\delivery\odx\<mm-dd-yyyy>\counter-strike-2\<session>\        (on the machine that ran odx merge)
   session.json  validation.json  schema.bin.gz
   server\  server_state.bin  events.jsonl  packets.bin  packets.txt  capture\(demo.dem, netmessages.jsonl, senddata.jsonl)
   players\<player-a>\  player.json  video.mp4  frames.csv  frames.bin  events.jsonl  packets.bin  packets.txt  capture\

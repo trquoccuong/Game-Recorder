@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -23,23 +22,16 @@ public sealed record LanState(string NetworkId, string Status, string? Address =
 /// <summary>
 /// A player's capture machine under the orchestrator, in one room: on Start it records into &lt;OutputRoot&gt;/&lt;session&gt;/
 /// (sampling its clock against the orchestrator's time service, checked once on Welcome), on Stop it lets the capture build
-/// and validate the session, uploads the folder when the orchestrator has odx-merge, and reports Done. The folder stays, and
-/// gets the round's files (<see cref="RoundFiles"/>) once everyone is done. odx agent (headless) and odx-app's room mode both
-/// run this.
+/// and validate the session and reports Done. The folder stays, and gets the round's files (<see cref="RoundFiles"/>) once
+/// everyone is done. odx agent (headless) and odx-app's room mode both run this.
 /// </summary>
 public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICaptureRun> startCapture)
 {
     private static readonly TimeSpan NtpTimeout = TimeSpan.FromSeconds(2), Retry = TimeSpan.FromSeconds(5);
 
     private readonly SemaphoreSlim _sendLock = new(1, 1);
-    private readonly HttpClient _http = new()
-    {
-        Timeout = TimeSpan.FromMinutes(30),
-        DefaultRequestHeaders = { Authorization = options.AccessKey is { } key ? new AuthenticationHeaderValue("Bearer", key) : null },
-    };
     private ClientWebSocket? _socket;
     private string? _timeServer;
-    private Uri? _merge;
     private Arm? _armed;
     private string? _profilePath;
     private string? _profileWindow;
@@ -78,11 +70,8 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// <summary>Progress of joining the room's virtual LAN; null once out of it.</summary>
     public event Action<LanState?>? LanChanged;
 
-    /// <summary>A round's capture is done (session id, kept and uploaded when there is odx-merge, why not).</summary>
-    public event Action<string, bool, string?>? RoundUploaded;
-
-    /// <summary>The orchestrator assembled a round this player recorded.</summary>
-    public event Action<SessionResult>? SessionResultReceived;
+    /// <summary>A round's capture is done (session id, its folder, whether the capture worked).</summary>
+    public event Action<string, string, bool>? RoundKept;
 
     /// <summary>Whether this player is ready for the next round; the orchestrator clears it when play starts.</summary>
     public bool IsReady { get; private set; }
@@ -284,7 +273,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         {
             case Welcome w:
                 _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
-                _merge = w.MergeUrl is { } merge ? new Uri(merge) : null;
                 MeasureClock();
                 if (w.GameProfileJson is { } welcomeProfile &&
                     GameProfile.Parse(JsonNode.Parse(welcomeProfile)!.AsObject(), "orchestrator").Network is { } network)
@@ -305,10 +293,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 }
                 if (options.AutoReady && !IsHost && me is { Ready: false, State: "idle" } && r.CurrentSession is null)
                     await SetReadyAsync(true, stop);
-                break;
-            case SessionResult result:
-                Log?.Invoke($"{result.SessionId}: {(result.Pass ? "PASS" : "FAIL")}");
-                SessionResultReceived?.Invoke(result);
                 break;
             case RoundFiles files:
                 string kept = Path.Combine(options.OutputRoot, files.SessionId);
@@ -432,24 +416,11 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             await EndWithoutCaptureAsync(s.SessionId, $"round cancelled, recording kept locally only ({aside})", stop);
             return;
         }
-        string? error = null;
-        if (_merge is not null)
-        {
-            await SendAsync(new AgentState("uploading", s.SessionId), stop);
-            try
-            {
-                await UploadAsync(_merge, s.SessionId, result.SessionDir, stop);
-            }
-            catch (Exception e) when (e is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException)
-            {
-                error = $"upload failed: {e.Message}";
-            }
-        }
-        bool ok = result.CaptureOk && error is null;
-        await SendAsync(new Done(s.SessionId, ok, error ?? (result.CaptureOk ? null : "capture failed")), stop);
+        bool ok = result.CaptureOk;
+        await SendAsync(new Done(s.SessionId, ok, ok ? null : "capture failed"), stop);
         await SendAsync(new AgentState("idle"), stop);
-        Log?.Invoke($"{s.SessionId} done: {(ok ? _merge is null ? $"kept in {result.SessionDir}" : "uploaded" : error ?? "capture failed")}");
-        RoundUploaded?.Invoke(s.SessionId, ok, ok ? null : error ?? "capture failed");
+        Log?.Invoke($"{s.SessionId} done: {(ok ? $"kept in {result.SessionDir}" : "capture failed")}");
+        RoundKept?.Invoke(s.SessionId, result.SessionDir, ok);
         lock (_gate)
         {
             _run = null;
@@ -474,7 +445,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         }
     }
 
-    /// <param name="sessionDir">Where packets.pcapng goes (uploaded with the capture); null discards the capture.</param>
+    /// <param name="sessionDir">Where packets.pcapng goes (kept with the capture); null discards the capture.</param>
     private async Task StopPacketsAsync(string etl, string? sessionDir, CancellationToken stop)
     {
         string pcapng = Path.Combine(sessionDir ?? Path.GetTempPath(), sessionDir is null ? Path.GetFileNameWithoutExtension(etl) + ".pcapng"
@@ -497,20 +468,6 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         await SendAsync(new Done(sessionId, false, reason), stop);
         await SendAsync(new AgentState("idle"), stop);
         Log?.Invoke($"{sessionId}: {reason}");
-    }
-
-    private async Task UploadAsync(Uri merge, string sessionId, string dir, CancellationToken stop)
-    {
-        foreach (string file in Directory.GetFiles(dir))
-        {
-            await using var stream = File.OpenRead(file);
-            using var content = new StreamContent(stream);
-            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-            var url = new Uri(merge, $"/sessions/{Uri.EscapeDataString(sessionId)}/players/{Uri.EscapeDataString(options.PlayerId)}/files/" +
-                                     Uri.EscapeDataString(Path.GetFileName(file)));
-            using var response = await _http.PutAsync(url, content, stop);
-            response.EnsureSuccessStatusCode();
-        }
     }
 
     /// <summary>Checks the time service answers before any round; the capture itself samples it at start and every 15 s.</summary>

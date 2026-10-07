@@ -1,7 +1,7 @@
 # CS2 capture server on Google Cloud
 
 One Windows Server VM running everything for a small test: the CS2 dedicated server (Metamod + `odx_netlog`), its
-agent `odx game-server`, `odx-orchestrator` and `odx-merge`. For more rooms, run the orchestrator and odx-merge on Linux
+agent `odx game-server` and `odx-orchestrator`. For more rooms, run the orchestrator on Linux
 with `deploy/` and keep only the CS2 server and its agent here (`docs/README.md`, "What runs where").
 
 The VM sets itself up from its startup script, without RDP: `startup.ps1` runs `setup.ps1` and `build-package.ps1` side by
@@ -16,7 +16,7 @@ gcloud projects create $P --organization=<org id> && gcloud billing projects lin
 gcloud services enable compute.googleapis.com --project=$P
 gcloud compute addresses create cs2-capture-ip --region=$R --project=$P
 gcloud compute firewall-rules create cs2-capture-players --project=$P --target-tags=cs2-capture \
-  --source-ranges=<players' IPs or 0.0.0.0/0> --allow=udp:27015,tcp:5180,tcp:5190,udp:12300
+  --source-ranges=<players' IPs or 0.0.0.0/0> --allow=udp:27015,tcp:5180,udp:12300
 gcloud compute firewall-rules create cs2-capture-rdp --project=$P --target-tags=cs2-capture \
   --source-ranges=<your IP>/32,35.235.240.0/20 --allow=tcp:3389
 gcloud compute firewall-rules delete default-allow-rdp default-allow-ssh --project=$P --quiet   # open to the internet
@@ -43,8 +43,9 @@ gcloud compute instances get-serial-port-output cs2-capture --zone=$Z --project=
 ```
 
 Then: `gs://odx-game-server-setup/packages/odx-capture-0.1.0-win-x64.zip` is the players' package (orchestrator
-`http://<static IP>:5180` and the access key preset), sessions appear under `gs://odx-game-server-setup/delivery/`
-every 5 min. On the VM: `C:\odx\` (logs\, secrets\ readable by SYSTEM and Administrators only, odx\data\delivery\).
+`http://<static IP>:5180` and the access key preset), the server's side of each round appears under
+`gs://odx-game-server-setup/game-server/` every 5 min, ready to copy next to the players' `data\captures\` folders for
+`odx merge`. On the VM: `C:\odx\` (logs\, secrets\ readable by SYSTEM and Administrators only, game-server\).
 
 ## Run a command on the VM
 
@@ -82,5 +83,5 @@ gcloud storage cat gs://odx-game-server-setup/logs/run-once-<time>.txt | iconv -
 ## Remove
 
 ```bash
-gcloud projects delete odx-game-server      # everything: VM, disk, IP, firewall, bucket (sessions included)
+gcloud projects delete odx-game-server      # everything: VM, disk, IP, firewall, bucket (rounds included)
 ```

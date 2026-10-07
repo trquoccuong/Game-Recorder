@@ -29,9 +29,9 @@ powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0 -Orchestrato
 1. Unzip the package anywhere (e.g. `D:\Odx`); nothing else to install.
 2. Start `Odx Capture.exe`. The first start takes a while (Windows Defender scans the new files) and the app checks the
    video encoder once.
-3. Recordings are kept in the package's `data\captures\` (one folder per recording, also after the upload; plan about
-   2 MB per second of recording). The sessions to hand over are built by odx-merge, on its machine
-   ([orchestrator.md](orchestrator.md)).
+3. Recordings are kept in the package's `data\captures\` (a room's rounds in `data\captures\<session>\`; plan about
+   2 MB per second of recording). Nothing is uploaded: after the test the rounds are copied together and the sessions to
+   hand over are built by `odx merge` ([orchestrator.md](orchestrator.md#build-the-sessions)).
 
 ## 3. CS2
 
@@ -55,5 +55,7 @@ CS2 encrypts its traffic, so these files only hold sizes and timings; the decode
 - The hotkey (F10 by default) or the main button:
   - the host starts the round once everyone is ready (3 s countdown on every screen) and ends it;
   - the other player toggles ready.
-- After the round, a notice in the top right corner of the screen shows the upload, then the session's PASS/FAIL with
-  the reasons. The notices and the countdown never show in the video.
+- After the round, a notice in the top right corner of the screen says where the round was kept ("✓ Round …: recorded,
+  kept in …") or that its capture failed. The notices and the countdown never show in the video.
+- A round cancelled during its countdown keeps its folder as `<session>.cancelled-<yyyyMMdd-HHmmss>`; the next round
+  uses the same session id.
