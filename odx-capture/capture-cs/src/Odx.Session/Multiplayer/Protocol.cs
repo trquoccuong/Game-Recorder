@@ -52,6 +52,7 @@ public static class GameEvents
 [JsonDerivedType(typeof(RoomClosed), "room_closed")]
 [JsonDerivedType(typeof(LanMember), "lan_member")]
 [JsonDerivedType(typeof(SessionResult), "session_result")]
+[JsonDerivedType(typeof(RoundFiles), "round_record")]
 public abstract record AgentMessage
 {
     public static readonly JsonSerializerOptions Json = new()
@@ -149,3 +150,13 @@ public sealed record LanMember(string NodeId) : AgentMessage;
 /// </summary>
 public sealed record SessionResult(string SessionId, bool Pass, int ValidPlayers, int RequiredPlayers, List<string> Problems)
     : AgentMessage;
+
+public sealed record RoundFiles(string SessionId, string Round, string Events, string GameProfile) : AgentMessage
+{
+    public void WriteTo(string dir)
+    {
+        File.WriteAllText(Path.Combine(dir, RoundRecord.FileName), Round);
+        File.WriteAllText(Path.Combine(dir, RoundRecord.EventsFileName), Events);
+        File.WriteAllText(Path.Combine(dir, RoundRecord.ProfileFileName), GameProfile);
+    }
+}

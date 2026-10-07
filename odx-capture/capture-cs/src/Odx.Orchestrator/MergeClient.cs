@@ -27,7 +27,7 @@ public sealed class MergeClient(Uri merge, string? accessKey)
     public async Task<AssembledSession> AssembleAsync(RoundRecord round, IEnumerable<JsonObject> events)
     {
         await PutAsync(round.SessionId, RoundRecord.FileName, round.ToJson());
-        await PutAsync(round.SessionId, RoundRecord.EventsFileName, string.Concat(events.Select(e => e.ToJsonString(AgentMessage.Json) + "\n")));
+        await PutAsync(round.SessionId, RoundRecord.EventsFileName, RoundRecord.EventsJsonl(events));
         using var response = await _http.PostAsync($"/sessions/{Uri.EscapeDataString(round.SessionId)}/assemble", null);
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<AssembledSession>(AgentMessage.Json)

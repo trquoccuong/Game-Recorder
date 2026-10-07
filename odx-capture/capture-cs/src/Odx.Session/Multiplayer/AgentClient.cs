@@ -21,9 +21,11 @@ public sealed record AgentOptions(Uri Orchestrator, string PlayerId, string Name
 public sealed record LanState(string NetworkId, string Status, string? Address = null);
 
 /// <summary>
-/// A player's capture machine under the orchestrator, in one room: on Start it records (sampling its clock against the
-/// orchestrator's time service, checked once on Welcome), on Stop it lets the capture build and validate the session, uploads
-/// the folder and reports Done. odx agent (headless) and odx-app's room mode both run this.
+/// A player's capture machine under the orchestrator, in one room: on Start it records into &lt;OutputRoot&gt;/&lt;session&gt;/
+/// (sampling its clock against the orchestrator's time service, checked once on Welcome), on Stop it lets the capture build
+/// and validate the session, uploads the folder when the orchestrator has odx-merge, and reports Done. The folder stays, and
+/// gets the round's files (<see cref="RoundFiles"/>) once everyone is done. odx agent (headless) and odx-app's room mode both
+/// run this.
 /// </summary>
 public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICaptureRun> startCapture)
 {
@@ -76,7 +78,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// <summary>Progress of joining the room's virtual LAN; null once out of it.</summary>
     public event Action<LanState?>? LanChanged;
 
-    /// <summary>A round's capture went to the orchestrator (session id, uploaded, why not).</summary>
+    /// <summary>A round's capture is done (session id, kept and uploaded when there is odx-merge, why not).</summary>
     public event Action<string, bool, string?>? RoundUploaded;
 
     /// <summary>The orchestrator assembled a round this player recorded.</summary>
@@ -308,6 +310,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 Log?.Invoke($"{result.SessionId}: {(result.Pass ? "PASS" : "FAIL")}");
                 SessionResultReceived?.Invoke(result);
                 break;
+            case RoundFiles files:
+                string kept = Path.Combine(options.OutputRoot, files.SessionId);
+                if (Directory.Exists(kept)) files.WriteTo(kept);
+                break;
             case RoomError e:
                 Log?.Invoke(e.Message);
                 RoomError?.Invoke(e.Message);
@@ -387,7 +393,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         try
         {
             run = startCapture(new CaptureOptions(options.OutputRoot, WindowToRecord(), _armed!.Fps, _profilePath, _timeServer,
-                NtpIntervalS: 1));
+                NtpIntervalS: 1, DirName: s.SessionId));
         }
         catch (Exception e)
         {
@@ -414,23 +420,35 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 _run = null;
                 _runSessionId = null;
             }
-            await EndWithoutCaptureAsync(s.SessionId, "round cancelled, recording kept locally only", stop);
+            string aside = $"{result.SessionDir}.cancelled-{DateTime.Now:yyyyMMdd-HHmmss}";
+            try
+            {
+                Directory.Move(result.SessionDir, aside);
+            }
+            catch (IOException e)
+            {
+                Log?.Invoke($"cannot move the cancelled recording aside: {e.Message}");
+            }
+            await EndWithoutCaptureAsync(s.SessionId, $"round cancelled, recording kept locally only ({aside})", stop);
             return;
         }
-        await SendAsync(new AgentState("uploading", s.SessionId), stop);
         string? error = null;
-        try
+        if (_merge is not null)
         {
-            await UploadAsync(s.SessionId, result.SessionDir, stop);
-        }
-        catch (Exception e) when (e is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException)
-        {
-            error = $"upload failed: {e.Message}";
+            await SendAsync(new AgentState("uploading", s.SessionId), stop);
+            try
+            {
+                await UploadAsync(_merge, s.SessionId, result.SessionDir, stop);
+            }
+            catch (Exception e) when (e is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException)
+            {
+                error = $"upload failed: {e.Message}";
+            }
         }
         bool ok = result.CaptureOk && error is null;
         await SendAsync(new Done(s.SessionId, ok, error ?? (result.CaptureOk ? null : "capture failed")), stop);
         await SendAsync(new AgentState("idle"), stop);
-        Log?.Invoke($"{s.SessionId} done: {(ok ? "uploaded" : error ?? "capture failed")}");
+        Log?.Invoke($"{s.SessionId} done: {(ok ? _merge is null ? $"kept in {result.SessionDir}" : "uploaded" : error ?? "capture failed")}");
         RoundUploaded?.Invoke(s.SessionId, ok, ok ? null : error ?? "capture failed");
         lock (_gate)
         {
@@ -481,9 +499,8 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         Log?.Invoke($"{sessionId}: {reason}");
     }
 
-    private async Task UploadAsync(string sessionId, string dir, CancellationToken stop)
+    private async Task UploadAsync(Uri merge, string sessionId, string dir, CancellationToken stop)
     {
-        var merge = _merge ?? throw new InvalidOperationException("the orchestrator has no odx-merge to upload to");
         foreach (string file in Directory.GetFiles(dir))
         {
             await using var stream = File.OpenRead(file);

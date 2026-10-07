@@ -16,13 +16,13 @@ namespace Odx.Tests;
 /// </summary>
 public sealed class OrchestratorTests : IAsyncLifetime
 {
-    private sealed class FakeCapture : ICaptureRun
+    internal sealed class FakeCapture : ICaptureRun
     {
         private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public FakeCapture(CaptureOptions options, string? template)
         {
-            SessionDir = Path.Combine(options.OutputRoot, Guid.NewGuid().ToString("N"));
+            SessionDir = Path.Combine(options.OutputRoot, options.DirName ?? Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(SessionDir);
             if (template is not null)
             {
