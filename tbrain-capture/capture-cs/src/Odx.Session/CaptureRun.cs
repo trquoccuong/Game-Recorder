@@ -10,7 +10,7 @@ namespace Odx.Session;
 /// <param name="NtpServer">Passed to odx input --ntp; null or empty measures nothing (Windows clock only).</param>
 /// <param name="NtpIntervalS">Seconds between NTP samples; agents use 1 s against the orchestrator on the LAN.</param>
 public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer,
-    int NtpIntervalS = 15);
+    int NtpIntervalS = 15, string? DirName = null);
 
 /// <param name="Recording">odx record's final status (frame counts); null if it never reported one.</param>
 /// <param name="ToolErrors">stderr lines of the capture tools (warnings such as an unreachable NTP server included).</param>
@@ -61,7 +61,7 @@ public sealed class CaptureRun : ICaptureRun
 
     private CaptureRun(CaptureOptions options)
     {
-        SessionDir = Path.Combine(options.OutputRoot, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
+        SessionDir = Path.Combine(options.OutputRoot, options.DirName ?? DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
         _gameProfile = options.GameProfile;
         Directory.CreateDirectory(SessionDir);
         string stopName = $@"Local\odx-stop-{Guid.NewGuid():N}";

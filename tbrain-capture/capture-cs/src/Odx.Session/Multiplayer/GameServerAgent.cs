@@ -6,7 +6,7 @@ using Odx.Core;
 
 namespace Odx.Session;
 
-/// <param name="WorkDir">Each round is staged in &lt;WorkDir&gt;/&lt;session&gt;/ until it is uploaded.</param>
+/// <param name="WorkDir">Each round is kept in &lt;WorkDir&gt;/&lt;session&gt;/ (server/ and the round's files).</param>
 /// <param name="AccessKey">The orchestrator's (and odx-merge's) access key; null when they have none.</param>
 public sealed record GameServerAgentOptions(Uri Orchestrator, Cs2ServerOptions Cs2, string WorkDir, string? AccessKey = null,
     string Name = "CS2 server");
@@ -14,7 +14,8 @@ public sealed record GameServerAgentOptions(Uri Orchestrator, Cs2ServerOptions C
 /// <summary>
 /// The game server machine's agent (odx game-server). It connects to the orchestrator like a player's agent but joins no room:
 /// every round's Start records the server's side (<see cref="Cs2Server"/>) and samples this machine's clock against the
-/// orchestrator's time service; Stop uploads both to odx-merge and reports Done. A cancelled round is dropped.
+/// orchestrator's time service; Stop keeps both (and uploads them when the orchestrator has odx-merge) and reports Done.
+/// The round's files (<see cref="RoundFiles"/>) join them once everyone is done. A cancelled round is dropped.
 /// </summary>
 public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
 {
@@ -101,7 +102,11 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
                 case Welcome w:
                     _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
                     _merge = w.MergeUrl is { } merge ? new Uri(merge) : null;
-                    if (_merge is null) log.LogWarning("the orchestrator has no odx-merge: rounds will not be uploaded");
+                    if (_merge is null) log.LogInformation("the orchestrator has no odx-merge: rounds are kept in {WorkDir}", options.WorkDir);
+                    break;
+                case RoundFiles files:
+                    string kept = Path.Combine(options.WorkDir, files.SessionId);
+                    if (Directory.Exists(kept)) files.WriteTo(kept);
                     break;
                 case Start s:
                     await StartAsync(s.SessionId);
@@ -168,26 +173,29 @@ public sealed class GameServerAgent(GameServerAgentOptions options, ILogger log)
         await round.Sampling;
         bool keep = s.Reason != Stop.Cancelled;
         await _cs2.StopAsync(s.SessionId, round.Dir, keep);
+        if (!keep)
+        {
+            Directory.Delete(round.Dir, true);
+            return;
+        }
         string? error = null;
-        if (keep)
+        if (_merge is { } merge)
         {
             try
             {
-                await UploadAsync(s.SessionId, Path.Combine(round.Dir, "server"), stop);
+                await UploadAsync(merge, s.SessionId, Path.Combine(round.Dir, "server"), stop);
             }
             catch (Exception e) when (e is HttpRequestException or IOException or InvalidOperationException or TaskCanceledException)
             {
                 error = $"upload to odx-merge failed: {e.Message}";
             }
-            await SendAsync(new Done(s.SessionId, error is null, error), stop);
-            log.LogInformation("{Session}: {Result}", s.SessionId, error ?? "uploaded");
         }
-        if (error is null) Directory.Delete(round.Dir, true);
+        await SendAsync(new Done(s.SessionId, error is null, error), stop);
+        log.LogInformation("{Session}: {Result}", s.SessionId, error ?? (_merge is null ? $"kept in {round.Dir}" : "uploaded"));
     }
 
-    private async Task UploadAsync(string sessionId, string dir, CancellationToken stop)
+    private async Task UploadAsync(Uri merge, string sessionId, string dir, CancellationToken stop)
     {
-        var merge = _merge ?? throw new InvalidOperationException("the orchestrator has no odx-merge");
         foreach (string file in Directory.GetFiles(dir))
         {
             await using var stream = File.OpenRead(file);

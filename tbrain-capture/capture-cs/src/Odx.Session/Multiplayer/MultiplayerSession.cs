@@ -37,6 +37,9 @@ public sealed record RoundRecord(string SessionId, string MatchId, string Game, 
 
     public string ToJson() => JsonSerializer.Serialize(this, PrettyJson);
 
+    public static string EventsJsonl(IEnumerable<JsonObject> events) =>
+        string.Concat(events.Select(e => e.ToJsonString(AgentMessage.Json) + "\n"));
+
     internal static readonly JsonSerializerOptions PrettyJson = new(AgentMessage.Json) { WriteIndented = true };
 }
 

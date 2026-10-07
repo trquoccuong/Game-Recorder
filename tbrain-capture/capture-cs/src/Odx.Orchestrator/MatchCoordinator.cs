@@ -31,8 +31,9 @@ public sealed record OrchestratorOptions(string GameProfilePath, int HttpPort = 
 /// plugin's round_start / round_end (/rooms/{code}/events). Ready is a signal for the host, never a start by itself. With a countdown, members record from round_countdown and play starts at round_start; a
 /// round_end, an unready or a member leaving during the countdown cancels the round (nothing is kept). A permanent
 /// player_death stops that player, round_end stops the rest. A connected game server agent records every round's server side
-/// (spec v3 §3) along with the players. Everyone uploads to odx-merge, which accepts a round from its start on; when all
-/// are done (or <see cref="OrchestratorOptions.DoneTimeout"/> passes) odx-merge assembles it into a v3 session.
+/// (spec v3 §3) along with the players. Everyone keeps its recording; when all are done (or
+/// <see cref="OrchestratorOptions.DoneTimeout"/> passes) each participant gets the round's files (<see cref="RoundFiles"/>) to keep
+/// with it. With odx-merge, everyone also uploads to it (it accepts a round from its start on) and it assembles the v3 session.
 /// </summary>
 public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, ILogger<MatchCoordinator> log)
 {
@@ -817,9 +818,10 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             record = round.Record;
             events = round.Events.Select(e => e.DeepClone().AsObject()).ToList();
         }
+        await SendRoundFilesAsync(round, new RoundFiles(record.SessionId, record.ToJson(), RoundRecord.EventsJsonl(events), _profileJson));
         if (_merge is null)
         {
-            log.LogWarning("{Session} recorded but not assembled: no odx-merge (--merge)", record.SessionId);
+            log.LogInformation("{Session} kept by its participants (no odx-merge)", record.SessionId);
             lock (_lock) _rounds.Remove(record.SessionId);
             return;
         }
@@ -842,6 +844,17 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             log.LogError(e, "odx-merge cannot assemble {Session}: {Error} (still staged there)", record.SessionId, e.Message);
             lock (_lock) _rounds.Remove(record.SessionId);
         }
+    }
+
+    private async Task SendRoundFilesAsync(OpenRound round, RoundFiles files)
+    {
+        List<AgentLink> links;
+        lock (_lock)
+        {
+            links = round.Record.Players.Select(p => _agents.GetValueOrDefault(p.PlayerId)).OfType<AgentLink>().ToList();
+            if (round.ServerArmed && _gameServer is { } server) links.Add(server);
+        }
+        foreach (var link in links) await SendAsync(link, files);
     }
 
     /// <summary>Each player of the round still connected learns the gate's result, with the session's and their own problems.</summary>
