@@ -172,7 +172,7 @@ public static class PacketLog
     private static string Iso(long unixUs) =>
         DateTime.UnixEpoch.AddTicks(unixUs * 10).ToString("yyyy-MM-ddTHH:mm:ss.ffffffZ", CultureInfo.InvariantCulture);
 
-    /// <summary>The addresses odx agent recorded with the capture (packets_local.json).</summary>
+    /// <summary>The addresses the player's agent recorded with the capture (packets_local.json).</summary>
     public static List<IPAddress> ReadLocalAddresses(string path) =>
         File.Exists(path)
             ? JsonNode.Parse(File.ReadAllText(path))?["addresses"]?.AsArray()

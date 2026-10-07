@@ -114,6 +114,7 @@ public sealed class LocalRoundTests
         string serverKept = Path.Combine(root, "server", "g1-r01");
         var kept = players.Select(p => Path.Combine(root, "captures-" + p, "g1-r01")).Append(serverKept).ToList();
         foreach (string dir in kept) Assert.True(await WaitForFile(Path.Combine(dir, RoundRecord.FileName)), dir);
+        foreach (string dir in kept.SkipLast(1)) Assert.True(await WaitForFile(Path.Combine(dir, Manifest.FileName)), dir);
         stop.Cancel();
 
         foreach (string dir in kept)
@@ -123,8 +124,20 @@ public sealed class LocalRoundTests
             Assert.Equal(File.ReadAllText(Path.Combine(serverKept, RoundRecord.FileName)), File.ReadAllText(Path.Combine(dir, RoundRecord.FileName)));
         }
         foreach (string dir in kept.SkipLast(1))
+        {
             foreach (string f in new[] { "session.json", "frames.csv", "video_frames.csv" })
                 Assert.True(File.Exists(Path.Combine(dir, f)), Path.Combine(dir, f));
+            var listed = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, Manifest.FileName)))!["files"]!.AsArray()
+                .Select(f => f!.AsObject()).ToList();
+            Assert.Equal(Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length - 1, listed.Count);
+            Assert.Contains(listed, f => (string?)f["path"] == RoundRecord.FileName);
+            Assert.All(listed, f =>
+            {
+                byte[] bytes = File.ReadAllBytes(Path.Combine(dir, (string)f["path"]!));
+                Assert.Equal(bytes.Length, (long)f["bytes"]!);
+                Assert.Equal(Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(bytes)), (string?)f["sha256"]);
+            });
+        }
         Assert.True(File.Exists(Path.Combine(serverKept, "server", Cs2ServerCapture.ClockSamplesFile)));
         var round = RoundRecord.Load(serverKept);
         Assert.Equal(players, round.Players.Select(p => p.PlayerId).Order());

@@ -23,7 +23,7 @@ public sealed record LanState(string NetworkId, string Status, string? Address =
 /// A player's capture machine under the orchestrator, in one room: on Start it records into &lt;OutputRoot&gt;/&lt;session&gt;/
 /// (sampling its clock against the orchestrator's time service, checked once on Welcome), on Stop it lets the capture build
 /// and validate the session and reports Done. The folder stays, and gets the round's files (<see cref="RoundFiles"/>) once
-/// everyone is done. odx agent (headless) and odx-app's room mode both run this.
+/// everyone is done, with a <see cref="Manifest"/>. odx-app runs this, in its room mode or headless.
 /// </summary>
 public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICaptureRun> startCapture)
 {
@@ -296,7 +296,18 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 break;
             case RoundFiles files:
                 string kept = Path.Combine(options.OutputRoot, files.SessionId);
-                if (Directory.Exists(kept)) files.WriteTo(kept);
+                try
+                {
+                    if (Directory.Exists(kept))
+                    {
+                        files.WriteTo(kept);
+                        Manifest.Write(kept);
+                    }
+                }
+                catch (IOException e)
+                {
+                    Log?.Invoke($"{files.SessionId}: cannot write the round's files: {e.Message}");
+                }
                 break;
             case RoomError e:
                 Log?.Invoke(e.Message);
