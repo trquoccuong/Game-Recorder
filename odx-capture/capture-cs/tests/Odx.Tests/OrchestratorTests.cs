@@ -553,6 +553,8 @@ public sealed class OrchestratorAccessKeyTests : IAsyncLifetime
 }
 
 /// <summary>Against this machine's ZeroTier service, which is also a controller; skipped where ZeroTier is not installed.</summary>
+/// <summary>The machine's one ZeroTier service is slow to serve two tests creating networks at once (requests time out).</summary>
+[Collection("ZeroTier")]
 public sealed class RoomLanTests
 {
     [SkippableFact]

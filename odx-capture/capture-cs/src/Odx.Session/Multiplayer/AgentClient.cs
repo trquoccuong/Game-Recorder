@@ -42,6 +42,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private CancellationTokenSource? _stopBeforeStart;
     private string? _roomCode = options.RoomCode?.Trim().ToUpperInvariant();
     private string? _lanNetwork;
+    private bool _lanAnnounced;
     private int _reconnectGraceMs = new Welcome(0).ReconnectGraceMs;
     private long _connection;
     /// <summary>Done sent for rounds whose files have not come yet: sent again after a reconnect.</summary>
@@ -151,6 +152,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         try
         {
             IsReady = false;
+            _lanAnnounced = false;
             List<string> recording;
             List<Done> unconfirmed;
             lock (_gate)
@@ -318,6 +320,10 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             : null;
     }
 
+    /// <remarks>
+    /// Runs on the receive loop, and the keep-alive's PONGs are only read while a receive is pending: anything that can take
+    /// seconds (clock checks, hashing a round's video) goes to its own task, or the connection is dropped as dead.
+    /// </remarks>
     private async Task HandleAsync(AgentMessage message, CancellationToken stop)
     {
         switch (message)
@@ -325,7 +331,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             case Welcome w:
                 _timeServer = $"{options.Orchestrator.Host}:{w.TimePort}";
                 Volatile.Write(ref _reconnectGraceMs, w.ReconnectGraceMs);
-                MeasureClock();
+                _ = Task.Run(MeasureClock, stop);
                 if (w.GameProfileJson is { } welcomeProfile &&
                     GameProfile.Parse(JsonNode.Parse(welcomeProfile)!.AsObject(), "orchestrator").Network is { } network)
                     PacketCaptureWanted?.Invoke(network);
@@ -338,9 +344,11 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 IsReady = me?.Ready == true;
                 if (joined) Log?.Invoke($"in room {r.Code}{(IsHost ? " (host)" : "")}");
                 RoomChanged?.Invoke(r);
-                if (r.LanNetworkId is not null && r.LanNetworkId != _lanNetwork)
+                // Once per connection: the orchestrator authorizes this machine's node for the connection that says it.
+                if (r.LanNetworkId is not null && (r.LanNetworkId != _lanNetwork || !_lanAnnounced))
                 {
                     _lanNetwork = r.LanNetworkId;  // before the next update arrives, so it is joined once
+                    _lanAnnounced = true;
                     _ = Task.Run(() => JoinLanAsync(stop), stop);
                 }
                 if (options.AutoReady && !IsHost && me is { Ready: false, State: "idle" } && r.CurrentSession is null)
@@ -348,19 +356,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 break;
             case RoundFiles files:
                 lock (_gate) _unconfirmed.Remove(files.SessionId);
-                string kept = Path.Combine(options.OutputRoot, files.SessionId);
-                try
-                {
-                    if (Directory.Exists(kept))
-                    {
-                        files.WriteTo(kept);
-                        Manifest.Write(kept);
-                    }
-                }
-                catch (IOException e)
-                {
-                    Log?.Invoke($"{files.SessionId}: cannot write the round's files: {e.Message}");
-                }
+                _ = Task.Run(() => KeepRoundFiles(files), CancellationToken.None);
                 break;
             case RoomError e:
                 Log?.Invoke(e.Message);
@@ -543,6 +539,21 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     }
 
     /// <summary>Checks the time service answers before any round; the capture itself samples it at start and every 15 s.</summary>
+    private void KeepRoundFiles(RoundFiles files)
+    {
+        string kept = Path.Combine(options.OutputRoot, files.SessionId);
+        try
+        {
+            if (!Directory.Exists(kept)) return;
+            files.WriteTo(kept);
+            Manifest.Write(kept);
+        }
+        catch (IOException e)
+        {
+            Log?.Invoke($"{files.SessionId}: cannot write the round's files: {e.Message}");
+        }
+    }
+
     private void MeasureClock()
     {
         var offsets = new List<double>();

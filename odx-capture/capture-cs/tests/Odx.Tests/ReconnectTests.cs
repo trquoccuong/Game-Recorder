@@ -15,6 +15,7 @@ namespace Odx.Tests;
 /// A player whose connection drops (a <see cref="TcpProxy"/> between it and the orchestrator cuts it, as lost Wi-Fi would)
 /// keeps recording and its place in the round for the orchestrator's grace.
 /// </summary>
+[Collection("ZeroTier")]
 public sealed class ReconnectTests : IAsyncLifetime
 {
     /// <summary>Forwards TCP to a target until <see cref="Cut"/>; refuses connections while <see cref="Down"/>.</summary>
@@ -118,7 +119,8 @@ public sealed class ReconnectTests : IAsyncLifetime
     }
 
     /// <summary>A new orchestrator behind the proxy (stopping the one before); agents reach it through the proxy only.</summary>
-    private async Task StartOrchestrator(string? state, int graceS = 2)
+    /// <param name="zeroTierToken">This machine's ZeroTier service as the controller of room LANs; null: no LAN rooms.</param>
+    private async Task StartOrchestrator(string? state, int graceS = 2, string? zeroTierToken = null)
     {
         if (_app is not null)
         {
@@ -126,7 +128,10 @@ public sealed class ReconnectTests : IAsyncLifetime
             await _app.DisposeAsync();
         }
         _app = OrchestratorHost.Build(new OrchestratorOptions(Path.Combine(_root, "game.json"), HttpPort: 0, TimePort: 0)
-            { ReconnectGrace = TimeSpan.FromSeconds(graceS), StatePath = state }, "127.0.0.1");
+        {
+            ReconnectGrace = TimeSpan.FromSeconds(graceS), StatePath = state,
+            ZeroTierApi = zeroTierToken is null ? null : ZeroTierApi.Local, ZeroTierToken = zeroTierToken,
+        }, "127.0.0.1");
         await _app.StartAsync();
         _http = new HttpClient { BaseAddress = new Uri(_app.Urls.First()) };
         if (_proxy is null) _proxy = new TcpProxy(_http.BaseAddress.Port);
@@ -152,22 +157,24 @@ public sealed class ReconnectTests : IAsyncLifetime
             lock (runs) runs.Add(run);
             return run;
         });
-        _ = Task.Run(async () =>
-        {
-            while (!_stop.IsCancellationRequested)
-            {
-                try
-                {
-                    await agent.RunAsync(_stop.Token);
-                }
-                catch (Exception e) when (e is WebSocketException or HttpRequestException or OperationCanceledException)
-                {
-                }
-                await Task.Delay(100);
-            }
-        });
+        RunReconnecting(agent);
         return (agent, runs);
     }
+
+    private void RunReconnecting(AgentClient agent) => _ = Task.Run(async () =>
+    {
+        while (!_stop.IsCancellationRequested)
+        {
+            try
+            {
+                await agent.RunAsync(_stop.Token);
+            }
+            catch (Exception e) when (e is WebSocketException or HttpRequestException or OperationCanceledException)
+            {
+            }
+            await Task.Delay(100);
+        }
+    });
 
     /// <summary>Notes when the capture was told to stop.</summary>
     private sealed class FakeRun(ICaptureRun inner) : ICaptureRun
@@ -295,6 +302,64 @@ public sealed class ReconnectTests : IAsyncLifetime
         await Until(s => Members(s, 1), "p1 is not idle again");
         await Post(new { type = "round_start" });
         await Until(s => (string?)s["current_session"] == "m5-r02", "the next round is not r02");
+    }
+
+    [Fact]
+    public async Task A_player_back_after_its_round_finished_still_gets_the_rounds_files()
+    {
+        await StartOrchestrator(Path.Combine(_root, "state6", "orchestrator.db"));
+        _room = (string)(await (await _http.PostAsync("/rooms", null)).Content.ReadFromJsonAsync<JsonObject>())!["code"]!;
+        var (_, runs) = Player("p1");
+        await Until(s => Members(s, 1), "p1 did not join");
+        await Post(new { type = "round_start", match_id = "m6" });
+        await Until(s => s["members"]!.AsArray().Any(m => (string?)m!["state"] == "recording"), "p1 did not record");
+
+        _proxy.Down = true;
+        _proxy.Cut();
+        for (int i = 0; i < 100 && runs.Single().StoppedAt is null; i++) await Task.Delay(50);
+        await Task.Delay(500);
+        await Post(new { type = "round_end" });
+        await Until(s => s["sessions"]!.AsArray().Count == 1, "the round did not finish");  // with nobody to send its files to
+        Assert.False(File.Exists(Path.Combine(_root, "p1", "m6-r01", RoundRecord.FileName)));
+        _proxy.Down = false;
+
+        var round = await Kept("p1", "m6-r01");
+        Assert.Equal("disconnected", round.Players.Single().StopReason);
+    }
+
+    [SkippableFact]
+    public async Task A_member_back_within_the_grace_is_still_on_the_rooms_lan()
+    {
+        string? token = ZeroTierApi.LocalToken();
+        Skip.If(token is null, "ZeroTier is not installed here");
+        await StartOrchestrator(null, zeroTierToken: token);
+        using var zeroTier = new ZeroTierApi(ZeroTierApi.Local, token!);
+        string node = await zeroTier.NodeIdAsync(default);
+        var host = new AgentClient(new AgentOptions(new Uri($"http://127.0.0.1:{_proxy.Port}"), "p1", "P1", Path.Combine(_root, "p1"),
+            null, CreateRoom: true, Lan: true), _ => throw new InvalidOperationException("no capture in this test"));
+        int ok = 0;
+        host.LanChanged += s => { if (s is { Status: "ok" }) Interlocked.Increment(ref ok); };
+        RunReconnecting(host);
+        for (int i = 0; i < 600 && Volatile.Read(ref ok) == 0; i++) await Task.Delay(100);
+        string network = host.Room!.LanNetworkId!;
+        using var controller = new HttpClient { DefaultRequestHeaders = { { "X-ZT1-Auth", token } } };
+        async Task<bool> Authorized() => (bool)JsonNode.Parse(await controller.GetStringAsync(
+            new Uri(ZeroTierApi.Local, $"/controller/network/{network}/member/{node}")))!["authorized"]!;
+        try
+        {
+            Assert.True(await Authorized());
+
+            _proxy.Cut();
+            for (int i = 0; i < 300 && Volatile.Read(ref ok) < 2; i++) await Task.Delay(100);  // back, and its node said again
+            await Task.Delay(2500);  // past the grace
+            Assert.True(await Authorized());
+            Assert.Equal(network, host.Room!.LanNetworkId);
+        }
+        finally
+        {
+            await host.CloseRoomAsync(default);  // deletes the network
+            await Task.Delay(500);
+        }
     }
 
     [Fact]

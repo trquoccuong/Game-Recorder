@@ -114,6 +114,8 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private readonly Dictionary<string, AgentLink> _gameServers = [];
     /// <summary>Agents (players and game servers) whose connection was lost, by id: which loss, for its grace timer.</summary>
     private readonly Dictionary<string, long> _absent = [];
+    /// <summary>The room LAN node of each agent whose connection was lost: revoked if it is still gone after the grace.</summary>
+    private readonly Dictionary<string, (string Network, string Node)> _awayLan = [];
     private long _absences;
     private readonly string _profileJson = File.ReadAllText(options.GameProfilePath);
     private readonly string _profileGame = GameProfile.Load(options.GameProfilePath).GameTitle;
@@ -165,12 +167,13 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
             {
                 if (message is Done d)
                 {
-                    MarkDone(d.SessionId, hello.PlayerId, d.Ok, d.Error);
+                    if (!Knows(d.SessionId)) await SendFinishedRoundAsync(link, d.SessionId);
+                    else MarkDone(d.SessionId, hello.PlayerId, d.Ok, d.Error);
                     continue;
                 }
                 if (message is LanMember lan)
                 {
-                    await AuthorizeLanAsync(link, lan.NodeId, stop);
+                    _ = AuthorizeLanAsync(link, lan.NodeId, stop);  // an HTTP call: off this loop, which must keep reading PONGs
                     continue;
                 }
                 string? lanNetwork = null;
@@ -214,6 +217,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
     private void Resume(AgentLink link, Effects effects)
     {
         _absent.Remove(link.Id);
+        _awayLan.Remove(link.Id);
         foreach (string sid in link.Hello.Recording ?? [])
         {
             link.State = "recording";
@@ -241,6 +245,7 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             if (_absent.GetValueOrDefault(playerId) != absence) return;
             _absent.Remove(playerId);
+            if (_awayLan.Remove(playerId, out var lan)) effects.LanRevoke.Add(lan);
             double utc = NtpResponder.NowUnixMs();
             foreach (var round in _rounds.Values.Where(r => r.Away.Remove(playerId)))
             {
@@ -267,7 +272,11 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         try
         {
             while (!stop.IsCancellationRequested && await ReceiveAsync(link.Socket, buffer, stop) is { } message)
-                if (message is Done d) MarkServerDone(link.Id, d.SessionId, d.Ok, d.Error);
+            {
+                if (message is not Done d) continue;
+                if (!Knows(d.SessionId)) await SendFinishedRoundAsync(link, d.SessionId);
+                else MarkServerDone(link.Id, d.SessionId, d.Ok, d.Error);
+            }
         }
         catch (OperationCanceledException)
         {
@@ -412,7 +421,12 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         link.Ready = false;
         // "reconnected": this connection died after the agent's new one came in; the new one holds its LAN node and rounds.
         bool replaced = reason == "reconnected";
-        if (!replaced && room.LanNetworkId is { } network && link.LanNode is { } node) effects.LanRevoke.Add((network, node));
+        if (!replaced && room.LanNetworkId is { } network && link.LanNode is { } node)
+        {
+            // A lost connection keeps the LAN for the grace: the agent says its node again when it is back.
+            if (reason == "disconnected") _awayLan[link.Id] = (network, node);
+            else effects.LanRevoke.Add((network, node));
+        }
         link.LanNode = null;
         if (!replaced && room.Current is { } round && round.IndexOf(link.Id) is var i && i >= 0)
         {
@@ -928,6 +942,24 @@ public sealed class MatchCoordinator(OrchestratorOptions options, int timePort, 
         {
             log.LogWarning("ZeroTier controller: {Error}", e.Message);
         }
+    }
+
+    private bool Knows(string sessionId)
+    {
+        lock (_lock) return _rounds.ContainsKey(sessionId);
+    }
+
+    /// <summary>
+    /// A Done for a round that finished while its sender was away (it is sent again on reconnect): the round's files, as
+    /// the others got them, so that folder is complete too.
+    /// </summary>
+    private async Task SendFinishedRoundAsync(AgentLink link, string sessionId)
+    {
+        StoredRound? round;
+        lock (_lock) round = Store?.Round(sessionId);
+        if (round is not { State: "finished" }) return;
+        log.LogInformation("{Agent}: the files of {Session}, which finished while it was away", link.Id, sessionId);
+        await SendAsync(link, new RoundFiles(sessionId, round.Record.ToJson(), RoundRecord.EventsJsonl(round.Events), _profileJson));
     }
 
     private void MarkDone(string sessionId, string playerId, bool ok, string? error)
