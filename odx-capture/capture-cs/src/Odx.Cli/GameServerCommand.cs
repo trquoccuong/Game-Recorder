@@ -1,8 +1,10 @@
 // odx game-server --orchestrator http://<host>:5180 --cs2-game-dir <cs2>/game/csgo --cs2-rcon-password-file <file>
-//                 [--cs2-rcon <address>:27015] [--work <dir>] [--name <name>] [--access-key K]
+//                 [--cs2-rcon <address>:27015] [--work <dir>] [--id <id>] [--name <name>] [--access-key K]
 // The CS2 dedicated server's agent (GameServerAgent), on the server's machine: records the server's side of every round the
-// orchestrator starts (SourceTV demo + odx_netlog log) and keeps it in --work. --cs2-rcon: where RCON listens
-// (default: this machine's address, port 27015; CS2 binds RCON to the network address, not to 127.0.0.1). The RCON password
+// orchestrator starts for it (SourceTV demo + odx_netlog log) and keeps it in --work. --id: this server's name for the
+// orchestrator when several run (rooms are opened for one with POST /rooms?server=<id>; default game-server).
+// --cs2-rcon: where RCON listens (default: this machine's address, port 27015; CS2 binds RCON to the network address, not
+// to 127.0.0.1). The RCON password
 // may come from ODX_CS2_RCON_PASSWORD, the access key from ODX_ACCESS_KEY or access_key of odx-capture.json next to odx.
 using System.Globalization;
 using System.Net;
@@ -18,7 +20,7 @@ public static class GameServerCommand
     public static int Run(string[] args)
     {
         string? orchestrator = null, gameDir = null, rcon = null, password = Environment.GetEnvironmentVariable("ODX_CS2_RCON_PASSWORD");
-        string? work = null, name = null, accessKey = Environment.GetEnvironmentVariable("ODX_ACCESS_KEY") is { Length: > 0 } k ? k : null;
+        string? work = null, name = null, id = null, accessKey = Environment.GetEnvironmentVariable("ODX_ACCESS_KEY") is { Length: > 0 } k ? k : null;
         bool usage = false;
         for (int i = 0; i < args.Length && !usage; i++)
         {
@@ -30,6 +32,7 @@ public static class GameServerCommand
                 case "--cs2-rcon": rcon = Next(); break;
                 case "--cs2-rcon-password-file": password = Next() is { } file ? File.ReadAllText(file).Trim() : null; break;
                 case "--work": work = Next(); break;
+                case "--id": id = Next(); break;
                 case "--name": name = Next(); break;
                 case "--access-key": accessKey = Next(); break;
                 default: usage = true; break;
@@ -39,7 +42,7 @@ public static class GameServerCommand
             !Uri.TryCreate(orchestrator, UriKind.Absolute, out var uri))
         {
             Console.Error.WriteLine("usage: odx game-server --orchestrator http://<host>:5180 --cs2-game-dir DIR --cs2-rcon-password-file PATH " +
-                                    "[--cs2-rcon ADDRESS:27015] [--work DIR] [--name NAME] [--access-key K]");
+                                    "[--cs2-rcon ADDRESS:27015] [--work DIR] [--id ID] [--name NAME] [--access-key K]");
             return 2;
         }
         rcon ??= $"{LocalAddress()}:27015";
@@ -55,7 +58,7 @@ public static class GameServerCommand
         using var logging = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.TimestampFormat = "HH:mm:ss "));
         var agent = new GameServerAgent(new GameServerAgentOptions(uri, cs2,
             work ?? Path.Combine(Path.GetTempPath(), "odx-game-server"), accessKey ?? Odx.Core.CaptureConfig.Load().AccessKey,
-            name ?? "CS2 server"), logging.CreateLogger("game-server"));
+            name ?? "CS2 server", id ?? "game-server"), logging.CreateLogger("game-server"));
         agent.RunUntilStoppedAsync(stop.Token).GetAwaiter().GetResult();
         return 0;
     }

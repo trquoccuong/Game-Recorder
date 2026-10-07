@@ -39,10 +39,12 @@ The orchestrator also measures its own clock against `time_server` of the `odx-c
 
 ```powershell
 curl.exe http://127.0.0.1:5180/status -H "Authorization: Bearer <access key>"
-# {"rooms":[],"agents_outside_rooms":[],"game_server":"CS2 server"}
+# {"rooms":[],"agents_outside_rooms":[],"game_servers":[{"id":"game-server","name":"CS2 server"}]}
 ```
 
-`game_server` names the connected game server agent (null: none, and rounds have no server side). When players are
+`game_servers` lists the connected game server agents (empty: rounds have no server side). A room records with the
+one it was opened for (`POST /rooms?server=<id>`, shown as the room's `server`), else with the only one connected; with
+several connected, a room opened without one gets none. When players are
 connected, `/status` lists the rooms, their members and states (`idle`, `armed`, `starting`, `recording`), the rounds
 still waiting for their participants (`pending_sessions`) and the finished ones (`sessions`: `session_id`, `players`,
 `kept`).

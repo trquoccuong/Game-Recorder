@@ -172,7 +172,9 @@ $bin = 'D:\odx\odx-capture-0.1.0-win-x64\bin'
 | `--cs2-rcon` | Where RCON listens; default this machine's first IPv4 address, port 27015 (`netstat -ano \| findstr :27015` shows it). |
 | `--access-key` | The orchestrator's; or `ODX_ACCESS_KEY`, else `access_key` of the `odx-capture.json` next to `odx.exe` (set when the package was built). |
 | `--work` | Where the rounds are kept; default `odx-game-server` in the temp folder (`%TEMP%`): set one that stays. |
+| `--id` | Its id at the orchestrator; default `game-server`. Give each one its own when several servers share an orchestrator, and open their rooms with `POST /rooms?server=<id>`. |
 | `--name` | How the orchestrator names it; default "CS2 server". |
 
-Check: the orchestrator logs `game server agent CS2 server (0.1.0) connected`, and its `/status` shows `"game_server"`.
+Check: the orchestrator logs `game server agent game-server (CS2 server, 0.1.0) connected`, and its `/status` lists it under
+`"game_servers"`.
 Start the agent after the server; it reconnects every 5 s if the orchestrator restarts.

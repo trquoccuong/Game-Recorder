@@ -10,7 +10,8 @@ namespace Odx.Orchestrator;
 /// <summary>
 /// HTTP API (AgentClient, GameServerAgent and a game server plugin are the clients):
 ///   GET  /agents               WebSocket, one per agent (Hello → Welcome, rooms, Arm/Start/Stop ↔ state/done)
-///   POST /rooms                open a room without a host (game server plugin) → {"code": …}
+///   POST /rooms[?server={id}]  open a room without a host (game server plugin) → {"code": …}; with server, that game
+///                              server agent records its rounds
 ///   POST /rooms/{code}/events  one GameEvents JSON object for that room
 ///   GET  /rooms/{code}         the room's members, round and sessions
 ///   GET  /status               every room
@@ -64,8 +65,8 @@ public static class OrchestratorHost
             using var socket = await context.WebSockets.AcceptWebSocketAsync();
             await coordinator.HandleAgentAsync(socket, context.RequestAborted);
         });
-        app.MapPost("/rooms", (MatchCoordinator coordinator) =>
-            Results.Text(new JsonObject { ["code"] = coordinator.OpenRoom() }.ToJsonString(), "application/json"));
+        app.MapPost("/rooms", (string? server, MatchCoordinator coordinator) =>
+            Results.Text(new JsonObject { ["code"] = coordinator.OpenRoom(server) }.ToJsonString(), "application/json"));
         app.MapGet("/rooms/{code}", (string code, MatchCoordinator coordinator) =>
             coordinator.RoomStatus(code) is { } room ? Results.Text(room.ToJsonString(AgentMessage.Json), "application/json") : Results.NotFound());
         app.MapPost("/rooms/{code}/events", async (string code, HttpRequest request, MatchCoordinator coordinator) =>

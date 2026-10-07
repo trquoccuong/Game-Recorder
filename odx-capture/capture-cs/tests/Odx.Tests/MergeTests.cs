@@ -35,7 +35,7 @@ public sealed class GameServerAgentTests
         var agent = new GameServerAgent(new GameServerAgentOptions(new Uri(app.Urls.First()),
             new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), Path.Combine(root, "work")), NullLogger.Instance);
         _ = agent.RunUntilStoppedAsync(stop.Token);
-        for (int i = 0; i < 100 && (await http.GetFromJsonAsync<JsonObject>("/status"))!["game_server"] is null; i++) await Task.Delay(50);
+        await LocalRoundTests.WaitForGameServers(http, 1);
 
         string code = (string)(await (await http.PostAsync("/rooms", null)).Content.ReadFromJsonAsync<JsonObject>())!["code"]!;
         (await http.PostAsJsonAsync($"/rooms/{code}/events", new { type = "round_start", match_id = "g1" })).EnsureSuccessStatusCode();
@@ -63,6 +63,59 @@ public sealed class LocalRoundTests
     {
         for (int i = 0; i < 200 && !File.Exists(path); i++) await Task.Delay(50);
         return File.Exists(path);
+    }
+
+    internal static async Task WaitForGameServers(HttpClient http, int count)
+    {
+        for (int i = 0; i < 100 && (await http.GetFromJsonAsync<JsonObject>("/status"))!["game_servers"]!.AsArray().Count < count; i++)
+            await Task.Delay(50);
+    }
+
+    [Fact]
+    public async Task Two_rooms_record_at_once_each_on_its_own_game_server()
+    {
+        string root = Cs2Fixtures.TempDir();
+        string profile = Path.Combine(root, "game.json");
+        File.WriteAllText(profile, """
+            {"game_title": "Counter-Strike 2", "platform": "PC", "localization": "en-US",
+             "input_mouse_convention": {"maps_to": "camera_look_velocity"}, "bindings": {}}
+            """);
+        await using var app = OrchestratorHost.Build(new OrchestratorOptions(profile, HttpPort: 0, TimePort: 0), "127.0.0.1");
+        await app.StartAsync();
+        var orchestrator = new Uri(app.Urls.First());
+        using var http = new HttpClient { BaseAddress = orchestrator };
+        using var stop = new CancellationTokenSource();
+        string[] servers = ["s1", "s2"];
+        var rcons = servers.ToDictionary(s => s, _ => new FakeRcon("pw"));
+        foreach (string s in servers)
+        {
+            string game = Path.Combine(root, s, "csgo");
+            Directory.CreateDirectory(Path.Combine(game, "odx-netlog"));
+            Directory.CreateDirectory(Path.Combine(game, "replays"));
+            _ = new GameServerAgent(new GameServerAgentOptions(orchestrator, new Cs2ServerOptions("127.0.0.1", rcons[s].Port, "pw", game),
+                Path.Combine(root, s, "work"), Id: s), NullLogger.Instance).RunUntilStoppedAsync(stop.Token);
+        }
+        await WaitForGameServers(http, 2);
+
+        var rooms = new Dictionary<string, string>();
+        foreach (string s in servers)
+            rooms[s] = (string)(await (await http.PostAsync($"/rooms?server={s}", null)).Content.ReadFromJsonAsync<JsonObject>())!["code"]!;
+        foreach (string s in servers)
+            (await http.PostAsJsonAsync($"/rooms/{rooms[s]}/events", new { type = "round_start", match_id = "m" + s })).EnsureSuccessStatusCode();
+        foreach (string s in servers)
+            for (int i = 0; i < 100 && !rcons[s].Commands.Contains($"tv_record replays/m{s}-r01"); i++) await Task.Delay(50);
+        foreach (string s in servers)
+            (await http.PostAsJsonAsync($"/rooms/{rooms[s]}/events", new { type = "round_end" })).EnsureSuccessStatusCode();
+
+        foreach (string s in servers)
+        {
+            Assert.True(await WaitForFile(Path.Combine(root, s, "work", $"m{s}-r01", RoundRecord.FileName)), s);
+            Assert.Equal([$"m{s}-r01"], Directory.GetDirectories(Path.Combine(root, s, "work")).Select(Path.GetFileName));
+            Assert.Equal([$"tv_record replays/m{s}-r01", "tv_stoprecord"], rcons[s].Commands);
+            Assert.Equal(s, (string?)(await http.GetFromJsonAsync<JsonObject>($"/rooms/{rooms[s]}"))!["server"]);
+        }
+        stop.Cancel();
+        foreach (var rcon in rcons.Values) rcon.Dispose();
     }
 
     [Fact]
@@ -96,7 +149,7 @@ public sealed class LocalRoundTests
         var server = new GameServerAgent(new GameServerAgentOptions(orchestrator,
             new Cs2ServerOptions("127.0.0.1", rcon.Port, "pw", game), Path.Combine(root, "server")), NullLogger.Instance);
         _ = server.RunUntilStoppedAsync(stop.Token);
-        for (int i = 0; i < 100 && (await http.GetFromJsonAsync<JsonObject>("/status"))!["game_server"] is null; i++) await Task.Delay(50);
+        await LocalRoundTests.WaitForGameServers(http, 1);
 
         string code = (string)(await (await http.PostAsync("/rooms", null)).Content.ReadFromJsonAsync<JsonObject>())!["code"]!;
         string[] players = ["p1", "p2"];
