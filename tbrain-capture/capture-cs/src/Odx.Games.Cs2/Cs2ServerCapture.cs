@@ -7,10 +7,11 @@ using DemoFile.Game.Cs;
 using Google.Protobuf;
 using Odx.Core;
 using Odx.Protocol;
+using Odx.Session;
 using Odx.Session.Proto;
 using Vec3 = Odx.Session.Proto.Vec3;
 
-namespace Odx.Session;
+namespace Odx.Games.Cs2;
 
 /// <summary>
 /// The CS2 game server's side of a round (spec v3 §3), kept by its <see cref="GameServerAgent"/> in &lt;staging&gt;/server/:
@@ -29,7 +30,7 @@ namespace Odx.Session;
 public static class Cs2ServerCapture
 {
     public const string DemoFile = "demo.dem", NetLogFile = "netmessages.jsonl", SendDataFile = "senddata.jsonl";
-    public const string RecordingFile = "recording.json", ClockSamplesFile = "ntp_samples.csv";
+    public const string RecordingFile = "recording.json", ClockSamplesFile = GameServerAgent.ClockSamplesFile;
     public const string StateFile = ServerSide.StateFile;
 
     /// <param name="Events">For events.jsonl, with utc_ms; "source": "demo".</param>

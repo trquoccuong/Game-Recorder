@@ -37,10 +37,3 @@ public interface IServerCameraTrack
     /// <summary>player.json "camera".</summary>
     JsonObject Describe(double leadMs);
 }
-
-public static class GameMergers
-{
-    private static readonly IGameMerger[] All = [new Cs2Merger()];
-
-    public static IGameMerger? For(string game) => All.FirstOrDefault(m => m.Game == game);
-}

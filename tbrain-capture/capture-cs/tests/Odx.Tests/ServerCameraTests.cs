@@ -1,4 +1,5 @@
 using Odx.Core;
+using Odx.Games.Cs2;
 using Odx.Session;
 using Xunit;
 

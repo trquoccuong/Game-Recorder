@@ -6,6 +6,7 @@ using System.Text.Json.Nodes;
 using Google.Protobuf;
 using Microsoft.Extensions.Logging.Abstractions;
 using Odx.Core;
+using Odx.Games.Cs2;
 using Odx.Protocol;
 using Odx.Session;
 using Odx.Session.Proto;
