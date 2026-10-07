@@ -112,6 +112,9 @@ public sealed class PacketCaptureHelper : IPacketCapture, IDisposable
         _writer = new StreamWriter(pipe, new UTF8Encoding(false)) { AutoFlush = true };
     }
 
+    /// <summary>False once the helper went away (it exits when its pipe breaks).</summary>
+    public bool IsConnected => _pipe.IsConnected;
+
     /// <summary>Starts the elevated helper (UAC prompt); null when the user declines or it does not come up.</summary>
     public static async Task<PacketCaptureHelper?> LaunchAsync(string odxPath)
     {

@@ -54,7 +54,13 @@ public partial class MainWindow : Window
     /// <summary>The last round's outcome for the status line; null before any.</summary>
     private Func<Strings, string>? _roundResult;
     private LanState? _lan;
+    /// <summary>
+    /// The elevated packet capture helper, kept from the first room that wants it until the app closes: one UAC prompt per
+    /// run of the app, not one per room.
+    /// </summary>
     private PacketCaptureHelper? _packetHelper;
+    /// <summary>The UAC prompt was declined in this run of the app: not asked again until it restarts.</summary>
+    private bool _packetsDeclined;
     /// <summary>null: this room's game records no packets; true/false: the elevated helper is running or was refused.</summary>
     private bool? _packets;
 
@@ -177,6 +183,7 @@ public partial class MainWindow : Window
     {
         UnregisterHotKey(_hwnd, HotkeyId);
         _tray.Dispose();
+        _packetHelper?.Dispose();  // the helper stops pktmon and exits when its pipe closes
         base.OnClosed(e);
     }
 
@@ -480,11 +487,19 @@ public partial class MainWindow : Window
         });
         agent.PacketCaptureWanted += _ => Dispatcher.BeginInvoke(async () =>
         {
-            if (_agent != agent || _packetHelper is not null) return;
-            _packetHelper = await PacketCaptureHelper.LaunchAsync(ExternalTools.Odx());
+            if (_agent != agent || agent.Packets is not null) return;
+            if (_packetHelper is { IsConnected: false })
+            {
+                _packetHelper.Dispose();
+                _packetHelper = null;
+            }
+            if (_packetHelper is null && !_packetsDeclined)
+            {
+                _packetHelper = await PacketCaptureHelper.LaunchAsync(ExternalTools.Odx());
+                _packetsDeclined = _packetHelper is null;
+            }
             _packets = _packetHelper is not null;
             if (_agent == agent) agent.Packets = _packetHelper;
-            else _packetHelper?.Dispose();
             if (_run is null && _state == RunState.Agent) ShowAgentStatus();
         });
         agent.LanChanged += lan => Dispatcher.BeginInvoke(() =>
@@ -583,8 +598,6 @@ public partial class MainWindow : Window
 
     private void Disconnect(Func<Strings, string> status)
     {
-        _packetHelper?.Dispose();  // the helper stops pktmon and exits when its pipe closes
-        _packetHelper = null;
         _packets = null;
         _agentStop?.Cancel();
         _agentStop = null;
