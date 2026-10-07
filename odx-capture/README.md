@@ -223,7 +223,7 @@ odx simulate-game --orchestrator http://<host>:5180 --players p1,p2 [--room <cod
 3. `bash odx-capture/deploy/up.sh`. The first run writes `deploy/.env` with a random `ODX_ACCESS_KEY` (and later the ZeroTier controller's `ODX_ZT_TOKEN`); set `ODX_DOMAIN` (and `ODX_GAME_PROFILE`, a file of `games/`) in it and run it again. It builds the image, starts orchestrator + ZeroTier controller + Caddy (restarting on reboot), and prints the address and the key. Run it again after an update.
 4. Package odx-app for that server on Windows: `powershell -ExecutionPolicy Bypass -File publish.ps1 -Orchestrator https://<domain> -AccessKey <key>` writes both into the package's `bin/odx-capture.json`, so players only type invite codes.
 
-The server stores no recordings: the rounds stay with the players and the game server agent until copied for `odx merge`. Logs: `docker compose -f deploy/compose.yaml logs -f orchestrator`. Every request needs the access key (`Authorization: Bearer <key>`, 401 otherwise); the time service is open (it only tells the time). A game server plugin calls `POST /rooms` and `POST /rooms/{code}/events` with the same key.
+The server stores no recordings: the rounds stay with the players and the game server agent until copied for `odx merge`. Its state (rooms, rounds, the log of every round; SQLite) is in `deploy/state/orchestrator.db` and survives restarts and updates. Logs: `docker compose -f deploy/compose.yaml logs -f orchestrator`. Every request needs the access key (`Authorization: Bearer <key>`, 401 otherwise); the time service is open (it only tells the time). A game server plugin calls `POST /rooms` and `POST /rooms/{code}/events` with the same key.
 
 ## Decisions pending with the client
 

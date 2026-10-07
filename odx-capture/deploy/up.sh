@@ -18,6 +18,8 @@ if [ "$ODX_DOMAIN" = "capture.example.com" ] || [ "$ODX_ACCESS_KEY" = "change-me
   exit 1
 fi
 
+mkdir -p state
+[ "$(stat -c %u state)" = "1654" ] || sudo chown 1654:1654 state  # the container's non-root user
 
 # The ZeroTier controller's API token: written before its first start (zerotier-one keeps an existing one) and handed to
 # the orchestrator through .env.

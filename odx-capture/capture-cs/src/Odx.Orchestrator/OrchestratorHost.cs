@@ -29,7 +29,11 @@ public static class OrchestratorHost
         var builder = WebApplication.CreateSlimBuilder();
         builder.WebHost.UseUrls($"http://{bindAddress}:{options.HttpPort}");
         builder.Services.AddSingleton(sp =>
-            new MatchCoordinator(options, timePort, sp.GetRequiredService<ILogger<MatchCoordinator>>()));
+        {
+            var coordinator = new MatchCoordinator(options, timePort, sp.GetRequiredService<ILogger<MatchCoordinator>>());
+            coordinator.Restore();
+            return coordinator;
+        });
         var app = builder.Build();
 
         app.Lifetime.ApplicationStarted.Register(() => _ = NtpResponder.RunAsync(udp, app.Lifetime.ApplicationStopping));
@@ -64,7 +68,9 @@ public static class OrchestratorHost
                 return;
             }
             using var socket = await context.WebSockets.AcceptWebSocketAsync();
-            await coordinator.HandleAgentAsync(socket, context.RequestAborted);
+            // Shutting down ends every agent connection at once, rather than waiting the 30 s host shutdown timeout for them.
+            using var ended = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, app.Lifetime.ApplicationStopping);
+            await coordinator.HandleAgentAsync(socket, ended.Token);
         });
         app.MapPost("/rooms", (string? server, MatchCoordinator coordinator) =>
             Results.Text(new JsonObject { ["code"] = coordinator.OpenRoom(server) }.ToJsonString(), "application/json"));

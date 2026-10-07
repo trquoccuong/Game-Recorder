@@ -32,6 +32,7 @@ $bin = 'D:\odx\odx-capture-0.1.0-win-x64\bin'
 | `--http-port`, `--time-port` | Default 5180 (TCP) and 12300 (UDP). |
 | `--fps` | The players' recording rate; default 30. |
 | `--reconnect-grace-s` | How long a player or game server that lost its connection keeps its place in a running round, recording on; default 30. Back within it, the round goes on; still gone after it, that player is stopped there (and stops by itself). |
+| `--state` | The SQLite file with the rooms, the rounds and their players; default `data\orchestrator.db` of the package (`deploy/`: `deploy/state/orchestrator.db`). Restarted, the orchestrator takes back its open rooms and unfinished rounds, and the players reconnecting within the grace record on; a round that was counting down is cancelled. |
 
 The orchestrator also measures its own clock against `time_server` of the `odx-capture.json` next to it
 (`time.windows.com` by default) and writes the result into each round's record.
@@ -60,6 +61,22 @@ still waiting for their participants (`pending_sessions`) and the finished ones 
 | `<player> is <state>, left out of <session>` | **Warning**: that player was still busy with the previous round. |
 | `game server agent, <session>: …` | **Warning**: the server's side of that round was not kept (the reason follows). |
 | `round <session>: 2/2 players kept their recording` | Everyone is done; the round's files went to every participant. |
+
+## Hours recorded
+
+Every round stays in the state file: `rounds` (session, room, state `open` / `ended` / `finished` / `cancelled`, start
+and end, the round record and events) and `round_players` (stop reason and time, done, kept). Hours each player kept,
+per day (UTC), with the `sqlite3` tool:
+
+```sql
+SELECT date(r.start_utc_ms / 1000, 'unixepoch') AS day, p.player_id,
+       round(sum((coalesce(p.stop_utc_ms, r.end_utc_ms) - r.start_utc_ms) / 3600000.0), 2) AS hours
+FROM rounds r JOIN round_players p USING (session_id)
+WHERE r.state = 'finished' AND p.kept
+GROUP BY day, p.player_id ORDER BY day;
+```
+
+These are the players' own recordings; the gate (`odx merge`) decides which of them make a delivered session.
 
 ## Build the sessions
 
