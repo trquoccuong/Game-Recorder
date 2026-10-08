@@ -1,0 +1,14 @@
+bin/
+obj/
+# CMake build trees (extractor)
+build/
+cmake-build-*/
+# Local capture output from manual runs
+odx_capture/
+# Packaging output and download cache (dotnet/publish.ps1)
+dist/
+.cache/
+deploy/.env
+deploy/zerotier/
+deploy/aws/.aws-credentials
+deploy/state/

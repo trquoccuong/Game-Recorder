@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>odx-app</AssemblyName>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <UseWPF>true</UseWPF>
+    <!-- Only for the tray NotifyIcon; WPF has none. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- WPF text layout needs culture data (XmlLanguage.GetSpecificCulture throws in invariant mode). -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <ApplicationIcon>odx.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="odx.ico" />
+    <!-- Shown by WPF as soon as the runtime starts, before the main window is built; fades out when it appears. -->
+    <SplashScreen Include="splash.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Odx.Core/Odx.Core.csproj" />
+    <ProjectReference Include="../../Odx.Capture/Odx.Capture.csproj" />
+    <ProjectReference Include="../../Odx.Agent/Odx.Agent.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../../../profiles/*.json" Link="games/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../../../config/odx-capture.json" Link="odx-capture.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+  <!-- Development builds copy odx next to the app, which runs `odx input` and `odx record` as child processes. A
+       RID-specific publish (publish.ps1) publishes odx on its own (single file, next to odx-app), so it is left out. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == ''">
+    <ProjectReference Include="../Odx.Cli/Odx.Cli.csproj" />
+  </ItemGroup>
+</Project>

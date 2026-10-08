@@ -1,0 +1,10 @@
+**/bin
+**/obj
+dotnet/dist
+dotnet/.cache
+dotnet/tests
+dotnet/fixtures
+native
+deploy/sessions
+deploy/zerotier
+deploy/.env

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- One player's recording: run odx input + odx record, build the spec v2 session from the capture folder and check it
+       (spec v2 §1.5). Shared by odx (build, validate), odx-app and the agents. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Odx.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" Version="7.3.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="../../../config/session_schema.json" LogicalName="session_schema.json" />
+  </ItemGroup>
+</Project>

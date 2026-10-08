@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>odx</AssemblyName>
+    <RootNamespace>Odx.Cli</RootNamespace>
+    <!-- Windows: every command. net10.0: build + validate only, for Linux servers. -->
+    <TargetFramework />
+    <TargetFrameworks>net10.0-windows10.0.22621.0;net10.0</TargetFrameworks>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.22621.0'">
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Odx.Capture/Odx.Capture.csproj" />
+    <ProjectReference Include="../../Odx.Agent/Odx.Agent.csproj" />
+    <ProjectReference Include="../../Odx.Merge/Odx.Merge.csproj" />
+    <ProjectReference Include="../../Games/Odx.Games.Cs2/Odx.Games.Cs2.csproj" />
+    <ProjectReference Include="../../Games/Odx.Games.Csgo/Odx.Games.Csgo.csproj" />
+    <ProjectReference Include="../../Games/Odx.Games.Wc3/Odx.Games.Wc3.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.22621.0'">
+    <ProjectReference Include="../Odx.Input/Odx.Input.csproj" />
+    <ProjectReference Include="../Odx.Recorder/Odx.Recorder.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../../../config/odx-capture.json" Link="odx-capture.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
