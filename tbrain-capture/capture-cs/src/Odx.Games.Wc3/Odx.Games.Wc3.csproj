@@ -1,9 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
-  <!-- Warcraft III: decoding its players' W3GS traffic for packets.bin. -->
-  <ItemGroup>
-    <InternalsVisibleTo Include="Odx.Tests" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="../Odx.Merge/Odx.Merge.csproj" />
-  </ItemGroup>
-</Project>

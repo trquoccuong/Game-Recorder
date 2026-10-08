@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Xunit.SkippableFact" Version="1.4.13" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/Odx.Core/Odx.Core.csproj" />
+    <ProjectReference Include="../../src/Odx.Capture/Odx.Capture.csproj" />
+    <ProjectReference Include="../../src/Odx.Agent/Odx.Agent.csproj" />
+    <ProjectReference Include="../../src/Odx.Merge/Odx.Merge.csproj" />
+    <ProjectReference Include="../../src/Games/Odx.Games.Csgo/Odx.Games.Csgo.csproj" />
+    <ProjectReference Include="../../src/Games/Odx.Games.Wc3/Odx.Games.Wc3.csproj" />
+    <ProjectReference Include="../../src/Games/Odx.Games.Cs2/Odx.Games.Cs2.csproj" />
+    <ProjectReference Include="../../src/Apps/Odx.Cli/Odx.Cli.csproj" />
+    <ProjectReference Include="../../src/Apps/Odx.Orchestrator/Odx.Orchestrator.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Pinned log formats: the C# writers (and the C++ camera_samples.csv writer) must reproduce them byte for byte. -->
+    <None Include="../../fixtures/*.csv;../../fixtures/*.jsonl;../../fixtures/*.dem;../../fixtures/*.bin" Link="fixtures/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
