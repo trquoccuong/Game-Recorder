@@ -1,10 +1,11 @@
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
+using Odx.Agent;
 using Odx.Games.Cs2;
+using Odx.Merge;
 using Odx.Orchestrator;
 using Odx.Protocol;
-using Odx.Session;
 using Xunit;
 
 namespace Odx.Tests;
@@ -208,7 +209,7 @@ public sealed class GameMergerTests
     [Fact]
     public void Odx_merge_knows_counter_strike_2_by_its_profile_title()
     {
-        Assert.Equal(["Counter-Strike 2"], Odx.Cli.MergeCommand.Games.Select(g => g.Game));
-        Assert.IsType<Cs2Merger>(Odx.Cli.MergeCommand.Games.Single());
+        Assert.Equal(["Counter-Strike 2"], Odx.Cli.MergeCommand.Games.Servers.Select(g => g.Game));
+        Assert.IsType<Cs2Merger>(Odx.Cli.MergeCommand.Games.Servers.Single());
     }
 }

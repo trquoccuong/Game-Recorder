@@ -132,7 +132,7 @@ std::string Base64(const unsigned char *data, int length)
 
 // One JSON object per line: the message as the engine's protobuf binding prints it (text format; bytes fields
 // escaped), so nothing depends on our own copy of the game's .proto files. "tick" with "utc_us" is what puts the
-// server's SourceTV demo on the clock (Odx.Session Cs2ServerCapture).
+// server's SourceTV demo on the clock (Odx.Games.Cs2 Cs2ServerCapture).
 void Log(const char *direction, void *channel, const CNetMessage *message, int bufType)
 {
     long long now = UtcNowUs();

@@ -5,11 +5,12 @@ using System.Text.Json.Nodes;
 using DemoFile;
 using DemoFile.Game.Cs;
 using Google.Protobuf;
+using Odx.Agent;
 using Odx.Core;
+using Odx.Merge;
+using Odx.Merge.Proto;
 using Odx.Protocol;
-using Odx.Session;
-using Odx.Session.Proto;
-using Vec3 = Odx.Session.Proto.Vec3;
+using Vec3 = Odx.Merge.Proto.Vec3;
 
 namespace Odx.Games.Cs2;
 

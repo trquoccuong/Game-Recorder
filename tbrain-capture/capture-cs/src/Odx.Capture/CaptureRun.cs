@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using Odx.Core;
 
-namespace Odx.Session;
+namespace Odx.Capture;
 
 /// <param name="WindowProcess">Process name passed to odx record --window; null records the primary monitor.</param>
 /// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>

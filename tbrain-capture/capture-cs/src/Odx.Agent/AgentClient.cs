@@ -1,10 +1,11 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json.Nodes;
+using Odx.Capture;
 using Odx.Core;
 using Odx.Protocol;
 
-namespace Odx.Session;
+namespace Odx.Agent;
 
 /// <param name="Orchestrator">e.g. http://192.168.1.10:5180</param>
 /// <param name="WindowProcess">Process name to record (odx record --window); null: the game profile's window, else the monitor.</param>

@@ -3,7 +3,7 @@ using System.Text.Json.Nodes;
 using Json.Schema;
 using Odx.Core;
 
-namespace Odx.Session;
+namespace Odx.Capture;
 
 /// <summary>Runs the vendor validation checks of Capture Spec v2 §1.5 (<see cref="Rules.All"/>) on one session folder.</summary>
 public static class SessionValidator

@@ -1,6 +1,6 @@
 using Odx.Core;
 using Odx.Games.Cs2;
-using Odx.Session;
+using Odx.Merge;
 using Xunit;
 
 namespace Odx.Tests;

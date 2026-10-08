@@ -10,7 +10,11 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/Odx.Core/Odx.Core.csproj" />
-    <ProjectReference Include="../../src/Odx.Session/Odx.Session.csproj" />
+    <ProjectReference Include="../../src/Odx.Capture/Odx.Capture.csproj" />
+    <ProjectReference Include="../../src/Odx.Agent/Odx.Agent.csproj" />
+    <ProjectReference Include="../../src/Odx.Merge/Odx.Merge.csproj" />
+    <ProjectReference Include="../../src/Odx.Games.Csgo/Odx.Games.Csgo.csproj" />
+    <ProjectReference Include="../../src/Odx.Games.Wc3/Odx.Games.Wc3.csproj" />
     <ProjectReference Include="../../src/Odx.Games.Cs2/Odx.Games.Cs2.csproj" />
     <ProjectReference Include="../../src/Odx.Cli/Odx.Cli.csproj" />
     <ProjectReference Include="../../src/Odx.Orchestrator/Odx.Orchestrator.csproj" />

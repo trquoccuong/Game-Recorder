@@ -6,9 +6,10 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using Odx.Agent;
+using Odx.Capture;
 using Odx.Core;
 using Odx.Protocol;
-using Odx.Session;
 using Forms = System.Windows.Forms;
 
 namespace Odx.App;

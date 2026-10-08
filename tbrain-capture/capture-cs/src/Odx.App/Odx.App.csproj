@@ -23,7 +23,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
-    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+    <ProjectReference Include="../Odx.Capture/Odx.Capture.csproj" />
+    <ProjectReference Include="../Odx.Agent/Odx.Agent.csproj" />
   </ItemGroup>
   <ItemGroup>
     <None Include="../../../games/*.json" Link="games/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

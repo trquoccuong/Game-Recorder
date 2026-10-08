@@ -7,8 +7,9 @@ using System.Runtime.Versioning;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json.Nodes;
+using Odx.Capture;
 
-namespace Odx.Session;
+namespace Odx.Agent;
 
 /// <summary>Records a round's network traffic (spec v3 §2.3) into a pcapng file next to the video.</summary>
 public interface IPacketCapture
@@ -180,21 +181,4 @@ public sealed class PacketCaptureHelper : IPacketCapture, IDisposable
     }
 
     public void Dispose() => _pipe.Dispose();
-}
-
-public static class PacketCaptureFiles
-{
-    public const string Pcapng = "packets.pcapng", LocalAddresses = "packets_local.json";
-
-    /// <summary>This machine's addresses, so the assembler can tell sent packets from received ones.</summary>
-    public static void WriteLocalAddresses(string dir)
-    {
-        var addresses = NetworkInterface.GetAllNetworkInterfaces()
-            .Where(n => n.OperationalStatus == OperationalStatus.Up)
-            .SelectMany(n => n.GetIPProperties().UnicastAddresses)
-            .Where(a => a.Address.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6)
-            .Select(a => (JsonNode)a.Address.ToString())
-            .ToArray();
-        File.WriteAllText(Path.Combine(dir, LocalAddresses), new JsonObject { ["addresses"] = new JsonArray(addresses) }.ToJsonString());
-    }
 }

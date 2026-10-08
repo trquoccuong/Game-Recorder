@@ -7,9 +7,9 @@ using Google.Protobuf;
 using Microsoft.Extensions.Logging.Abstractions;
 using Odx.Core;
 using Odx.Games.Cs2;
+using Odx.Merge;
+using Odx.Merge.Proto;
 using Odx.Protocol;
-using Odx.Session;
-using Odx.Session.Proto;
 using Xunit;
 
 namespace Odx.Tests;

@@ -81,7 +81,7 @@ at the orchestrator's log: `round <session>: k/n players kept their recording` s
   updated hl2sdk (branch `cs2`) and check the slots again.
 - **The demo reader:** server_state and events come from DemoFile.Net. If a session's `session.json` → `server` has
   `server_state.records` 0 or a `server.capture` warning about reading the demo, update the `DemoFile.Game.Cs` package
-  in `capture-cs/src/Odx.Session/Odx.Session.csproj`, rebuild, and run `odx merge` again on the copied round.
+  in `capture-cs/src/Odx.Games.Cs2/Odx.Games.Cs2.csproj`, rebuild, and run `odx merge` again on the copied round.
 
 ## Packets of a player are empty
 

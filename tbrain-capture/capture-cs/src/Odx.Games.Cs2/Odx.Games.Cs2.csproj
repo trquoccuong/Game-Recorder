@@ -8,6 +8,7 @@
     <PackageReference Include="DemoFile.Game.Cs" Version="0.44.1" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+    <ProjectReference Include="../Odx.Agent/Odx.Agent.csproj" />
+    <ProjectReference Include="../Odx.Merge/Odx.Merge.csproj" />
   </ItemGroup>
 </Project>

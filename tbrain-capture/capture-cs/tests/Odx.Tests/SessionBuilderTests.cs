@@ -1,6 +1,6 @@
 using System.Text.Json.Nodes;
+using Odx.Capture;
 using Odx.Core;
-using Odx.Session;
 using Xunit;
 
 namespace Odx.Tests;

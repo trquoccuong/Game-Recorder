@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- odx merge: a round copied from its participants into the spec v3 session tree and its gate. Games plug in through
+       IGameMerger (their server's side) and IPacketDecoder (their players' packets). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Odx.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" Version="3.28.3" />
+    <PackageReference Include="Grpc.Tools" Version="2.67.0" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Odx.Capture/Odx.Capture.csproj" />
+    <ProjectReference Include="../Odx.Protocol/Odx.Protocol.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Protobuf Include="capture.proto" GrpcServices="None" />
+  </ItemGroup>
+</Project>

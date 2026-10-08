@@ -1,4 +1,4 @@
-namespace Odx.Core;
+namespace Odx.Games.Csgo;
 
 /// <summary>
 /// The ICE block cipher (Matthew Kwan, 1996; public domain: "no patents or copyrights, use is unrestricted"), ported from

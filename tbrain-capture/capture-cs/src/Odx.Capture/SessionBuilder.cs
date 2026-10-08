@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Odx.Core;
 
-namespace Odx.Session;
+namespace Odx.Capture;
 
 /// <param name="UnboundKeys">Keys pressed but not in the profile's bindings, with press counts. Spec v2 §1.5 requires
 /// every active key to map to an action, so they are left out of input_keys.</param>

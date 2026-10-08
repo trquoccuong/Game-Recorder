@@ -1,8 +1,8 @@
 using System.Text.Json.Nodes;
 using Odx.Core;
+using Odx.Merge;
+using Odx.Merge.Proto;
 using Odx.Protocol;
-using Odx.Session;
-using Odx.Session.Proto;
 
 namespace Odx.Games.Cs2;
 
