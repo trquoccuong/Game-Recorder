@@ -12,8 +12,12 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="../Odx.Session/Odx.Session.csproj" />
+    <ProjectReference Include="../Odx.Capture/Odx.Capture.csproj" />
+    <ProjectReference Include="../Odx.Agent/Odx.Agent.csproj" />
+    <ProjectReference Include="../Odx.Merge/Odx.Merge.csproj" />
     <ProjectReference Include="../Odx.Games.Cs2/Odx.Games.Cs2.csproj" />
+    <ProjectReference Include="../Odx.Games.Csgo/Odx.Games.Csgo.csproj" />
+    <ProjectReference Include="../Odx.Games.Wc3/Odx.Games.Wc3.csproj" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="10.0.0" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows10.0.22621.0'">

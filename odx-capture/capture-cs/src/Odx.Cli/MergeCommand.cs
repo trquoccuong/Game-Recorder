@@ -4,8 +4,10 @@
 // <out>/<vendor>/<date>/<game>/<session>/ (default out: the package's data\delivery). Exit code 1 if any session fails the gate.
 using Odx.Core;
 using Odx.Games.Cs2;
+using Odx.Games.Csgo;
+using Odx.Games.Wc3;
+using Odx.Merge;
 using Odx.Protocol;
-using Odx.Session;
 
 namespace Odx.Cli;
 
@@ -13,8 +15,8 @@ public static class MergeCommand
 {
     public const string Vendor = "odx";
 
-    /// <summary>Every game whose server side odx merge can read; one module per game (IGameMerger).</summary>
-    public static readonly IGameMerger[] Games = [new Cs2Merger()];
+    /// <summary>What odx merge knows of each game: its server side (IGameMerger) and its players' traffic (IPacketDecoder).</summary>
+    public static readonly GameModules Games = new([new Cs2Merger()], [new CsgoPacketDecoder(), new W3gsPacketDecoder()]);
 
     public static int Run(string[] args)
     {

@@ -2,7 +2,7 @@
 // A session dir holds session.json, frames.csv and video.mp4. Exit code 1 if any error is found; warnings do not fail.
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using Odx.Session;
+using Odx.Capture;
 
 namespace Odx.Cli;
 

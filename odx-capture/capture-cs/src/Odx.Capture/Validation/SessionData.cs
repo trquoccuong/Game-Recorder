@@ -4,7 +4,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Odx.Core;
 
-namespace Odx.Session;
+namespace Odx.Capture;
 
 public sealed record VideoInfo(int Width, int Height, long Frames, double Duration);
 

@@ -1,7 +1,7 @@
 using System.Globalization;
 using Odx.Core;
 
-namespace Odx.Session;
+namespace Odx.Capture;
 
 /// <summary>What a rule needs before it can run; rules whose inputs are missing or already invalid are skipped.</summary>
 internal enum Needs

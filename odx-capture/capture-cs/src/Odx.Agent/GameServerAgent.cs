@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using Odx.Core;
 using Odx.Protocol;
 
-namespace Odx.Session;
+namespace Odx.Agent;
 
 /// <param name="WorkDir">Each round is kept in &lt;WorkDir&gt;/&lt;session&gt;/ (server/ and the round's files).</param>
 /// <param name="AccessKey">The orchestrator's access key; null when it has none.</param>

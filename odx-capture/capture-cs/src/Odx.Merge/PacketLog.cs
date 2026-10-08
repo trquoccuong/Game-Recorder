@@ -3,17 +3,17 @@ using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
 using Google.Protobuf;
+using Odx.Capture;
 using Odx.Core;
+using Odx.Merge.Proto;
 using Odx.Protocol;
-using Odx.Session.Proto;
 
-namespace Odx.Session;
+namespace Odx.Merge;
 
 /// <summary>
-/// packets.bin and packets.txt (spec v3 §2.3) from a player's packets.pcapng. "w3gs": TCP streams are put back in order and
-/// split into W3GS messages, each decoded (UDP datagrams are one message each); TCP opens/closes are listed too. Any other
-/// protocol is kept raw: one record per UDP/TCP payload. Times go onto the orchestrator's clock with the player's measured
-/// offset (pcapng holds the Windows clock).
+/// packets.bin and packets.txt (spec v3 §2.3) from a player's packets.pcapng, decoded by the game's <see cref="IPacketDecoder"/>
+/// (Warcraft III, CS:GO); without one the traffic is kept raw: one record per UDP/TCP payload. Times go onto the
+/// orchestrator's clock with the player's measured offset (pcapng holds the Windows clock).
 /// </summary>
 public static class PacketLog
 {
@@ -23,9 +23,10 @@ public static class PacketLog
         "# capture_time_utc\tserver_time_utc\tdirection\ttransport\tlocal_endpoint\tremote_endpoint\tpeer\tbytes\tmessage\tdecoded_json";
 
     /// <param name="serverMinusLocalMs">Orchestrator clock − this machine's Windows clock (player.json clock_sync.offset_ms).</param>
+    /// <param name="decoders">The games' decoders; the profile's network.protocol picks one, none keeps the payloads raw.</param>
     /// <returns>How many records were written.</returns>
     public static int Write(string pcapng, IReadOnlyCollection<IPAddress> localAddresses, PacketCaptureSpec spec, double serverMinusLocalMs,
-        FileHeader header, string binPath, string textPath)
+        FileHeader header, string binPath, string textPath, IEnumerable<IPacketDecoder> decoders)
     {
         var packets = PcapNgReader.Read(pcapng)
             .Select(f => (Frame: f, Packet: IpPacket.Parse(f)))
@@ -34,12 +35,7 @@ public static class PacketLog
             .Select(p => (p.Frame.UtcUnixMs, Packet: p.Packet!))
             .ToList();
         var local = localAddresses.ToHashSet();
-        var records = spec.Protocol switch
-        {
-            "w3gs" => W3gsRecords(packets, local),
-            "csgo" => CsgoRecords(packets, local, spec.UdpPorts.ToHashSet(), spec.Version),
-            _ => RawRecords(packets, local),
-        };
+        var records = decoders.FirstOrDefault(d => d.Protocol == spec.Protocol)?.Decode(packets, local, spec) ?? RawRecords(packets, local);
         foreach (var r in records) r.ServerTimeUs = (long)Math.Round((r.LocalTimeUs / 1000.0 + serverMinusLocalMs) * 1000);
         WriteRecords(records, header, binPath, textPath);
         return records.Count;
@@ -75,83 +71,13 @@ public static class PacketLog
         return (header, records);
     }
 
-    private static List<PacketRecord> RawRecords(List<(double Utc, IpPacket Packet)> packets, HashSet<IPAddress> local) =>
+    private static List<PacketRecord> RawRecords(List<(double Utc, IpPacket Packet)> packets, IReadOnlySet<IPAddress> local) =>
         packets.Where(p => p.Packet.Payload.Length > 0)
             .Select(p => Record(p.Utc, p.Packet, local, "", p.Packet.Payload, ""))
             .ToList();
 
-    /// <summary>
-    /// TCP: per direction of each connection, bytes are appended in sequence order (retransmitted bytes skipped; a gap
-    /// drops the half-read message and is listed as TCP_GAP) and complete W3GS messages are cut off as they arrive.
-    /// </summary>
-    private static List<PacketRecord> W3gsRecords(List<(double Utc, IpPacket Packet)> packets, HashSet<IPAddress> local)
-    {
-        var records = new List<PacketRecord>();
-        var streams = new Dictionary<string, (uint Next, List<byte> Buffer)>();
-        foreach (var (utc, p) in packets)
-        {
-            if (p.Transport == "udp")
-            {
-                foreach (byte[] message in W3gs.Split(p.Payload).Messages) records.Add(Decoded(utc, p, local, message));
-                continue;
-            }
-            string key = $"{p.Source}:{p.SourcePort}>{p.Destination}:{p.DestinationPort}";
-            if ((p.TcpFlags & IpPacket.Syn) != 0)
-            {
-                streams[key] = (p.TcpSequence + 1, []);
-                if ((p.TcpFlags & 0x10) == 0) records.Add(Record(utc, p, local, "TCP_OPEN", [], ""));
-                continue;
-            }
-            if ((p.TcpFlags & (IpPacket.Fin | IpPacket.Rst)) != 0)
-                records.Add(Record(utc, p, local, (p.TcpFlags & IpPacket.Rst) != 0 ? "TCP_RESET" : "TCP_CLOSE", [], ""));
-            if (p.Payload.Length == 0) continue;
-
-            if (!streams.TryGetValue(key, out var stream)) stream = (p.TcpSequence, []);  // capture started mid-connection
-            byte[] data = p.Payload;
-            int ahead = unchecked((int)(p.TcpSequence - stream.Next));
-            if (ahead < 0)
-            {
-                if (-ahead >= data.Length) continue;  // retransmission of bytes already taken
-                data = data[-ahead..];
-            }
-            else if (ahead > 0)
-            {
-                records.Add(Record(utc, p, local, "TCP_GAP", [], new JsonObject { ["missing_bytes"] = ahead }.ToJsonString()));
-                stream.Buffer.Clear();
-            }
-            stream.Buffer.AddRange(data);
-            stream.Next = unchecked(p.TcpSequence + (uint)p.Payload.Length);
-            var (messages, consumed) = W3gs.Split(stream.Buffer.ToArray());
-            stream.Buffer.RemoveRange(0, consumed);
-            streams[key] = stream;
-            foreach (byte[] message in messages) records.Add(Decoded(utc, p, local, message));
-        }
-        return records;
-    }
-
-    /// <summary>One decoder per direction of each connection (its reliable streams span datagrams); a record per netmessage.</summary>
-    private static List<PacketRecord> CsgoRecords(List<(double Utc, IpPacket Packet)> packets, HashSet<IPAddress> local,
-        HashSet<int> serverPorts, string? version)
-    {
-        var records = new List<PacketRecord>();
-        var decoders = new Dictionary<string, CsgoChannelDecoder>();
-        foreach (var (utc, p) in packets.Where(p => p.Packet.Transport == "udp" && p.Packet.Payload.Length > 0))
-        {
-            string key = $"{p.Source}:{p.SourcePort}>{p.Destination}:{p.DestinationPort}";
-            if (!decoders.TryGetValue(key, out var decoder)) decoders[key] = decoder = new CsgoChannelDecoder(version);
-            foreach (var m in decoder.Decode(p.Payload, serverPorts.Contains(p.SourcePort)))
-                records.Add(Record(utc, p, local, m.Name, m.Bytes, m.Fields.ToJsonString(AgentMessage.Json)));
-        }
-        return records;
-    }
-
-    private static PacketRecord Decoded(double utc, IpPacket p, HashSet<IPAddress> local, byte[] message)
-    {
-        var (name, fields) = W3gs.Decode(message);
-        return Record(utc, p, local, name, message, fields.ToJsonString(AgentMessage.Json));
-    }
-
-    private static PacketRecord Record(double utc, IpPacket p, HashSet<IPAddress> local, string message, byte[] payload, string decoded)
+    /// <summary>One record for a game's <see cref="IPacketDecoder"/>: its direction and endpoints from this machine's addresses.</summary>
+    public static PacketRecord Record(double utc, IpPacket p, IReadOnlySet<IPAddress> local, string message, byte[] payload, string decoded)
     {
         bool outgoing = local.Contains(p.Source), incoming = local.Contains(p.Destination);
         return new PacketRecord

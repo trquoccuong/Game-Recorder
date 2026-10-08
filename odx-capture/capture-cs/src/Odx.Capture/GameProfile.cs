@@ -1,7 +1,7 @@
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
-namespace Odx.Session;
+namespace Odx.Capture;
 
 /// <summary>
 /// Per-game settings for building a session: the session.json fields that capture cannot observe, and the key/button

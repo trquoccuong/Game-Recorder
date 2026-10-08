@@ -3,7 +3,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json.Nodes;
 
-namespace Odx.Core;
+namespace Odx.Games.Wc3;
 
 /// <summary>
 /// Decodes Warcraft III's game protocol (W3GS, classic 1.26–1.29: LAN discovery over UDP 6112, the game over TCP 6112).

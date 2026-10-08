@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using Odx.Protocol;
 
-namespace Odx.Session;
+namespace Odx.Agent;
 
 /// <summary>A kept round's files, sizes and SHA-256, for checking a copy or a later upload.</summary>
 public static class Manifest

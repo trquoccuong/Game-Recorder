@@ -2,7 +2,8 @@
 // Turns an `odx input` + `odx record` capture folder into a spec v2 session (frames.csv + session.json next to video.mp4),
 // ready for `odx validate`. --camera: folder with the extractor DLL's camera_samples.csv + extractor.json (default: the
 // capture folder; without them the camera columns are null). Exit code 1 if the folder cannot be built.
-using Odx.Session;
+
+using Odx.Capture;
 
 namespace Odx.Cli;
 

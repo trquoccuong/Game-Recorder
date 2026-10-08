@@ -1,4 +1,4 @@
-namespace Odx.Session;
+namespace Odx.Capture;
 
 public sealed record Issue(string Rule, string Severity, string Message)
 {

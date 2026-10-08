@@ -14,7 +14,7 @@ each client, decoded by the engine itself.
 - Output: `<game>/csgo/odx-netlog/<UTC start>.jsonl`, one object per message: `utc_us` (server Windows clock),
   `tick` (the server tick it was logged in; it puts the demo's ticks on the clock), `direction`, `slot`, `steamid`,
   `address`, `message`, `id`, `buf`, `text` (protobuf text format from the engine's binding; bytes fields such as
-  `CCLCMsg_Move.data` stay serialized). `Odx.Session` `Cs2ServerCapture` reads it; `tests/fixtures/cs2_netmessages.jsonl`
+  `CCLCMsg_Move.data` stay serialized). `Odx.Games.Cs2` `Cs2ServerCapture` reads it; `tests/fixtures/cs2_netmessages.jsonl`
   is a sample (from before `tick` was added).
 
 ## Build (Windows, MSVC)

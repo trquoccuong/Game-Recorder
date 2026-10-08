@@ -2,9 +2,11 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Text;
 using System.Text.Json.Nodes;
+using Odx.Capture;
 using Odx.Core;
-using Odx.Session;
-using Odx.Session.Proto;
+using Odx.Games.Csgo;
+using Odx.Merge;
+using Odx.Merge.Proto;
 using Xunit;
 
 namespace Odx.Tests;
@@ -262,7 +264,7 @@ public class CsgoTests
         string path = Path.Combine(Path.GetTempPath(), $"odx-csgo-{Guid.NewGuid():N}.pcapng");
         File.WriteAllBytes(path, o.ToArray());
         string bin = Path.ChangeExtension(path, ".bin"), text = Path.ChangeExtension(path, ".txt");
-        PacketLog.Write(path, [me], new PacketCaptureSpec("csgo", ["udp/27015"], Build), 0, new FileHeader(), bin, text);
+        PacketLog.Write(path, [me], new PacketCaptureSpec("csgo", ["udp/27015"], Build), 0, new FileHeader(), bin, text, Odx.Cli.MergeCommand.Games.Packets);
         var records = PacketLog.Read(bin).Records;
         Assert.Equal(["clc_Move", "svc_PacketEntities"], records.Select(r => r.Message));
         Assert.Equal([PacketRecord.Types.Direction.Out, PacketRecord.Types.Direction.In], records.Select(r => r.Direction));

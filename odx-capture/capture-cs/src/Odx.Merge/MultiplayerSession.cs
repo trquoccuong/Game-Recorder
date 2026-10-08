@@ -1,11 +1,12 @@
 using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Odx.Capture;
 using Odx.Core;
+using Odx.Merge.Proto;
 using Odx.Protocol;
-using Odx.Session.Proto;
 
-namespace Odx.Session;
+namespace Odx.Merge;
 
 /// <summary>
 /// Limits of the session gate. The sync limits are proposals (spec v3 §4: "more prototyping is needed to decide what a good
@@ -58,11 +59,13 @@ public static class MultiplayerSession
     /// <summary>Version of the client's multiplayer spec this tree follows (document header of spec v3).</summary>
     public const string SpecVersion = "3.1";
 
-    /// <param name="games">The game modules that can read a game server's side; the round's game picks one by its title.</param>
+    /// <param name="games">What odx merge knows of each game: the round's game title picks its server reader, the profile's
+    /// network.protocol its packet decoder.</param>
     public static (string Dir, SessionReport Report) Assemble(string stagingDir, string outRoot, string vendor,
-        GateTolerances? tolerances = null, IEnumerable<IGameMerger>? games = null)
+        GateTolerances? tolerances = null, GameModules? games = null)
     {
         var tol = tolerances ?? GateTolerances.Default;
+        games ??= GameModules.None;
         var round = RoundRecord.Load(stagingDir);
         var events = ReadEvents(Path.Combine(stagingDir, RoundRecord.EventsFileName));
         string profilePath = Path.Combine(stagingDir, RoundRecord.ProfileFileName);
@@ -75,7 +78,7 @@ public static class MultiplayerSession
         string? serverError = null;
         List<string> serverProblems = [];
         IReadOnlyDictionary<string, IServerCameraTrack> cameras = new Dictionary<string, IServerCameraTrack>();
-        if (games?.FirstOrDefault(g => g.Game == round.Game) is { } game && game.HasServerSide(stagedServer))
+        if (games.Servers.FirstOrDefault(g => g.Game == round.Game) is { } game && game.HasServerSide(stagedServer))
         {
             // The game server's recording is read by a third-party parser: a file it cannot read must not cost the
             // players' streams their session.
@@ -96,7 +99,7 @@ public static class MultiplayerSession
         WriteEvents(Path.Combine(dir, "server", "events.jsonl"), events);
         FramesBin.WriteSchema(Path.Combine(dir, FramesBin.SchemaFileName));
 
-        var reports = round.Players.Select(p => AssemblePlayer(round, p, events, profile, cameras, stagingDir, dir, tol)).ToList();
+        var reports = round.Players.Select(p => AssemblePlayer(round, p, events, profile, cameras, games, stagingDir, dir, tol)).ToList();
         int valid = reports.Count(r => r.Pass);
         int required = tol.MinValidPlayers ?? (round.Players.Count <= 3 ? round.Players.Count : round.Players.Count - 1);
         var issues = new List<Issue>();
@@ -184,7 +187,8 @@ public static class MultiplayerSession
     }
 
     private static PlayerReport AssemblePlayer(RoundRecord round, RoundPlayer player, List<JsonObject> events, JsonObject? profile,
-        IReadOnlyDictionary<string, IServerCameraTrack> cameras, string stagingDir, string sessionDir, GateTolerances tol)
+        IReadOnlyDictionary<string, IServerCameraTrack> cameras, GameModules games, string stagingDir, string sessionDir,
+        GateTolerances tol)
     {
         string src = Path.Combine(stagingDir, "players", player.PlayerId);
         string dst = Path.Combine(sessionDir, "players", player.PlayerId);
@@ -232,7 +236,7 @@ public static class MultiplayerSession
         if (frameUtc is not null && cameras.TryGetValue(player.PlayerId, out var track) &&
             rows.All(r => r[Frames.C2wColumns[0]] == Frames.Null))
             AddServerCamera(rows, frameUtc, track, capture, info, checks, tol, Path.Combine(dst, "frames.csv"));
-        AddPackets(round, player, profile, src, dst, info, checks);
+        AddPackets(round, player, profile, games, src, dst, info, checks);
         var header = new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
             ToolVersion = player.ToolVersion ?? "" };
         FramesBin.Write(Path.Combine(dst, "frames.csv"), frameUtc, header, Path.Combine(dst, FramesBin.FileName));
@@ -356,8 +360,8 @@ public static class MultiplayerSession
     }
 
     /// <summary>packets.bin / packets.txt from the player's packets.pcapng (spec v3 §2.3), when the game's profile asks for them.</summary>
-    private static void AddPackets(RoundRecord round, RoundPlayer player, JsonObject? profile, string src, string dst, JsonObject info,
-        List<QaCheck> checks)
+    private static void AddPackets(RoundRecord round, RoundPlayer player, JsonObject? profile, GameModules games, string src, string dst,
+        JsonObject info, List<QaCheck> checks)
     {
         if (profile?["network"] is not JsonObject network) return;
         string pcapng = Path.Combine(src, PacketCaptureFiles.Pcapng);
@@ -378,7 +382,7 @@ public static class MultiplayerSession
             int count = PacketLog.Write(pcapng, PacketLog.ReadLocalAddresses(localPath), spec, offsetMs,
                 new FileHeader { SpecVersion = SpecVersion, SessionId = round.SessionId, PlayerId = player.PlayerId,
                     ToolVersion = player.ToolVersion ?? "" },
-                Path.Combine(dst, PacketLog.BinFile), Path.Combine(dst, PacketLog.TextFile));
+                Path.Combine(dst, PacketLog.BinFile), Path.Combine(dst, PacketLog.TextFile), games.Packets);
             info["packets"] = new JsonObject { ["protocol"] = protocol, ["records"] = count, ["clock_offset_ms"] = offsetMs };
             checks.Add(new QaCheck("packets.captured", "the game's network traffic was captured", true, $"{count} records ({protocol})",
                 Required: false));

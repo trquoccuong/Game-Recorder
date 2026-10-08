@@ -5,7 +5,7 @@ syntax = "proto3";
 
 package odx.capture.v1;
 
-option csharp_namespace = "Odx.Session.Proto";
+option csharp_namespace = "Odx.Merge.Proto";
 
 message FileHeader {
   string record_type = 1;  // full name of every following message, e.g. "odx.capture.v1.FrameRecord"

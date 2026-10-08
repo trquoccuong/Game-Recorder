@@ -1,6 +1,6 @@
 using System.Diagnostics;
+using Odx.Capture;
 using Odx.Core;
-using Odx.Session;
 using Xunit;
 
 namespace Odx.Tests;
@@ -41,7 +41,7 @@ public class ValidatorTests(ValidSession valid) : IClassFixture<ValidSession>
     [Fact]
     public void Every_error_rule_has_a_mutator()
     {
-        var errorRules = Odx.Session.Rules.All.Where(r => r.Severity == Issue.ErrorSeverity).Select(r => r.Id);
+        var errorRules = Odx.Capture.Rules.All.Where(r => r.Severity == Issue.ErrorSeverity).Select(r => r.Id);
         Assert.Empty(errorRules.Except(SessionFixtures.Mutations.Keys));
     }
 

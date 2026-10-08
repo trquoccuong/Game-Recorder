@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Counter-Strike: Global Offensive (legacy): decoding its players' traffic (ICE-encrypted netchannel) for packets.bin. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Odx.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Odx.Merge/Odx.Merge.csproj" />
+  </ItemGroup>
+</Project>

@@ -2,9 +2,9 @@ using System.IO.Compression;
 using Google.Protobuf;
 using Google.Protobuf.Reflection;
 using Odx.Core;
-using Odx.Session.Proto;
+using Odx.Merge.Proto;
 
-namespace Odx.Session;
+namespace Odx.Merge;
 
 /// <summary>
 /// frames.bin (spec v3 §2.2) and schema.bin.gz. frames.csv already holds shortest round-trip doubles, so converting it

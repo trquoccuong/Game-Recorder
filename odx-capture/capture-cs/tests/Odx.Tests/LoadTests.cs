@@ -1,8 +1,9 @@
 using System.Diagnostics;
 using System.Net.Http.Json;
 using System.Text.Json.Nodes;
+using Odx.Agent;
+using Odx.Capture;
 using Odx.Core;
-using Odx.Session;
 using Xunit;
 using Xunit.Abstractions;
 
