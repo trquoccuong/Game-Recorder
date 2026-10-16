@@ -1,0 +1,12 @@
+GameProject {
+ ID "TbrainCameraSpike"
+ GUID "6A3F1C2B9D8E4F07"
+ TITLE "Tbrain Camera Spike"
+ Dependencies {
+  "58D0FB3206B6F859"
+ }
+ Configurations {
+  GameProjectConfig PC {
+  }
+ }
+}
