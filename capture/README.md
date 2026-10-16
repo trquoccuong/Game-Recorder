@@ -1,4 +1,4 @@
-# odx-capture
+# capture
 
 Tooling for the client's canonical game-data format. See [`../document/software-plan.md`](../document/software-plan.md) for the full plan; this repo currently implements testing layers 1–2 (§7.10).
 
