@@ -104,6 +104,7 @@ capture/
   guides/                         # How-to guides: multiplayer test setup (CS2 server, orchestrator, network, players)
 research/
   analyze-pose/                   # Standalone Python pose audit (numpy), not part of the product
+  reforger-camera-spike/          # Arma Reforger camera spike: Enforce Script logger mod + analyze.py (layout, FOV, clock)
 ```
 
 ## Build & test
