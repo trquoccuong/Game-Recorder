@@ -1,0 +1,60 @@
+{
+  "game_title": "Arma Reforger",
+  "platform": "PC",
+  "engine": "Enfusion",
+  "coordinate_system": {
+    "axes": "left-handed, Y up: X east, Y up, Z north",
+    "units": "meter",
+    "units_per_meter": 1
+  },
+  "localization": "en-US",
+  "window_process": "ArmaReforgerSteam",
+  "network": {
+    "protocol": "raw",
+    "ports": [
+      "udp/2001"
+    ]
+  },
+  "input_mouse_convention": {
+    "maps_to": "camera_look_velocity",
+    "dx_positive": "right",
+    "dx_negative": "left",
+    "dy_positive": "down",
+    "dy_negative": "up"
+  },
+  "bindings": {
+    "W": "Forward",
+    "S": "Backward",
+    "A": "Strafe Left",
+    "D": "Strafe Right",
+    "Shift": "Sprint",
+    "Space": "Jump",
+    "X": "Crouch",
+    "Z": "Prone",
+    "Q": "Lean Left",
+    "E": "Lean Right",
+    "Alt": "Freelook",
+    "R": "Reload",
+    "V": "Cycle Fire Mode",
+    "G": "Throw",
+    "Y": "Perform Action",
+    "C": "Point",
+    "Tab": "Inventory",
+    "M": "Map",
+    "B": "Binoculars",
+    "K": "Compass",
+    "L": "Flashlight",
+    "O": "Wristwatch",
+    "T": "Talk",
+    "CapsLock": "Talk Over Radio",
+    "Enter": "Chat",
+    "P": "Player List",
+    "Delete": "Weapon Safety",
+    "PageUp": "Zeroing Up",
+    "PageDown": "Zeroing Down",
+    "Escape": "Pause Menu",
+    "Left": "Fire",
+    "Right": "Aim",
+    "Middle": "Melee"
+  }
+}
