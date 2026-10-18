@@ -22,6 +22,7 @@ import numpy as np
 
 POINTS = 12
 CORNER_PX = 32
+PAIR_TOLERANCE_MS = 100  # a flash lasts one game frame (25 ms at 40 fps) and shows up to a video frame later
 
 
 def load_log(path):
@@ -65,6 +66,8 @@ def visible(log):
 def layout(log):
     rot = log["rows"][:, :3, :]
     mask = visible(log)
+    mask[0] = False  # in the game, the first frame's engine projection is not the logged camera's yet
+    zoomed = log["vfov_deg"] < np.median(log["vfov_deg"]) - 1
     if mask.sum() < 20:
         sys.exit("fewer than 20 visible point samples: look around the spawn point while recording")
     w, h = log["screen_w"][:, None], log["screen_h"][:, None]
@@ -108,6 +111,8 @@ def layout(log):
         "fit": {"fx": round(fx, 2), "fy": round(fy_fit, 2), "cx": round(cx, 2), "cy": round(cy, 2),
                 "rms_px": round(math.hypot(rx, ry), 3), "fx_over_fy": round(fx / fy_fit, 5)},
         "vfov_logged_deg": round(float(np.median(log["vfov_deg"])), 4),
+        "vfov_logged_range_deg": [round(float(log["vfov_deg"].min()), 4), round(float(log["vfov_deg"].max()), 4)],
+        "zoomed_samples": int((ok & zoomed[:, None]).sum()),
         "vfov_fitted_deg": round(math.degrees(2 * math.atan(h_med / 2 / fy_fit)), 4),
         "screen": [float(np.median(log["screen_w"])), h_med],
         "render": [float(np.median(log["render_w"])), float(np.median(log["render_h"]))],
@@ -122,18 +127,18 @@ def flash_interval_ms(index):
     return 4000 + (index * 1237) % 2000
 
 
-def corner_luma(video):
-    """Mean luma of the top-left CORNER_PX square of every frame."""
+def corner_luma(video, x=0, y=0):
+    """Mean luma of the CORNER_PX square at (x, y) of every frame."""
     out = subprocess.run(["ffmpeg", "-v", "error", "-i", video, "-vf",
-                          f"crop={CORNER_PX}:{CORNER_PX}:0:0,scale=1:1:flags=area,format=gray", "-f", "rawvideo", "-"],
+                          f"crop={CORNER_PX}:{CORNER_PX}:{x}:{y},scale=1:1:flags=area,format=gray", "-f", "rawvideo", "-"],
                          capture_output=True, check=True).stdout
     return np.frombuffer(out, dtype=np.uint8).astype(float)
 
 
-def clock(log, capture):
+def clock(log, capture, corner=(0, 0)):
     with open(os.path.join(capture, "video_frames.csv"), newline="") as f:
         t_qpc = np.array([float(r["t_grid_qpc_ms"]) for r in csv.DictReader(f)])
-    luma = corner_luma(os.path.join(capture, "video.mp4"))
+    luma = corner_luma(os.path.join(capture, "video.mp4"), *corner)
     n = min(len(luma), len(t_qpc))
     luma, t_qpc = luma[:n], t_qpc[:n]
     lit = luma > (luma.min() + luma.max()) / 2
@@ -141,25 +146,28 @@ def clock(log, capture):
     log_flashes = log["tick_ms"][log["flash"] > 0]
     if len(video_flashes) < 2 or len(log_flashes) < 2:
         sys.exit(f"need 2+ flashes on both sides: video {len(video_flashes)}, log {len(log_flashes)}")
-    # The log and the video start at different times: pair them at the shift where qpc - tick is most constant. The
-    # intervals differ (flash_interval_ms), so a shift by one flash does not fit as well.
-    min_pairs = min(3, len(video_flashes), len(log_flashes))
+    # The log and the video start at different times, and a one-frame flash can be missing from the video (dropped by
+    # the recorder): pair each video flash with the log flash nearest to it under the offset that pairs the most. The
+    # intervals differ (flash_interval_ms), so a wrong offset pairs only by chance.
     best = None
-    for shift in range(-len(log_flashes) + 1, len(video_flashes)):
-        lo, hi = max(0, -shift), min(len(log_flashes), len(video_flashes) - shift)
-        if hi - lo < min_pairs:
-            continue
-        diff = video_flashes[lo + shift:hi + shift] - log_flashes[lo:hi]
-        if best is None or diff.std() < best[0]:
-            best = (diff.std(), lo, hi, shift)
-    _, lo, hi, shift = best
-    ticks, qpc = log_flashes[lo:hi], video_flashes[lo + shift:hi + shift]
+    for offset in (video_flashes[:, None] - log_flashes[None, :]).ravel():
+        gap = np.abs(video_flashes[:, None] - offset - log_flashes[None, :])
+        nearest = gap.argmin(axis=1)
+        paired = gap[np.arange(len(video_flashes)), nearest] <= PAIR_TOLERANCE_MS
+        score = (int(paired.sum()), -float(gap.min(axis=1)[paired].sum()))
+        if best is None or score > best[0]:
+            best = (score, paired, nearest)
+    _, paired, nearest = best
+    if paired.sum() < min(3, len(video_flashes)):
+        sys.exit(f"could not pair the flashes: {int(paired.sum())} of {len(video_flashes)}")
+    ticks, qpc = log_flashes[nearest[paired]], video_flashes[paired]
     a, b = np.polyfit(ticks, qpc, 1)
     resid = qpc - (a * ticks + b)
     frame_ms = float(np.median(np.diff(t_qpc)))
     lit_runs = np.diff(np.flatnonzero(np.diff(np.concatenate([[0], lit.astype(int), [0]]))))[::2]
     return {
-        "pairs": int(hi - lo),
+        "pairs": int(paired.sum()),
+        "video_flashes": len(video_flashes),
         "qpc_ms_per_tick_ms": round(float(a), 7),
         "qpc_at_tick_0_ms": round(float(b), 3),
         "residual_ms": {"max_abs": round(float(np.abs(resid).max()), 3), "std": round(float(resid.std()), 3)},
@@ -246,6 +254,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("log", nargs="?")
     ap.add_argument("--capture", help="odx record folder (video.mp4 + video_frames.csv) recorded during the log")
+    ap.add_argument("--corner", type=int, nargs=2, default=(0, 0), metavar=("X", "Y"),
+                    help="top-left of the flash square in the video (a windowed capture includes the title bar)")
     ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args()
     if args.selftest:
@@ -255,7 +265,7 @@ def main():
     log = load_log(args.log)
     result = {"layout": layout(log)}
     if args.capture:
-        result["clock"] = clock(log, args.capture)
+        result["clock"] = clock(log, args.capture, args.corner)
     print(json.dumps(result, indent=2))
     return 0
 
