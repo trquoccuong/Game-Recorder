@@ -26,7 +26,7 @@ nothing here ships in `capture/`.
 | Path | What it is |
 |---|---|
 | `addon/OdxCameraSpike/OdxCameraSpike.gproj` | The Workbench project of the mod; depends on Arma Reforger (`58D0FB3206B6F859`) |
-| `addon/OdxCameraSpike/Scripts/Game/OdxCameraSpike.c` | The logger. `modded class ArmaReforgerScripted` hooks `OnUpdate` (every frame) and: <br>• writes one line per frame to `$profile:camera_spike.csv`: frame, tick, transform (4 rows), vertical FOV, near / far, screen and render size, and 12 world points fixed around the first camera position (relative to the camera) with their engine projection; <br>• draws a 64 px square in the top-left corner, black, white for one frame every 4–6 s (uneven on purpose, so flashes can be paired) |
+| `addon/OdxCameraSpike/Scripts/Game/OdxCameraSpike.c` | The logger. `modded class ArmaReforgerScripted` hooks `OnUpdate` (every frame) and: <br>• writes one line per frame to `$profile:camera_spike.csv`: frame, tick, third person (1 / 0, -1 without a controlled character), transform (4 rows), vertical FOV, near / far, screen and render size, and 12 world points fixed around the first camera position (relative to the camera) with their engine projection; <br>• draws a 64 px square in the top-left corner, black, white for one frame every 4–6 s (uneven on purpose, so flashes can be paired) |
 | `analyze.py` | Reads the log (and with `--capture` an `odx record` folder) and prints G1–G3 as JSON. `--selftest` builds a synthetic log and video with known answers and checks it finds them |
 | `requirements.txt` | numpy |
 
@@ -124,6 +124,8 @@ Write the findings into `document/games/arma-reforger.md` (§3 Data route, §7 O
 Two runs on 2026-10-18, 1280×720 windowed, 120 s recorded at 60 fps, analysed with `--corner 6 36`:
 
 - **rec1** offline: Game Master on Everon, game at ~40 fps.
+- **rec3** offline, first and third person: Game Master on Everon, 16 view switches; 5937 frames first person,
+  3603 third person.
 - **rec2** multiplayer: Conflict on Everon on our own dedicated server, started from the command line with the mod (`-server … -addonsDir … -addons OdxCameraSpike`), client `-client 127.0.0.1:2001` with the same mod. Game near 60 fps.
 
 | Goal | rec1 offline | rec2 multiplayer |
@@ -133,9 +135,14 @@ Two runs on 2026-10-18, 1280×720 windowed, 120 s recorded at 60 fps, analysed w
 | G3 clock | 17 / 17 flashes, residual max 31 ms = **1.85 frames**, std 12 ms | 23 / 23 flashes, rate 0.999924, residual max 20 ms = **1.20 frames**, std 9 ms |
 | G4 lag | Not run | Not run |
 
+rec3 (views): G1 **pass in both views**: 0.0 px over 6453 first-person and 6553 third-person samples (next-best layout
+231 px); the logged transform is the rendered camera, behind the character in third person. Third person has its own
+FOV (72.0° here, up to ~77° in transitions) and the logged per-frame FOV matches it exactly; the single-f free fit
+mixes views and is not meaningful for this run. G3: 20 / 20 flashes, residual max 20 ms = 1.21 frames, std 8 ms.
+
 The log's first frame is skipped (engine projection not ready yet). G3 is inside plan Q6's 2 frames for live capture,
 not 1: ticks are whole ms and the game frame is not locked to the recording grid; it improves as the game fps nears
 the recording fps.
 
-Raw logs and output: `D:\odx-dev\spike\rec{1,2}-camera_spike.csv`, `rec{1,2}-analysis.json`. Findings:
+Raw logs and output: `D:\odx-dev\spike\rec{1,2,3}-camera_spike.csv`, `rec{1,2,3}-analysis.json`. Findings:
 `document/games/arma-reforger.md` §3, §5, §6, §7.

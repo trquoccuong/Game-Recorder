@@ -35,6 +35,7 @@ def load_log(path):
         return np.array([float(r[name]) for r in rows])
 
     log = {k: col(k) for k in ["frame", "tick_ms", "flash", "vfov_deg", "screen_w", "screen_h", "render_w", "render_h"]}
+    log["third_person"] = col("third_person") if "third_person" in rows[0] else np.full(len(rows), -1.0)
     log["rows"] = np.stack([np.stack([col(f"m{r}{a}") for a in "xyz"], axis=1) for r in range(4)], axis=1)  # (n, 4, 3)
     log["d"] = np.stack([np.stack([col(f"p{k}_d{a}") for a in "xyz"], axis=1) for k in range(POINTS)], axis=1)  # (n, k, 3)
     log["s"] = np.stack([np.stack([col(f"p{k}_s{a}") for a in "xyz"], axis=1) for k in range(POINTS)], axis=1)
@@ -92,6 +93,16 @@ def layout(log):
     ok = mask & (c[..., 2] > 0.1)
     at_hip = ok & ~zoomed[:, None]  # one f for every sample: the FOV must not change
 
+    fy_logged = (h / 2) / np.tan(np.radians(log["vfov_deg"][:, None]) / 2)
+    err = np.hypot(w / 2 + fy_logged * c[..., 0] / c[..., 2] - log["s"][..., 0],
+                   h / 2 - fy_logged * c[..., 1] / c[..., 2] - log["s"][..., 1])
+    by_view = {}
+    for name, value in [("first_person", 0), ("third_person", 1), ("unknown", -1)]:
+        sel = ok & (log["third_person"] == value)[:, None]
+        if sel.any():
+            by_view[name] = {"frames": int((log["third_person"] == value).sum()), "samples": int(sel.sum()),
+                             "rms_px": round(float(np.sqrt(np.mean(err[sel] ** 2))), 3)}
+
     def fit(proj, screen):  # screen = centre + f * proj
         a = np.stack([proj[at_hip], np.ones(at_hip.sum())], axis=1)
         (f, centre), *_ = np.linalg.lstsq(a, screen[at_hip], rcond=None)
@@ -108,6 +119,7 @@ def layout(log):
         "read_as": "columns" if transposed else "rows",
         "axes": {names[i]: f"{'-' if signs[i] < 0 else ''}{'col' if transposed else 'row'}{order[i]}" for i in range(3)},
         "rms_px_with_logged_vfov": round(rms, 3),
+        "by_view": by_view,
         "runner_up_rms_px": round(results[1][0], 3) if len(results) > 1 else None,
         "fit": {"fx": round(fx, 2), "fy": round(fy_fit, 2), "cx": round(cx, 2), "cy": round(cy, 2),
                 "rms_px": round(math.hypot(rx, ry), 3), "fx_over_fy": round(fx / fy_fit, 5)},
