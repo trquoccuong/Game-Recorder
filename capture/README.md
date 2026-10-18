@@ -235,10 +235,12 @@ The server stores no recordings: the rounds stay with the players and the game s
 - **Column-name case:** the spec uses `c2w_mRC` (§1.1.2.4, §1.5.3) but `C2W_M00` in the summary table (§1.1.3). Uppercase `C2W_M00` is used here, as in the summary table and the client's sample delivery (which also writes `camera_model` as `pinhole`; we keep the spec's `PINHOLE`).
 - **Extra `session.json` fields:** `vendor_tool_version` and `vendor_clock_sync` are not in the spec (the schema allows additional properties); confirm the client accepts them.
 - **Validation tolerances** not fixed by the spec (all in `ValidationTolerances`, `Odx.Capture/Validation/Issue.cs`): rotation `1e-3`, principal point `4 px`, frame spacing `max(1 ms, 25%)`, level-roll warning `0.05`, fx = fy within `1e-3`, duration checks `1 s` / `1000 ms` / `2 frames`.
-- **First- and third-person views (Arma Reforger):** the client wants both (2026-10-18). Spec v2 has no field for the
+- **First- and third-person views (Arma Reforger, Arma 3):** the client wants both (2026-10-18). Spec v2 has no field for the
   view, and a third-person C2W is a camera behind the character, not the player's eyes. Proposal: a per-frame column
   `camera_view` (`first_person` / `third_person`) in `frames.csv` and the views used listed in `session.json`, rather
   than one session per view (players switch mid-round); confirm the encoding and whether both count toward the hours.
+  Arma 3 also has `GUNNER` (looking through optics or a vehicle sight) and `GROUP` (commander) views: map `GUNNER` to
+  first person, block or flag `GROUP`?
 - **Multiplayer (provisional):**
   - One round = one session (`<match>-rNN`).
   - Ping is the median NTP RTT to the orchestrator.
