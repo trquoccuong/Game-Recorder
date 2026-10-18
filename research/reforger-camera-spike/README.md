@@ -26,7 +26,7 @@ nothing here ships in `capture/`.
 | Path | What it is |
 |---|---|
 | `addon/OdxCameraSpike/OdxCameraSpike.gproj` | The Workbench project of the mod; depends on Arma Reforger (`58D0FB3206B6F859`) |
-| `addon/OdxCameraSpike/Scripts/Game/OdxCameraSpike.c` | The logger. `modded class ArmaReforgerScripted` hooks `OnUpdate` (every frame) and: <br>• writes one line per frame to `$profile:odx/camera_spike.csv`: frame, tick, transform (4 rows), vertical FOV, near / far, screen and render size, and 12 world points fixed around the first camera position (relative to the camera) with their engine projection; <br>• draws a 64 px square in the top-left corner, black, white for one frame every 4–6 s (uneven on purpose, so flashes can be paired) |
+| `addon/OdxCameraSpike/Scripts/Game/OdxCameraSpike.c` | The logger. `modded class ArmaReforgerScripted` hooks `OnUpdate` (every frame) and: <br>• writes one line per frame to `$profile:camera_spike.csv`: frame, tick, transform (4 rows), vertical FOV, near / far, screen and render size, and 12 world points fixed around the first camera position (relative to the camera) with their engine projection; <br>• draws a 64 px square in the top-left corner, black, white for one frame every 4–6 s (uneven on purpose, so flashes can be paired) |
 | `analyze.py` | Reads the log (and with `--capture` an `odx record` folder) and prints G1–G3 as JSON. `--selftest` builds a synthetic log and video with known answers and checks it finds them |
 | `requirements.txt` | numpy |
 
@@ -64,13 +64,14 @@ Either way works; Workbench shows compile errors, the game only logs them.
 (**Build → Compile and Reload Scripts** **[menu to verify]**); fix what it reports. Then open a world in the
 **World Editor** (e.g. Everon) and **Play**.
 
-**Game.** Steam → Arma Reforger → Properties → Launch options **[flags to verify]**:
+**Game.** Steam → Arma Reforger → Properties → Launch options (or run `ArmaReforgerSteam.exe` with them; add `-window` for a window):
 
 ```
 -addonsDir D:\project\client\research\reforger-camera-spike\addon -addons OdxCameraSpike -profile D:\odx-dev\reforger-profile
 ```
 
-`-profile` puts `$profile:` (the log) on D:. Start a single-player scenario (Game Master or Conflict on Everon).
+`-profile` puts `$profile:` on D:: it is the `profile\` folder inside it. The mod reports its state in the game's
+`console.log` (`logs\<date>\` in the same folder), prefixed `TBC_CameraSpike:`: "logging to …" once a camera exists. Start a single-player scenario (Game Master or Conflict on Everon).
 
 ### 2. Record
 
@@ -86,8 +87,12 @@ Either way works; Workbench shows compile errors, the game only logs them.
 ### 3. Analyse
 
 ```bash
-.venv/Scripts/python analyze.py D:\odx-dev\reforger-profile\odx\camera_spike.csv --capture D:\odx-dev\spike\rec1
+.venv/Scripts/python analyze.py D:\odx-dev\reforger-profile\profile\camera_spike.csv --capture D:\odx-dev\spike\rec1 --corner 6 36
 ```
+
+`--corner X Y` is where the flash square sits in the video: `6 36` for a windowed capture on Windows 11 (title bar
+31 px; the 64 px square is drawn in UI units, about 42 video px at 720p). Check a frame with
+`ffmpeg -ss 10 -i video.mp4 -frames:v 1 f.png` if the window or the resolution differs.
 
 ## Read the result
 
@@ -109,12 +114,20 @@ Write the findings into `document/games/arma-reforger.md` (§3 Data route, §7 O
 | Symptom | Likely cause |
 |---|---|
 | No `camera_spike.csv` | Mod not loaded (check the game's `console.log` in the profile folder), or no camera yet (main menu) |
-| Compile errors in `ShowFlash` or `F()` | `WorkspaceWidget.CreateWidget`, `FrameSlot` and `float.ToString(-1, 6)` were written before the game was installed; replace them with what the Script Editor offers |
+| `Unknown operator '%'` | Enforce Script rejects `%` right after `)`: put the operand in an `int` first. The Script API reference is offline in `Arma Reforger Tools\Workbench\docs\` |
 | `fewer than 20 visible point samples` | The points were placed around a spot you moved away from: stand still at the start, look around in place |
-| `need 2+ flashes on both sides` | The square is hidden (HUD layer, UI scale) or the recording does not include the window's top-left corner |
+| `need 2+ flashes on both sides` | The square is hidden (HUD layer, UI scale), or `--corner` does not point inside it |
 | G2 off by a constant factor | Projection in DPI-scaled units: compare `screen` and `render` |
 
 ## Status
 
-Written before the game was installed: the API comes from the published Script API (`CameraBase`, `System`,
-`ArmaReforgerScripted`) and Bohemia's samples; `--selftest` passes; nothing has run in the game yet.
+Run on 2026-10-18 (1280×720 windowed, game at ~40 fps, Game Master on Everon, 120 s recorded at 60 fps):
+
+| Goal | Result |
+|---|---|
+| G1 | **Pass.** Rows 0 / 1 / 2 = right / up / forward, row 3 = position, det +1, orthonormal to 2e-6. 2098 samples: 0.0 px RMS against `ProjWorldToScreenNative` (next-best layout 213 px). Only the log's first frame differs (engine projection not ready yet), skipped |
+| G2 | **Pass** at hip: fitted vFOV 73.998° vs 74°, fx/fy 1.00007, centre within 0.02 px; screen = render size. The logged FOV follows aiming (50.8°–74°), but only 3 zoomed samples had the points in view: repeat |
+| G3 | **Pass with the live allowance:** 17 / 17 flashes paired, 1.000014 QPC ms per tick, residual max 31 ms (1.85 frames), std 12 ms. Over 1 frame because the game ran at ~40 fps against a 60 fps grid and ticks are whole ms |
+| G4 | Not run |
+
+Full output: `D:\odx-dev\spike\rec1-analysis.json`. Findings: `document/games/arma-reforger.md` §3, §6, §7.

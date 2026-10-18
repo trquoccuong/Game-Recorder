@@ -17,29 +17,40 @@ modded class ArmaReforgerScripted
 
 class TBC_CameraSpike
 {
-	static const string DIR = "$profile:odx";
+	static const string PATH = "$profile:camera_spike.csv";
 	static const int FLASH_SIZE_PX = 64;
 
-	protected FileHandle m_Log;
+	protected ref FileHandle m_Log;
 	protected ref array<vector> m_Points = {};
 	protected ImageWidget m_Flash;
 	protected int m_Frame;
 	protected int m_NextFlashMs;
 	protected int m_Flashes;
+	protected string m_State;
 
 	void Update(ArmaReforgerScripted game, BaseWorld world, float timeslice)
 	{
 		CameraManager cameras = game.GetCameraManager();
 		if (!cameras || !world)
+		{
+			Report("no camera manager or world");
 			return;
+		}
 		CameraBase camera = cameras.CurrentCamera();
 		if (!camera)
+		{
+			Report("no current camera");
 			return;
+		}
 
 		vector mat[4];
 		camera.GetWorldCameraTransform(mat);
 		if (!m_Log && !Open(mat[3]))
+		{
+			Report("cannot open " + PATH);
 			return;
+		}
+		Report("logging to " + PATH);
 		WorkspaceWidget workspace = game.GetWorkspace();
 
 		int tick = System.GetTickCount();
@@ -69,15 +80,14 @@ class TBC_CameraSpike
 			vector s = workspace.ProjWorldToScreenNative(p, world);
 			line += string.Format(",%1,%2,%3,%4,%5,%6", F(d[0]), F(d[1]), F(d[2]), F(s[0]), F(s[1]), F(s[2]));
 		}
-		m_Log.FPrintln(line);
+		m_Log.WriteLine(line);
 		m_Frame++;
 	}
 
 	// 12 points fixed in the world around the first camera position: two rings (8 m and 30 m), three heights.
 	protected bool Open(vector origin)
 	{
-		FileIO.MakeDirectory(DIR);
-		m_Log = FileIO.OpenFile(DIR + "/camera_spike.csv", FileMode.WRITE);
+		m_Log = FileIO.OpenFile(PATH, FileMode.WRITE);
 		if (!m_Log)
 			return false;
 		for (int i = 0; i < 12; i++)
@@ -86,7 +96,8 @@ class TBC_CameraSpike
 			float radius = 8;
 			if (i % 2 == 1)
 				radius = 30;
-			float height = (i % 3 - 1) * 2;
+			int level = i % 3;
+			float height = (level - 1) * 2;
 			m_Points.Insert(origin + Vector(radius * Math.Cos(angle), height, radius * Math.Sin(angle)));
 		}
 		string header = "frame,tick_ms,timeslice_s,flash,camera_index,proj_type";
@@ -95,7 +106,7 @@ class TBC_CameraSpike
 		header += ",vfov_deg,near_m,far_m,screen_w,screen_h,render_w,render_h";
 		for (int k = 0; k < m_Points.Count(); k++)
 			header += string.Format(",p%1_dx,p%1_dy,p%1_dz,p%1_sx,p%1_sy,p%1_sz", k);
-		m_Log.FPrintln(header);
+		m_Log.WriteLine(header);
 		return true;
 	}
 
@@ -103,12 +114,10 @@ class TBC_CameraSpike
 	{
 		if (!m_Flash)
 		{
-			m_Flash = ImageWidget.Cast(workspace.CreateWidget(WidgetType.ImageWidgetTypeID, WidgetFlags.VISIBLE | WidgetFlags.IGNORE_CURSOR,
-				Color.Black, 10000, null));
+			m_Flash = ImageWidget.Cast(workspace.CreateWidgetInWorkspace(WidgetType.ImageWidgetTypeID, 0, 0, FLASH_SIZE_PX, FLASH_SIZE_PX,
+				WidgetFlags.VISIBLE | WidgetFlags.IGNORE_CURSOR, Color.Black, 10000));
 			if (!m_Flash)
 				return;
-			FrameSlot.SetPos(m_Flash, 0, 0);
-			FrameSlot.SetSize(m_Flash, FLASH_SIZE_PX, FLASH_SIZE_PX);
 		}
 		if (on)
 			m_Flash.SetColor(Color.White);
@@ -120,7 +129,17 @@ class TBC_CameraSpike
 	// Same sequence as analyze.py flash_interval_ms.
 	protected static int FlashIntervalMs(int index)
 	{
-		return 4000 + (index * 1237) % 2000;
+		int step = index * 1237;
+		return 4000 + step % 2000;
+	}
+
+	// Each state change once in the game's console.log, prefixed for grep.
+	protected void Report(string state)
+	{
+		if (state == m_State)
+			return;
+		m_State = state;
+		Print("TBC_CameraSpike: " + state);
 	}
 
 	protected static string F(float v)
