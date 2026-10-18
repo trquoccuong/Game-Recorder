@@ -68,7 +68,8 @@ class TBC_CameraSpike
 		int renderW, renderH;
 		System.GetRenderingResolution(renderW, renderH);
 
-		string line = string.Format("%1,%2,%3,%4,%5,%6", m_Frame, tick, F(timeslice), flash, camera.GetCameraIndex(), camera.GetProjType());
+		string line = string.Format("%1,%2,%3,%4,%5,%6,%7", m_Frame, tick, F(timeslice), flash, camera.GetCameraIndex(), camera.GetProjType(),
+			ThirdPerson());
 		for (int r = 0; r < 4; r++)
 			line += string.Format(",%1,%2,%3", F(mat[r][0]), F(mat[r][1]), F(mat[r][2]));
 		line += string.Format(",%1,%2,%3,%4,%5,%6,%7", F(camera.GetVerticalFOV()), F(camera.GetNearPlane()), F(camera.GetFarPlane()),
@@ -100,7 +101,7 @@ class TBC_CameraSpike
 			float height = (level - 1) * 2;
 			m_Points.Insert(origin + Vector(radius * Math.Cos(angle), height, radius * Math.Sin(angle)));
 		}
-		string header = "frame,tick_ms,timeslice_s,flash,camera_index,proj_type";
+		string header = "frame,tick_ms,timeslice_s,flash,camera_index,proj_type,third_person";
 		for (int r = 0; r < 4; r++)
 			header += string.Format(",m%1x,m%1y,m%1z", r);
 		header += ",vfov_deg,near_m,far_m,screen_w,screen_h,render_w,render_h";
@@ -131,6 +132,20 @@ class TBC_CameraSpike
 	{
 		int step = index * 1237;
 		return 4000 + step % 2000;
+	}
+
+	// 1 / 0 for the locally controlled entity's camera, -1 when there is none (dead, spectating, no camera handler).
+	protected static int ThirdPerson()
+	{
+		IEntity controlled = SCR_PlayerController.GetLocalControlledEntity();
+		if (!controlled)
+			return -1;
+		CameraHandlerComponent handler = CameraHandlerComponent.Cast(controlled.FindComponent(CameraHandlerComponent));
+		if (!handler)
+			return -1;
+		if (handler.IsInThirdPerson())
+			return 1;
+		return 0;
 	}
 
 	// Each state change once in the game's console.log, prefixed for grep.
