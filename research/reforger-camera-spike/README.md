@@ -121,13 +121,21 @@ Write the findings into `document/games/arma-reforger.md` (§3 Data route, §7 O
 
 ## Status
 
-Run on 2026-10-18 (1280×720 windowed, game at ~40 fps, Game Master on Everon, 120 s recorded at 60 fps):
+Two runs on 2026-10-18, 1280×720 windowed, 120 s recorded at 60 fps, analysed with `--corner 6 36`:
 
-| Goal | Result |
-|---|---|
-| G1 | **Pass.** Rows 0 / 1 / 2 = right / up / forward, row 3 = position, det +1, orthonormal to 2e-6. 2098 samples: 0.0 px RMS against `ProjWorldToScreenNative` (next-best layout 213 px). Only the log's first frame differs (engine projection not ready yet), skipped |
-| G2 | **Pass** at hip: fitted vFOV 73.998° vs 74°, fx/fy 1.00007, centre within 0.02 px; screen = render size. The logged FOV follows aiming (50.8°–74°), but only 3 zoomed samples had the points in view: repeat |
-| G3 | **Pass with the live allowance:** 17 / 17 flashes paired, 1.000014 QPC ms per tick, residual max 31 ms (1.85 frames), std 12 ms. Over 1 frame because the game ran at ~40 fps against a 60 fps grid and ticks are whole ms |
-| G4 | Not run |
+- **rec1** offline: Game Master on Everon, game at ~40 fps.
+- **rec2** multiplayer: Conflict on Everon on our own dedicated server, started from the command line with the mod (`-server … -addonsDir … -addons OdxCameraSpike`), client `-client 127.0.0.1:2001` with the same mod. Game near 60 fps.
 
-Full output: `D:\odx-dev\spike\rec1-analysis.json`. Findings: `document/games/arma-reforger.md` §3, §6, §7.
+| Goal | rec1 offline | rec2 multiplayer |
+|---|---|---|
+| G1 layout | **Pass.** Rows 0 / 1 / 2 = right / up / forward, row 3 = position, det +1, orthonormal to 2e-6; 0.0 px RMS against `ProjWorldToScreenNative` over 2098 samples (next-best layout 213 px) | **Pass.** Same layout, 0.0 px over 4896 samples (next-best 219 px) |
+| G2 FOV | **Pass** at hip: fx = fy = 477.74, centre (640.0, 360.0), vFOV 74.0° | **Pass**, also zoomed: 880 samples at 50.8°–74° reproject at 0.0 px with the per-frame logged FOV; hip fit vFOV 73.9985°, fx/fy 1.00008 |
+| G3 clock | 17 / 17 flashes, residual max 31 ms = **1.85 frames**, std 12 ms | 23 / 23 flashes, rate 0.999924, residual max 20 ms = **1.20 frames**, std 9 ms |
+| G4 lag | Not run | Not run |
+
+The log's first frame is skipped (engine projection not ready yet). G3 is inside plan Q6's 2 frames for live capture,
+not 1: ticks are whole ms and the game frame is not locked to the recording grid; it improves as the game fps nears
+the recording fps.
+
+Raw logs and output: `D:\odx-dev\spike\rec{1,2}-camera_spike.csv`, `rec{1,2}-analysis.json`. Findings:
+`document/games/arma-reforger.md` §3, §5, §6, §7.

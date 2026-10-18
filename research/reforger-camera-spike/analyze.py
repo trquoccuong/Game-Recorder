@@ -90,11 +90,12 @@ def layout(log):
     b = basis(rot, transposed, order, signs)
     c = camera_space(log, b)
     ok = mask & (c[..., 2] > 0.1)
+    at_hip = ok & ~zoomed[:, None]  # one f for every sample: the FOV must not change
 
     def fit(proj, screen):  # screen = centre + f * proj
-        a = np.stack([proj[ok], np.ones(ok.sum())], axis=1)
-        (f, centre), *_ = np.linalg.lstsq(a, screen[ok], rcond=None)
-        return float(f), float(centre), float(np.sqrt(np.mean((a @ [f, centre] - screen[ok]) ** 2)))
+        a = np.stack([proj[at_hip], np.ones(at_hip.sum())], axis=1)
+        (f, centre), *_ = np.linalg.lstsq(a, screen[at_hip], rcond=None)
+        return float(f), float(centre), float(np.sqrt(np.mean((a @ [f, centre] - screen[at_hip]) ** 2)))
 
     fx, cx, rx = fit(c[..., 0] / c[..., 2], log["s"][..., 0])
     fy_fit, cy, ry = fit(-c[..., 1] / c[..., 2], log["s"][..., 1])
