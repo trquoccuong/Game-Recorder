@@ -11,6 +11,8 @@ public static class RawInputParser
     public const int TypeMouse = 0, TypeKeyboard = 1;
     private const ushort MouseMoveAbsolute = 0x01;
     private const ushort KeyBreak = 0x01;
+    private const ushort KeyE0 = 0x02;
+    private const ushort VirtualKeyReturn = 0x0D;
     private const ushort FakeVirtualKey = 0xFF;
 
     private static readonly (ushort Down, ushort Up, string Name)[] Buttons =
@@ -32,9 +34,10 @@ public static class RawInputParser
             // RAWKEYBOARD: MakeCode u16 @0, Flags u16 @2, Reserved u16 @4, VKey u16 @6
             ushort flags = BinaryPrimitives.ReadUInt16LittleEndian(data[2..]);
             ushort vk = BinaryPrimitives.ReadUInt16LittleEndian(data[6..]);
+            // Numpad Enter shares VK_RETURN with Enter; only the E0 prefix tells them apart (games bind them separately).
+            string name = vk == VirtualKeyReturn && (flags & KeyE0) != 0 ? KeyNames.NumpadEnter : KeyNames.FromVirtualKey(vk);
             if (vk != FakeVirtualKey)
-                events.Add(new InputEvent(tQpcMs, (flags & KeyBreak) != 0 ? InputKind.KeyUp : InputKind.KeyDown,
-                    KeyNames.FromVirtualKey(vk)));
+                events.Add(new InputEvent(tQpcMs, (flags & KeyBreak) != 0 ? InputKind.KeyUp : InputKind.KeyDown, name));
         }
         else if (type == TypeMouse)
         {

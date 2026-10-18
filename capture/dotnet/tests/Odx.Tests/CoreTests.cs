@@ -87,6 +87,19 @@ public class RawInputParserTests
         Assert.Equal([new InputEvent(6, InputKind.KeyUp, "W")], RawInputParser.Parse(up, Ptr, 6));
     }
 
+    [Theory]
+    [InlineData(0x00, "Enter")]
+    [InlineData(0x02, "NumEnter")]  // RI_KEY_E0
+    public void Numpad_enter_is_told_from_enter_by_the_e0_flag(ushort flags, string name)
+    {
+        var raw = Raw(RawInputParser.TypeKeyboard, d =>
+        {
+            BinaryPrimitives.WriteUInt16LittleEndian(d[2..], flags);
+            BinaryPrimitives.WriteUInt16LittleEndian(d[6..], 0x0D);
+        });
+        Assert.Equal([new InputEvent(0, InputKind.KeyDown, name)], RawInputParser.Parse(raw, Ptr, 0));
+    }
+
     [Fact]
     public void Fake_virtual_key_is_ignored()
     {

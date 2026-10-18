@@ -14,6 +14,8 @@ public static class KeyNames
         [0xBA] = "Semicolon", [0xDE] = "Quote", [0xBC] = "Comma", [0xBE] = "Period", [0xBF] = "Slash", [0xDC] = "Backslash",
     };
 
+    public const string NumpadEnter = "NumEnter";
+
     public static string FromVirtualKey(int vk)
     {
         if (vk is >= 'A' and <= 'Z' or >= '0' and <= '9') return ((char)vk).ToString();
