@@ -48,6 +48,7 @@
     "T": "Talk",
     "CapsLock": "Talk Over Radio",
     "Enter": "Chat",
+    "NumEnter": "Toggle Third Person",
     "P": "Player List",
     "Delete": "Weapon Safety",
     "PageUp": "Zeroing Up",
