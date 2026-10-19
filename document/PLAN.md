@@ -1,6 +1,8 @@
 # Plan: four apps, local recordings, merge per game
 
-Status: proposed 2026-10-07, not started. Overview page: https://claude.ai/artifact/UTnVDJbYXcV941tmo48d2C
+Status: steps 1–6 done 2026-10-07 (aa0d819, 3147998, c3ca7c8, 8b1c6dd, 20c5af9, a452b5d). Left: step 7 (real machines);
+from step 6, the per-instance CS2 setup (several CS2 servers on one machine) and choosing the game server for a room
+created in odx-app (only `POST /rooms?server=<id>` binds one). Overview page: https://claude.ai/artifact/UTnVDJbYXcV941tmo48d2C
 
 ## Goal
 

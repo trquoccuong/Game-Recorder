@@ -5,7 +5,6 @@ Thumbs.db
 .vs/
 .idea/
 .vscode/
-document/
 *.user
 *.suo
 # Personal Claude Code settings (shared settings in .claude/settings.json stay tracked)
