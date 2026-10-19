@@ -70,6 +70,13 @@ Either way works; Workbench shows compile errors, the game only logs them.
 -addonsDir D:\project\client\research\reforger-camera-spike\addon -addons OdxCameraSpike -profile D:\odx-dev\reforger-profile
 ```
 
+Or use `launcher\Launch-Odx.cmd` (a WinForms window: game folder, server `ip:port`, window or fullscreen, password,
+profile folder). On Launch it mirrors the addon into the game's `addons\` and starts `ArmaReforgerSteam.exe` with the arguments
+above plus `-client`. Run it from the repo, or copy `Launch-Odx.cmd`, `Launch-Odx.ps1` and the `OdxCameraSpike`
+folder into the game folder of another PC: `launcher\pack.ps1` zips exactly those
+(`D:\odx-dev\odx-reforger-launcher.zip`, `-Out` to change), to extract into the game folder. `-password` is passed only when filled in; it is unverified as a client parameter, and a
+command-line `-server` has no password.
+
 `-profile` puts `$profile:` on D:: it is the `profile\` folder inside it. The mod reports its state in the game's
 `console.log` (`logs\<date>\` in the same folder), prefixed `TBC_CameraSpike:`: "logging to …" once a camera exists. Start a single-player scenario (Game Master or Conflict on Everon).
 
