@@ -1,2 +1,5 @@
 # Shell scripts run on Linux servers.
 *.sh text eol=lf
+
+# Pinned log formats: writers must reproduce them byte for byte, so checkouts keep them exactly as committed (LF).
+capture/dotnet/fixtures/** -text
