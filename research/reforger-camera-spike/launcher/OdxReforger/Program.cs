@@ -70,9 +70,9 @@ static class Program
         }
     }
 
-    public static void StartGame(string game, string server, bool window, string profile)
+    public static void StartGame(string game, string server, string profile)
     {
-        var args = $"{(window ? "-window " : "")}-addonsDir \"{Path.Combine(game, "addons")}\" -addons {AddonName} " +
+        var args = $"-addonsDir \"{Path.Combine(game, "addons")}\" -addons {AddonName} " +
                    $"-profile \"{profile}\" -client {server}";
         Process.Start(new ProcessStartInfo(Path.Combine(game, GameExe), args) { WorkingDirectory = game, UseShellExecute = false });
     }
@@ -110,14 +110,13 @@ sealed class LauncherForm : Form
 {
     readonly Settings _settings;
     readonly TextBox _game, _server, _profile;
-    readonly RadioButton _window, _fullscreen;
     readonly Label _status;
 
     public LauncherForm(Settings settings, string? game)
     {
         _settings = settings;
         Text = "Odx Reforger Launcher";
-        ClientSize = new Size(520, 210);
+        ClientSize = new Size(520, 175);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
@@ -129,22 +128,16 @@ sealed class LauncherForm : Form
         AddLabel("Server", 50);
         _server = AddTextBox(50, settings["server"] ?? "", 150);
 
-        AddLabel("Display", 85);
-        _window = new RadioButton { Text = "Window", Location = new Point(110, 84), AutoSize = true };
-        _fullscreen = new RadioButton { Text = "Fullscreen", Location = new Point(200, 84), AutoSize = true };
-        (settings["fullscreen"] == "true" ? _fullscreen : _window).Checked = true;
-        Controls.AddRange(new Control[] { _window, _fullscreen });
-
-        AddLabel("Profile folder", 120);
-        _profile = AddTextBox(120, settings["profile"] ??
+        AddLabel("Profile folder", 85);
+        _profile = AddTextBox(85, settings["profile"] ??
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), @"OdxReforger\profile"));
-        AddBrowseButton(120, _profile);
+        AddBrowseButton(85, _profile);
 
-        _status = new Label { Location = new Point(12, 170), Size = new Size(400, 30) };
+        _status = new Label { Location = new Point(12, 135), Size = new Size(400, 30) };
         if (game == null) _status.Text = "Arma Reforger not found: choose its game folder.";
         Controls.Add(_status);
 
-        var launch = new Button { Text = "Launch", Location = new Point(428, 165), Size = new Size(80, 30) };
+        var launch = new Button { Text = "Launch", Location = new Point(428, 130), Size = new Size(80, 30) };
         launch.Click += (_, _) => Launch();
         Controls.Add(launch);
         AcceptButton = launch;
@@ -162,10 +155,9 @@ sealed class LauncherForm : Form
             Program.InstallAddon(game);
             _settings["game"] = game;
             _settings["server"] = server;
-            _settings["fullscreen"] = _fullscreen.Checked ? "true" : "false";
             _settings["profile"] = profile;
             _settings.Save();
-            Program.StartGame(game, server, _window.Checked, profile);
+            Program.StartGame(game, server, profile);
             Close();
         }
         catch (Exception e) { Fail(e.Message); }

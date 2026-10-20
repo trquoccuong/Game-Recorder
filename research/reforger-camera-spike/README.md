@@ -70,7 +70,7 @@ Either way works; Workbench shows compile errors, the game only logs them.
 -addonsDir D:\project\client\research\reforger-camera-spike\addon -addons OdxCameraSpike -profile D:\odx-dev\reforger-profile
 ```
 
-Or use `OdxReforger.exe` (a window: game folder, server `ip:port`, window or fullscreen, profile folder), one ~20 KB
+Or use `OdxReforger.exe` (a window: game folder, server `ip:port`, profile folder; the game keeps its own display mode), one ~20 KB
 file with the addon embedded, for .NET Framework 4.8 (in Windows 10 1903+ and 11, nothing to install). Build it on any OS
 with the .NET SDK: `dotnet build -c Release launcher/OdxReforger` → `launcher/OdxReforger/bin/Release/net48/OdxReforger.exe`.
 CI puts the newest one, built from `main`, in the release
@@ -100,7 +100,8 @@ drops a client whose scripts differ) and starts `ArmaReforgerSteam.exe` with the
 ```
 
 `--corner X Y` is where the flash square sits in the video: `6 36` for a windowed capture on Windows 11 (title bar
-31 px; the 64 px square is drawn in UI units, about 42 video px at 720p). Check a frame with
+31 px; the 64 px square is drawn in UI units, about 42 video px at 720p). `odx record` now crops a window to its
+client area (no title bar), so the corner moves up for new captures. Check a frame with
 `ffmpeg -ss 10 -i video.mp4 -frames:v 1 f.png` if the window or the resolution differs.
 
 ## Read the result
