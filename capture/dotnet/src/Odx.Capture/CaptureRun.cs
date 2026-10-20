@@ -38,7 +38,8 @@ public interface ICaptureRun
 /// <summary>
 /// One recording: `odx input` and `odx record` run as child processes into the same session folder, both stopped through
 /// a shared named event. If either child exits on its own (error, captured window closed), the other is stopped too.
-/// After a clean stop the folder is built into a spec v2 session with the chosen game profile and validated.
+/// After a clean stop the folder is built into a spec v2 session with the chosen game profile and validated, then tidied
+/// (<see cref="CaptureFolder"/>): the delivered files at the top, the raw logs in raw/.
 /// </summary>
 public sealed class CaptureRun : ICaptureRun
 {
@@ -165,7 +166,16 @@ public sealed class CaptureRun : ICaptureRun
             lock (_stderr) _stderr.Add(warning);
         List<string> errors;
         lock (_stderr) errors = [.. _stderr];
-        return new RunResult(SessionDir, captureOk, status, inputEvents, errors, captureOk ? BuildSession() : null);
+        var build = captureOk ? BuildSession() : null;
+        try
+        {
+            CaptureFolder.Tidy(SessionDir);
+        }
+        catch (IOException e)
+        {
+            errors.Add($"raw logs not moved into {CaptureFolder.RawDir}/: {e.Message}");
+        }
+        return new RunResult(SessionDir, captureOk, status, inputEvents, errors, build);
     }
 
     /// <summary>The profile's camera_source; an unreadable profile is reported when the session is built.</summary>

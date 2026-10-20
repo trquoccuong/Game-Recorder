@@ -71,7 +71,7 @@ public static class ReforgerCamera
         var deadline = DateTime.UtcNow + wait;
         while (!Ended(log) && DateTime.UtcNow < deadline) Thread.Sleep(100);
         if (!File.Exists(log)) return $"no Arma Reforger camera log in {odxDir} (game not started with OdxReforger.exe?)";
-        string raw = Path.Combine(captureDir, RawLog);
+        string raw = CaptureFolder.Raw(captureDir, RawLog);
         try
         {
             File.Copy(log, raw, overwrite: true);
@@ -106,16 +106,16 @@ public static class ReforgerCamera
     /// <summary>reforger_camera.csv + clock_samples.csv → camera_samples.csv + extractor.json; a warning or null.</summary>
     public static string? Convert(string captureDir)
     {
-        var rows = Read(Path.Combine(captureDir, RawLog));
+        var rows = Read(CaptureFolder.Raw(captureDir, RawLog));
         if (rows.Count == 0) return "the Arma Reforger camera log is empty";
-        string clockPath = Path.Combine(captureDir, "clock_samples.csv");
+        string clockPath = CaptureFolder.Raw(captureDir, "clock_samples.csv");
         if (!File.Exists(clockPath)) return "no clock_samples.csv to place the Arma Reforger camera on QPC";
         var clock = ClockMap.Fit(Csv.ReadFile(clockPath).Rows
             .Select(r => (Frames.ParseDouble(r["t_qpc_ms"]), Frames.ParseDouble(r["utc_unix_ms"]))).ToList());
         var utcMinusTick = FitUtcMinusTick(rows);
         if (utcMinusTick.Count == 0) return "the Arma Reforger camera log's clock rows disagree; camera left out";
 
-        using (var w = new StreamWriter(Path.Combine(captureDir, "camera_samples.csv")))
+        using (var w = new StreamWriter(CaptureFolder.Raw(captureDir, "camera_samples.csv")))
         {
             w.Write(Csv.Line(["t_qpc_ms", "pos_x", "pos_y", "pos_z", "fwd_x", "fwd_y", "fwd_z", "right_x", "right_y", "right_z",
                 "up_x", "up_y", "up_z", "fov_deg"]));
@@ -128,7 +128,7 @@ public static class ReforgerCamera
                     .Append(r.VfovDeg).Select(Frames.FormatDouble)));
             }
         }
-        File.WriteAllText(Path.Combine(captureDir, "extractor.json"), """
+        File.WriteAllText(CaptureFolder.Raw(captureDir, "extractor.json"), """
             {
               "game": "Arma Reforger",
               "engine": "Enfusion",

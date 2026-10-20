@@ -210,7 +210,7 @@ public sealed class ReconnectTests : IAsyncLifetime
 
     private async Task<RoundRecord> Kept(string player, string session)
     {
-        string round = Path.Combine(_root, player, session, RoundRecord.FileName);
+        string round = Path.Combine(_root, player, session, CaptureFolder.RawDir, RoundRecord.FileName);
         Assert.True(await LocalRoundTests.WaitForFile(round), round);
         return RoundRecord.Load(Path.GetDirectoryName(round)!);
     }
@@ -299,7 +299,7 @@ public sealed class ReconnectTests : IAsyncLifetime
 
         var round = await Kept("p1", "m5-r01");
         Assert.True(round.Players.Single().Kept);
-        string events = File.ReadAllText(Path.Combine(_root, "p1", "m5-r01", RoundRecord.EventsFileName));
+        string events = File.ReadAllText(Path.Combine(_root, "p1", "m5-r01", CaptureFolder.RawDir, RoundRecord.EventsFileName));
         Assert.Contains("\"kill\"", events);  // from before the restart
         await Until(s => Members(s, 1), "p1 is not idle again");
         await Post(new { type = "round_start" });
@@ -322,7 +322,7 @@ public sealed class ReconnectTests : IAsyncLifetime
         await Task.Delay(500);
         await Post(new { type = "round_end" });
         await Until(s => s["sessions"]!.AsArray().Count == 1, "the round did not finish");  // with nobody to send its files to
-        Assert.False(File.Exists(Path.Combine(_root, "p1", "m6-r01", RoundRecord.FileName)));
+        Assert.False(File.Exists(Path.Combine(_root, "p1", "m6-r01", CaptureFolder.RawDir, RoundRecord.FileName)));
         _proxy.Down = false;
 
         var round = await Kept("p1", "m6-r01");

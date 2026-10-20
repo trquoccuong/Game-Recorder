@@ -29,11 +29,11 @@ public static class SessionBuilder
 
     public static BuildReport Build(string captureDir, GameProfile profile, string vendorName = "odx", string? cameraDir = null)
     {
-        var frames = VideoFrameLogReader.Read(Path.Combine(captureDir, "video_frames.csv"));
+        var frames = VideoFrameLogReader.Read(CaptureFolder.Raw(captureDir, "video_frames.csv"));
         if (frames.Count == 0) throw new InvalidDataException("video_frames.csv has no frames");
-        var recording = JsonNode.Parse(File.ReadAllText(Path.Combine(captureDir, "recording.json")))!.AsObject();
+        var recording = JsonNode.Parse(File.ReadAllText(CaptureFolder.Raw(captureDir, "recording.json")))!.AsObject();
         double fps = Required<double>(recording, "fps");
-        string inputPath = Path.Combine(captureDir, "input_events.csv");
+        string inputPath = CaptureFolder.Raw(captureDir, "input_events.csv");
         var events = File.Exists(inputPath) ? InputLogReader.Read(inputPath) : [];
 
         var times = frames.Select(f => f.TGridMs).ToList();
@@ -93,7 +93,7 @@ public static class SessionBuilder
     /// </summary>
     private static FrameCameras? CameraPerFrame(string dir, List<GridTick> frames, int width, int height)
     {
-        string samplesPath = Path.Combine(dir, "camera_samples.csv"), infoPath = Path.Combine(dir, "extractor.json");
+        string samplesPath = CaptureFolder.Raw(dir, "camera_samples.csv"), infoPath = CaptureFolder.Raw(dir, "extractor.json");
         if (!File.Exists(samplesPath) || !File.Exists(infoPath)) return null;
         var info = ExtractorInfo.Load(infoPath);
         var samples = CameraSampleReader.Read(samplesPath).OrderBy(s => s.TQpcMs).ToList();
@@ -159,7 +159,7 @@ public static class SessionBuilder
     /// </summary>
     private static (ClockMap Map, ClockSync Sync) ClockFor(string captureDir, JsonObject recording)
     {
-        string ntpPath = Path.Combine(captureDir, "ntp_samples.csv");
+        string ntpPath = CaptureFolder.Raw(captureDir, "ntp_samples.csv");
         var ntp = File.Exists(ntpPath) ? NtpSampleReader.Read(ntpPath) : [];
         if (ntp.Count > 0)
         {
@@ -168,7 +168,7 @@ public static class SessionBuilder
                 Median(best.Select(s => s.RttMs)), Median(ntp.Select(s => s.SystemOffsetMs)));
             return (ClockMap.Fit(best.Select(s => (s.TQpcMs, s.UtcUnixMs)).ToList()), sync);
         }
-        string clockPath = Path.Combine(captureDir, "clock_samples.csv");
+        string clockPath = CaptureFolder.Raw(captureDir, "clock_samples.csv");
         var system = File.Exists(clockPath)
             ? Csv.ReadFile(clockPath).Rows.Select(r => (Frames.ParseDouble(r["t_qpc_ms"]), Frames.ParseDouble(r["utc_unix_ms"]))).ToList()
             : [];

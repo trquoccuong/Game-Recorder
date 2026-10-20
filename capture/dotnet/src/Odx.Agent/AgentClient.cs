@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Odx.Capture;
 using Odx.Core;
@@ -512,13 +513,14 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     /// <param name="sessionDir">Where packets.pcapng goes (kept with the capture); null discards the capture.</param>
     private async Task StopPacketsAsync(string etl, string? sessionDir, CancellationToken stop)
     {
-        string pcapng = Path.Combine(sessionDir ?? Path.GetTempPath(), sessionDir is null ? Path.GetFileNameWithoutExtension(etl) + ".pcapng"
-            : PacketCaptureFiles.Pcapng);
+        string pcapng = sessionDir is null
+            ? Path.Combine(Path.GetTempPath(), Path.GetFileNameWithoutExtension(etl) + ".pcapng")
+            : CaptureFolder.Raw(sessionDir, PacketCaptureFiles.Pcapng);
         try
         {
             await Packets!.StopAsync(etl, pcapng, stop);
             if (sessionDir is null) File.Delete(pcapng);
-            else PacketCaptureFiles.WriteLocalAddresses(sessionDir);
+            else PacketCaptureFiles.WriteLocalAddresses(CaptureFolder.RawFolder(sessionDir));
         }
         catch (Exception e) when (e is InvalidOperationException or ArgumentException or IOException)
         {
@@ -549,10 +551,12 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         try
         {
             if (!Directory.Exists(kept)) return;
-            files.WriteTo(kept);
+            string raw = CaptureFolder.RawFolder(kept);
+            files.WriteTo(raw);
+            PlayerTimeline.WriteRoundEvents(kept, RoundRecord.Load(raw));
             Manifest.Write(kept);
         }
-        catch (IOException e)
+        catch (Exception e) when (e is IOException or JsonException or FormatException or InvalidDataException)
         {
             Log?.Invoke($"{files.SessionId}: cannot write the round's files: {e.Message}");
         }

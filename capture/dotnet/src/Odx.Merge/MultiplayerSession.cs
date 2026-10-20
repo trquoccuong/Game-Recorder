@@ -96,7 +96,7 @@ public static class MultiplayerSession
                 serverError = $"{e.GetType().Name}: {e.Message}";
             }
         }
-        WriteEvents(Path.Combine(dir, "server", "events.jsonl"), events);
+        PlayerTimeline.WriteEvents(Path.Combine(dir, "server", "events.jsonl"), events);
         FramesBin.WriteSchema(Path.Combine(dir, FramesBin.SchemaFileName));
 
         var reports = round.Players.Select(p => AssemblePlayer(round, p, events, profile, cameras, games, stagingDir, dir, tol)).ToList();
@@ -205,14 +205,14 @@ public static class MultiplayerSession
             ["stop_reason"] = player.StopReason,
         };
 
-        bool present = File.Exists(Path.Combine(src, "frames.csv")) && File.Exists(Path.Combine(src, "video_frames.csv")) &&
+        bool present = File.Exists(Path.Combine(src, "frames.csv")) && File.Exists(CaptureFolder.Raw(src, "video_frames.csv")) &&
                        File.Exists(Path.Combine(src, "session.json"));
         checks.Add(new QaCheck("player.missing", "the player's built capture is there", present,
             present ? "frames.csv, video_frames.csv, session.json" : player.Error ?? "no built capture"));
         if (!present) return Finish(dst, info, player.PlayerId, checks);
 
-        foreach (string f in CaptureFiles.Where(f => File.Exists(Path.Combine(src, f))))
-            File.Copy(Path.Combine(src, f), Path.Combine(dst, "capture", f), true);
+        foreach (string f in CaptureFiles.Where(f => File.Exists(f == "session.json" ? Path.Combine(src, f) : CaptureFolder.Raw(src, f))))
+            File.Copy(f == "session.json" ? Path.Combine(src, f) : CaptureFolder.Raw(src, f), Path.Combine(dst, "capture", f), true);
         File.Copy(Path.Combine(src, "frames.csv"), Path.Combine(dst, "frames.csv"), true);
         if (File.Exists(Path.Combine(src, "video.mp4"))) File.Copy(Path.Combine(src, "video.mp4"), Path.Combine(dst, "video.mp4"), true);
 
@@ -220,7 +220,7 @@ public static class MultiplayerSession
         checks.Add(new QaCheck("player.v2", "spec v2 §1.5 vendor checks", v2.Count == 0,
             v2.Count == 0 ? "no errors" : $"{v2.Count} error(s): {string.Join(", ", v2.Select(i => i.Rule).Distinct())}"));
         var capture = JsonNode.Parse(File.ReadAllText(Path.Combine(src, "session.json")))!.AsObject();
-        string recordingPath = Path.Combine(src, "recording.json");
+        string recordingPath = CaptureFolder.Raw(src, "recording.json");
         var recording = File.Exists(recordingPath) ? JsonNode.Parse(File.ReadAllText(recordingPath))!.AsObject() : null;
         AddRecordingInfo(info, capture, recording, profile);
         var (_, rows) = Csv.ReadFile(Path.Combine(src, "frames.csv"));
@@ -262,16 +262,7 @@ public static class MultiplayerSession
         ];
         info["files"] = new JsonObject(files.Where(f => f.Key == "events" || File.Exists(Path.Combine(dst, f.File)))
             .Select(f => KeyValuePair.Create(f.Key, (JsonNode?)f.File)));
-        WriteEvents(Path.Combine(dst, "events.jsonl"), events.Select(e =>
-        {
-            double t = GameEvents.UtcMs(e);
-            var copy = (JsonObject)e.DeepClone();
-            copy["video_time_ms"] = Math.Round(t - frameUtc[0], 1);
-            int index = frameUtc.BinarySearch(t);
-            if (index < 0) index = ~index - 1;  // the frame on screen when the event happened
-            copy["frame_index"] = t >= frameUtc[0] && t <= frameUtc[^1] ? index : null;
-            return copy;
-        }));
+        PlayerTimeline.WriteEvents(Path.Combine(dst, "events.jsonl"), PlayerTimeline.OnVideo(events, frameUtc));
         return Finish(dst, info, player.PlayerId, checks);
     }
 
@@ -364,7 +355,7 @@ public static class MultiplayerSession
         JsonObject info, List<QaCheck> checks)
     {
         if (profile?["network"] is not JsonObject network) return;
-        string pcapng = Path.Combine(src, PacketCaptureFiles.Pcapng);
+        string pcapng = CaptureFolder.Raw(src, PacketCaptureFiles.Pcapng);
         if (!File.Exists(pcapng))
         {
             checks.Add(new QaCheck("packets.captured", "the game's network traffic was captured", false,
@@ -372,7 +363,7 @@ public static class MultiplayerSession
             return;
         }
         File.Copy(pcapng, Path.Combine(dst, "capture", PacketCaptureFiles.Pcapng), true);
-        string localPath = Path.Combine(src, PacketCaptureFiles.LocalAddresses);
+        string localPath = CaptureFolder.Raw(src, PacketCaptureFiles.LocalAddresses);
         if (File.Exists(localPath)) File.Copy(localPath, Path.Combine(dst, "capture", PacketCaptureFiles.LocalAddresses), true);
         var spec = PacketCaptureSpec.Parse(network, "game profile");
         string protocol = spec.Protocol;
@@ -453,25 +444,19 @@ public static class MultiplayerSession
     private static List<double>? PutFramesOnServerTime(RoundRecord round, string src, JsonObject info, List<QaCheck> checks,
         GateTolerances tol)
     {
-        string ntpPath = Path.Combine(src, "ntp_samples.csv");
-        var samples = File.Exists(ntpPath)
-            ? NtpSampleReader.Read(ntpPath).Where(s => s.Server.EndsWith($":{round.TimePort}", StringComparison.Ordinal)).ToList()
-            : [];
-        if (samples.Count == 0)
+        if (PlayerTimeline.ServerClock(src, round.TimePort) is not var (samples, best, map))
         {
             checks.Add(new QaCheck("sync.clock", "clock measured against the orchestrator's time service", false,
                 $"no clock samples against the time service (port {round.TimePort})"));
             return null;
         }
         double rtt = Median(samples.Select(s => s.RttMs));
-        var best = samples.OrderBy(s => s.RttMs).Take((samples.Count + 1) / 2).ToList();
-        var map = ClockMap.Fit(best.Select(s => (s.TQpcMs, s.UtcUnixMs)).ToList());
         info["ping_ms"] = Math.Round(rtt, 1);
         info["clock_sync"] = ClockSync(samples, best, map);
         checks.Add(new QaCheck("sync.clock", $"median RTT to the time service at most {tol.MaxRttMs} ms", rtt <= tol.MaxRttMs,
             $"median RTT {rtt:F1} ms over {samples.Count} samples"));
 
-        var frameUtc = VideoFrameLogReader.Read(Path.Combine(src, "video_frames.csv")).Select(f => map.ToUnixMs(f.TGridMs)).ToList();
+        var frameUtc = PlayerTimeline.FrameUtc(src, map);
         if (frameUtc.Count > 0) return frameUtc;
         checks.Add(new QaCheck("player.frames", "the video has frames", false, "no video frames"));
         return null;
@@ -520,9 +505,6 @@ public static class MultiplayerSession
         File.Exists(path)
             ? File.ReadLines(path).Where(l => l.Trim().Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).ToList()
             : [];
-
-    public static void WriteEvents(string path, IEnumerable<JsonObject> events) =>
-        File.WriteAllLines(path, events.Select(e => e.ToJsonString(AgentMessage.Json)));
 
     public static string Slug(string text) =>
         string.Concat(text.ToLowerInvariant().Select(c => char.IsAsciiLetterOrDigit(c) ? c : '-')).Trim('-');
