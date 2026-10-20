@@ -41,7 +41,7 @@ public static class RecordCommand
         var encoderName = Task.Run(() => EncoderChoice.Resolve(opts.Ffmpeg, opts.Encoder));
         CaptureInterop.UsePhysicalPixels();
         GraphicsCaptureItem item;
-        IntPtr monitor;
+        IntPtr monitor, window = IntPtr.Zero;
         if (opts.Window is string processName)
         {
             var proc = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(processName))
@@ -51,8 +51,9 @@ public static class RecordCommand
                 Console.Error.WriteLine($"no window found for process '{processName}'");
                 return 1;
             }
-            item = CaptureInterop.ItemForWindow(proc.MainWindowHandle);
-            monitor = CaptureInterop.MonitorOf(proc.MainWindowHandle);
+            window = proc.MainWindowHandle;
+            item = CaptureInterop.ItemForWindow(window);
+            monitor = CaptureInterop.MonitorOf(window);
         }
         else
         {
@@ -60,7 +61,8 @@ public static class RecordCommand
             monitor = CaptureInterop.PrimaryMonitor();
         }
 
-        int width = item.Size.Width, height = item.Size.Height;
+        int frameWidth = item.Size.Width, frameHeight = item.Size.Height;
+        int cropX = 0, cropY = 0, width = frameWidth, height = frameHeight;
         var (screenWidth, screenHeight) = CaptureInterop.MonitorSize(monitor);
         Directory.CreateDirectory(opts.OutDir);
 
@@ -68,14 +70,14 @@ public static class RecordCommand
             .CheckError();
         using var d3d = device!;
         var context = d3d.ImmediateContext;
+        var winRtDevice = CaptureInterop.WinRtDevice(d3d);
         var framePool = Direct3D11CaptureFramePool.CreateFreeThreaded(
-            CaptureInterop.WinRtDevice(d3d), DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, item.Size);
+            winRtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, item.Size);
         var session = framePool.CreateCaptureSession(item);
         session.IsCursorCaptureEnabled = opts.Cursor;
         try { session.IsBorderRequired = false; } catch (Exception) { /* not available before Windows 11 */ }
 
-        using var encoder = new FfmpegEncoder(opts.Ffmpeg, Path.Combine(opts.OutDir, "video.mp4"), width, height, opts.Fps,
-            encoderName.Result);
+        FfmpegEncoder? encoder = null;
         using var frameLog = new VideoFrameLogWriter(new StreamWriter(Path.Combine(opts.OutDir, "video_frames.csv")));
         var resampler = new GridResampler(opts.Fps);
 
@@ -83,9 +85,23 @@ public static class RecordCommand
         var stop = new ManualResetEventSlim();
         string? error = null;
         bool stopped = false;
-        byte[] shown = new byte[width * height * 4];   // frame currently on screen (last captured)
-        byte[] incoming = new byte[width * height * 4];
+        byte[] shown = [];   // frame currently on screen (last captured)
+        byte[] incoming = [];
         ID3D11Texture2D? staging = null;
+
+        // The video size is fixed by the first frame, not item.Size: a windowed game's item can be larger than its frames
+        // (1296x759 item, 1282x752 frames, seen on Arma Reforger), so the encoder starts once the first frame is in.
+        // A window is cropped to its client area: the video is the game's picture, without title bar and borders.
+        FfmpegEncoder StartEncoder()
+        {
+            (cropX, cropY, width, height) = window == IntPtr.Zero
+                ? (0, 0, frameWidth, frameHeight)
+                : CaptureInterop.ClientArea(window, frameWidth, frameHeight);
+            shown = new byte[width * height * 4];
+            incoming = new byte[width * height * 4];
+            return new FfmpegEncoder(opts.Ffmpeg, Path.Combine(opts.OutDir, "video.mp4"), width, height, opts.Fps,
+                encoderName.Result);
+        }
         double startQpcMs = QpcClock.NowMs();
         var startUtc = DateTimeOffset.UtcNow;
         double? firstFrameLatencyMs = null;
@@ -95,7 +111,7 @@ public static class RecordCommand
         {
             foreach (var t in ticks)
             {
-                encoder.Write(shown);
+                encoder!.Write(shown);
                 frameLog.Write(t);
                 framesWritten++;
             }
@@ -107,7 +123,14 @@ public static class RecordCommand
             {
                 using var frame = pool.TryGetNextFrame();
                 if (stopped || frame is null) return;
-                if (frame.ContentSize.Width != width || frame.ContentSize.Height != height)
+                if (encoder is null && (frame.ContentSize.Width != frameWidth || frame.ContentSize.Height != frameHeight))
+                {
+                    (frameWidth, frameHeight) = (frame.ContentSize.Width, frame.ContentSize.Height);
+                    framePool.Recreate(winRtDevice, DirectXPixelFormat.B8G8R8A8UIntNormalized, 2, frame.ContentSize);
+                    return;
+                }
+                encoder ??= StartEncoder();
+                if (frame.ContentSize.Width != frameWidth || frame.ContentSize.Height != frameHeight)
                 {
                     error = $"capture size changed to {frame.ContentSize.Width}x{frame.ContentSize.Height}; restart recording";
                     stop.Set();
@@ -133,7 +156,8 @@ public static class RecordCommand
                 try
                 {
                     for (int y = 0; y < height; y++)
-                        Marshal.Copy(mapped.DataPointer + (nint)(y * (long)mapped.RowPitch), incoming, y * width * 4, width * 4);
+                        Marshal.Copy(mapped.DataPointer + (nint)((cropY + y) * (long)mapped.RowPitch + cropX * 4), incoming,
+                            y * width * 4, width * 4);
                 }
                 finally
                 {
@@ -180,6 +204,7 @@ public static class RecordCommand
         double stopQpcMs = QpcClock.NowMs();
         lock (gate)
         {
+            encoder ??= StartEncoder();
             if (!stopped)
             {
                 stopped = true;
@@ -190,6 +215,7 @@ public static class RecordCommand
         session.Dispose();
         framePool.Dispose();
         int ffmpegExit = encoder.Finish();
+        encoder.Dispose();
         staging?.Dispose();
 
         var meta = new Dictionary<string, object?>
