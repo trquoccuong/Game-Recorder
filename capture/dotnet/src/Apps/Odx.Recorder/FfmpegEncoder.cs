@@ -2,13 +2,16 @@ using System.Diagnostics;
 
 namespace Odx.Recorder;
 
-/// <summary>Encodes raw BGRA frames piped to an ffmpeg process into a constant-frame-rate MP4 without B-frames.</summary>
+/// <summary>
+/// Encodes raw BGRA frames piped to an ffmpeg process into a constant-frame-rate MP4 without B-frames, with an AAC track
+/// from an <see cref="AudioInput"/> when given.
+/// </summary>
 internal sealed class FfmpegEncoder : IDisposable
 {
     private readonly Process _proc;
     private readonly Stream _stdin;
 
-    public FfmpegEncoder(string ffmpeg, string output, int width, int height, double fps, string encoder)
+    public FfmpegEncoder(string ffmpeg, string output, int width, int height, double fps, string encoder, AudioInput? audio = null)
     {
         string codec = encoder switch
         {
@@ -18,8 +21,13 @@ internal sealed class FfmpegEncoder : IDisposable
         };
         var fr = fps.ToString(System.Globalization.CultureInfo.InvariantCulture);
         // yuv420p needs even dimensions: crop a trailing odd row/column if the window size is odd.
-        var args = $"-y -loglevel error -f rawvideo -pix_fmt bgra -s {width}x{height} -framerate {fr} -i - " +
-                   $"-vf crop=trunc(iw/2)*2:trunc(ih/2)*2 {codec} -pix_fmt yuv420p -r {fr} \"{output}\"";
+        // The audio input comes first: ffmpeg opens inputs in order, and the pipe's writer waits for it to connect.
+        // Both inputs start at timestamp 0, so audio sample 0 is video frame 0.
+        var (audioIn, audioOut) = audio is null ? ("", "")
+            : ($"-f {audio.SampleFormat} -ar {audio.SampleRate} -ac {audio.Channels} -i \"{audio.Pipe}\" ",
+               "-map 1:v -map 0:a -c:a aac -b:a 160k ");
+        var args = $"-y -loglevel error {audioIn}-f rawvideo -pix_fmt bgra -s {width}x{height} -framerate {fr} -i - " +
+                   $"{audioOut}-vf crop=trunc(iw/2)*2:trunc(ih/2)*2 {codec} -pix_fmt yuv420p -r {fr} \"{output}\"";
         _proc = Process.Start(new ProcessStartInfo(ffmpeg, args)
         {
             RedirectStandardInput = true,
