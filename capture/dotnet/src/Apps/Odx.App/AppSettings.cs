@@ -14,6 +14,7 @@ public sealed class AppSettings
     /// <summary>Process name passed to odx record --window; null records the primary monitor.</summary>
     public string? WindowProcess { get; set; }
     public int Fps { get; set; } = 60;
+    public bool RecordAudio { get; set; }
     /// <summary>"en" or "vi"; null follows the Windows display language.</summary>
     public string? Language { get; set; }
     /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>
@@ -24,7 +25,7 @@ public sealed class AppSettings
     /// <param name="timeServer">time_server of odx-capture.json; null uses the Windows clock only.</param>
     /// <remarks>Recordings go to the package's data\captures\ (<see cref="PackageFolders"/>).</remarks>
     public CaptureOptions ToCaptureOptions(string? timeServer) =>
-        new(PackageFolders.Captures, WindowProcess, Fps, GameProfile, timeServer);
+        new(PackageFolders.Captures, WindowProcess, Fps, GameProfile, timeServer, Audio: RecordAudio);
 
     public static AppSettings Load()
     {

@@ -49,8 +49,11 @@
                   Margin="0,0,0,6" DisplayMemberPath="Label" />
 
         <Label x:Name="FpsLabel" Grid.Row="3" />
-        <ComboBox x:Name="FpsBox" Grid.Row="3" Grid.Column="1" Margin="0,0,0,6" Width="80"
-                  HorizontalAlignment="Left" />
+        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
+            <ComboBox x:Name="FpsBox" Width="80" />
+            <CheckBox x:Name="AudioBox" AutomationProperties.AutomationId="AudioBox" Margin="12,0,0,0"
+                      VerticalAlignment="Center" />
+        </StackPanel>
 
 
         <!-- Room rows: shown only when odx-capture.json names an orchestrator. -->
