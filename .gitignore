@@ -9,3 +9,5 @@ Thumbs.db
 *.suo
 # Personal Claude Code settings (shared settings in .claude/settings.json stay tracked)
 .claude/settings.local.json
+# Stale build output + credentials from the pre-rename capture/ tree
+odx-capture/
