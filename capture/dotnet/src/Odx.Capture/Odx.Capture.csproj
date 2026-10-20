@@ -9,6 +9,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../Odx.Core/Odx.Core.csproj" />
+    <ProjectReference Include="../Odx.Protocol/Odx.Protocol.csproj" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="../../../config/session_schema.json" LogicalName="session_schema.json" />

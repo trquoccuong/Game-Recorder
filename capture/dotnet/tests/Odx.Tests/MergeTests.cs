@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging.Abstractions;
 using Odx.Agent;
+using Odx.Capture;
 using Odx.Games.Cs2;
 using Odx.Merge;
 using Odx.Orchestrator;
@@ -171,11 +172,13 @@ public sealed class LocalRoundTests
 
         string serverKept = Path.Combine(root, "server", "g1-r01");
         var kept = players.Select(p => Path.Combine(root, "captures-" + p, "g1-r01")).Append(serverKept).ToList();
-        foreach (string dir in kept) Assert.True(await WaitForFile(Path.Combine(dir, RoundRecord.FileName)), dir);
-        foreach (string dir in kept.SkipLast(1)) Assert.True(await WaitForFile(Path.Combine(dir, Manifest.FileName)), dir);
+        // A player's round files are in raw/ (CaptureFolder); the game server keeps them at the top of its folder.
+        var roundFiles = kept.SkipLast(1).Select(d => Path.Combine(d, CaptureFolder.RawDir)).Append(serverKept).ToList();
+        foreach (string dir in roundFiles) Assert.True(await WaitForFile(Path.Combine(dir, RoundRecord.FileName)), dir);
+        foreach (string dir in roundFiles.SkipLast(1)) Assert.True(await WaitForFile(Path.Combine(dir, Manifest.FileName)), dir);
         stop.Cancel();
 
-        foreach (string dir in kept)
+        foreach (string dir in roundFiles)
         {
             Assert.True(File.Exists(Path.Combine(dir, RoundRecord.EventsFileName)));
             Assert.True(File.Exists(Path.Combine(dir, RoundRecord.ProfileFileName)));
@@ -183,12 +186,12 @@ public sealed class LocalRoundTests
         }
         foreach (string dir in kept.SkipLast(1))
         {
-            foreach (string f in new[] { "session.json", "frames.csv", "video_frames.csv" })
+            foreach (string f in new[] { "session.json", "frames.csv", "events.jsonl", "raw/video_frames.csv" })
                 Assert.True(File.Exists(Path.Combine(dir, f)), Path.Combine(dir, f));
-            var listed = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, Manifest.FileName)))!["files"]!.AsArray()
+            var listed = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, CaptureFolder.RawDir, Manifest.FileName)))!["files"]!.AsArray()
                 .Select(f => f!.AsObject()).ToList();
             Assert.Equal(Directory.GetFiles(dir, "*", SearchOption.AllDirectories).Length - 1, listed.Count);
-            Assert.Contains(listed, f => (string?)f["path"] == RoundRecord.FileName);
+            Assert.Contains(listed, f => (string?)f["path"] == $"{CaptureFolder.RawDir}/{RoundRecord.FileName}");
             Assert.All(listed, f =>
             {
                 byte[] bytes = File.ReadAllBytes(Path.Combine(dir, (string)f["path"]!));

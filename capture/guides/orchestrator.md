@@ -93,13 +93,15 @@ These are the players' own recordings; the gate (`odx merge`) decides which of t
 
 ## Build the sessions
 
-Each player keeps a round in the package's `data\captures\<session>\`, the game server agent in `<work>\<session>\`.
+Each player keeps a round in the package's `data\captures\<session>\` (`video.mp4`, `session.json`, `frames.csv`,
+`events.jsonl` on top; every raw log, the round's files and `manifest.json` in `raw\`), the game server agent in
+`<work>\<session>\`.
 For now they are copied by hand (upload to a server is a later step) into one folder per round, on any machine with the
 package (or the `net10.0` build of `odx`):
 
 ```
 <test>\<session>\
-  round.json  server_events.jsonl  game_profile.json     (from any participant: all got the same)
+  round.json  server_events.jsonl  game_profile.json     (from any participant: all got the same; a player's are in raw\)
   players\<pid>\                                          (each player's data\captures\<session>\)
   server\                                                 (the game server's <work>\<session>\server\)
 ```

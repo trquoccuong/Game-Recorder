@@ -18,7 +18,8 @@ players have the package and CS2 with `-insecure` ([player-setup.md](player-setu
    orchestrator logs `round <session>: 2/2 players kept their recording`.
 8. Copy the round into one folder ([orchestrator.md](orchestrator.md#build-the-sessions)): each player's
    `data\captures\<session>\` to `<test>\<session>\players\<pid>\`, the game server agent's `<work>\<session>\server\` to
-   `<test>\<session>\server\`, and `round.json`, `server_events.jsonl`, `game_profile.json` from any of them to
+   `<test>\<session>\server\`, and `round.json`, `server_events.jsonl`, `game_profile.json` from any of them (a
+   player's `raw\`) to
    `<test>\<session>\`.
 9. `odx merge <test>` prints `PASS  <session>  2/2 players valid, 2 required -> <folder>` (or FAIL with the issues).
 

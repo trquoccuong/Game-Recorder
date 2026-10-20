@@ -44,6 +44,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
             Completion = _stopped.Task.ContinueWith(async _ =>
             {
                 await Task.Delay(building);
+                CaptureFolder.Tidy(SessionDir);  // as CaptureRun leaves the folder
                 return new RunResult(SessionDir, template is not null, null, 0, [], null);
             }).Unwrap();
         }
@@ -253,10 +254,10 @@ public sealed class OrchestratorTests : IAsyncLifetime
         foreach (string p in new[] { "p1", "p2" })
         {
             string kept = Path.Combine(_root, "agent-" + p, report.SessionId);
-            Assert.True(await LocalRoundTests.WaitForFile(Path.Combine(kept, RoundRecord.FileName)));
+            Assert.True(await LocalRoundTests.WaitForFile(Path.Combine(kept, CaptureFolder.RawDir, RoundRecord.FileName)));
             CopyDir(kept, Path.Combine(staging, "players", p));
             foreach (string f in new[] { RoundRecord.FileName, RoundRecord.EventsFileName, RoundRecord.ProfileFileName })
-                File.Copy(Path.Combine(kept, f), Path.Combine(staging, f), true);
+                File.Copy(Path.Combine(kept, CaptureFolder.RawDir, f), Path.Combine(staging, f), true);
         }
         Assert.Equal([staging], MergeCommand.Sessions(Path.Combine(_root, "copied")));
         var (merged, local) = MultiplayerSession.Assemble(staging, Path.Combine(_root, "local"), MergeCommand.Vendor, FixtureTolerances);
