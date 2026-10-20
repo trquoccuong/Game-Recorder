@@ -101,7 +101,8 @@ dotnet build -c Release research/reforger-camera-spike/launcher/OdxReforger
 ```
 
 CI (`.github/workflows/ci.yml`) runs the C# build and tests, then the extractor with ctest (Windows), and builds
-`OdxReforger.exe` (Linux; download it from the run's artifacts). The players' package is built by
+`OdxReforger.exe` (Linux), which on `main` replaces the release
+[`reforger-launcher`](https://github.com/trquoccuong/client/releases/tag/reforger-launcher) (always the newest exe). The players' package is built by
 `.github/workflows/release-capture.yml`: push a tag `capture-v<version>` (or Run workflow) and the zip, pointed at the
 orchestrator in the repository variable `ODX_ORCHESTRATOR` and secret `ODX_ACCESS_KEY`, is attached to a release.
 

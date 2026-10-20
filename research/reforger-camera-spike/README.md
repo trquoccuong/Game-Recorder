@@ -73,7 +73,8 @@ Either way works; Workbench shows compile errors, the game only logs them.
 Or use `OdxReforger.exe` (a window: game folder, server `ip:port`, window or fullscreen, profile folder), one ~20 KB
 file with the addon embedded, for .NET Framework 4.8 (in Windows 10 1903+ and 11, nothing to install). Build it on any OS
 with the .NET SDK: `dotnet build -c Release launcher/OdxReforger` → `launcher/OdxReforger/bin/Release/net48/OdxReforger.exe`.
-Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's
+CI puts the newest one, built from `main`, in the release
+[`reforger-launcher`](https://github.com/trquoccuong/client/releases/tag/reforger-launcher). Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's
 libraries), puts a "Odx Reforger" shortcut on the Desktop on the first run, remembers the fields in
 `%APPDATA%\OdxReforger\settings.txt`, and on Launch writes the addon into the game's `addons\` byte for byte (a server
 drops a client whose scripts differ) and starts `ArmaReforgerSteam.exe` with the arguments above plus `-client`.
