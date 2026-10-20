@@ -4,11 +4,11 @@
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
 // capture time (SystemRelativeTime), the same clock as odx input. Frames are resampled onto a constant-rate grid
 // (GridResampler) and piped to ffmpeg, so the MP4 is CFR and its frame N is row N of video_frames.csv. Writes:
-//   <dir>/video.mp4         CFR H.264, no B-frames
+//   <dir>/video.mp4         CFR H.264, no B-frames; --audio: plus an AAC track of what the default playback device plays,
+//                           sample 0 at video frame 0
 //   <dir>/video_frames.csv  frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate
 //   <dir>/recording.json    capture id, capture and screen size, fps, encoder, start time (UTC + QPC),
 //                           counts of duplicated/dropped frames, audio (null without --audio)
-//   <dir>/audio.m4a         --audio: AAC of what the default playback device plays, sample 0 at video frame 0
 // Stop with Ctrl+C, --seconds, --stop-event (a named event set by Odx.App), or by closing the captured window.
 // --json-status: stdout carries only RecorderStatus JSON lines (started, progress every second, stopped).
 using System.Diagnostics;
@@ -89,6 +89,8 @@ public static class RecordCommand
         byte[] shown = [];   // frame currently on screen (last captured)
         byte[] incoming = [];
         ID3D11Texture2D? staging = null;
+        AudioLoopback? audio = null;
+        string? audioError = null;
 
         // The video size is fixed by the first frame, not item.Size: a windowed game's item can be larger than its frames
         // (1296x759 item, 1282x752 frames, seen on Arma Reforger), so the encoder starts once the first frame is in.
@@ -101,19 +103,17 @@ public static class RecordCommand
             shown = new byte[width * height * 4];
             incoming = new byte[width * height * 4];
             return new FfmpegEncoder(opts.Ffmpeg, Path.Combine(opts.OutDir, "video.mp4"), width, height, opts.Fps,
-                encoderName.Result);
+                encoderName.Result, audio?.Input);
         }
         double startQpcMs = QpcClock.NowMs();
         var startUtc = DateTimeOffset.UtcNow;
         double? firstFrameLatencyMs = null;
         long framesWritten = 0;
-        AudioLoopback? audio = null;
-        string? audioError = null;
         if (opts.Audio)
         {
             try
             {
-                audio = new AudioLoopback(opts.Ffmpeg, Path.Combine(opts.OutDir, "audio.m4a"));
+                audio = new AudioLoopback();
                 audio.Start();
             }
             catch (Exception e)
@@ -233,26 +233,23 @@ public static class RecordCommand
         }
         session.Dispose();
         framePool.Dispose();
-        int ffmpegExit = encoder.Finish();
-        encoder.Dispose();
         object? audioMeta = audioError is null ? null : new Dictionary<string, object?> { ["error"] = audioError };
         if (audio is not null)
         {
-            int audioExit = audio.Finish(stopQpcMs);
-            audioError = audio.Error;
-            if (audioExit != 0) Console.Error.WriteLine($"audio ffmpeg exited with code {audioExit} {audioError}".Trim());
+            audio.Finish(stopQpcMs);  // before encoder.Finish: ffmpeg ends once both of its inputs have
+            if (audio.Error is not null) Console.Error.WriteLine($"audio: {audio.Error}");
             audioMeta = new Dictionary<string, object?>
             {
-                ["file"] = "audio.m4a",
                 ["device"] = audio.Device,
-                ["sample_rate"] = audio.SampleRate,
-                ["channels"] = audio.Channels,
+                ["sample_rate"] = audio.Input.SampleRate,
+                ["channels"] = audio.Input.Channels,
                 ["start_qpc_ms"] = audio.OriginMs,
-                ["ffmpeg_exit_code"] = audioExit,
-                ["error"] = audioError,
+                ["error"] = audio.Error,
             };
-            audio.Dispose();
         }
+        int ffmpegExit = encoder.Finish();
+        encoder.Dispose();
+        audio?.Dispose();
         staging?.Dispose();
 
         var meta = new Dictionary<string, object?>
