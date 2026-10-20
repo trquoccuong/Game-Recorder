@@ -49,6 +49,17 @@ internal static class CaptureInterop
     [DllImport("user32.dll")]
     private static extern bool SetProcessDpiAwarenessContext(IntPtr value);
 
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hwnd, out RECT rect);
+
+    [DllImport("user32.dll")]
+    private static extern bool ClientToScreen(IntPtr hwnd, ref POINT point);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, uint attribute, out RECT value, int size);
+
+    private const uint DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+
     private const uint MONITOR_DEFAULTTOPRIMARY = 1, MONITOR_DEFAULTTONEAREST = 2;
     private static readonly IntPtr DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = -4;
 
@@ -64,6 +75,22 @@ internal static class CaptureInterop
         var info = new MONITORINFO { Size = Marshal.SizeOf<MONITORINFO>() };
         if (!GetMonitorInfoW(monitor, ref info)) throw new InvalidOperationException("GetMonitorInfo failed");
         return (info.Monitor.Right - info.Monitor.Left, info.Monitor.Bottom - info.Monitor.Top);
+    }
+
+    /// <summary>
+    /// The window's client area (the game's picture, without title bar and borders) inside a captured frame of
+    /// <paramref name="frameWidth"/> x <paramref name="frameHeight"/>; the whole frame when it cannot be measured.
+    /// </summary>
+    /// <remarks>Window capture frames start at the DWM extended frame bounds, not at GetWindowRect.</remarks>
+    public static (int X, int Y, int Width, int Height) ClientArea(IntPtr hwnd, int frameWidth, int frameHeight)
+    {
+        var origin = new POINT();
+        if (!GetClientRect(hwnd, out RECT client) || !ClientToScreen(hwnd, ref origin) ||
+            DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, out RECT frame, Marshal.SizeOf<RECT>()) != 0)
+            return (0, 0, frameWidth, frameHeight);
+        int x = Math.Clamp(origin.X - frame.Left, 0, frameWidth), y = Math.Clamp(origin.Y - frame.Top, 0, frameHeight);
+        int width = Math.Min(client.Right, frameWidth - x), height = Math.Min(client.Bottom, frameHeight - y);
+        return width > 0 && height > 0 ? (x, y, width, height) : (0, 0, frameWidth, frameHeight);
     }
 
     public static GraphicsCaptureItem ItemForWindow(IntPtr hwnd) => CreateItem(i =>
