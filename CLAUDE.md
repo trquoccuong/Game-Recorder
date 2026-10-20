@@ -100,11 +100,13 @@ capture/
     odx-capture.json           # deployment config copied next to the executables (time_server, orchestrator)
     session_schema.json           # session.json JSON Schema (embedded in Odx.Capture)
   deploy/                         # Docker + Caddy deployment of odx-orchestrator on a Linux server (up.sh)
+    aws/                          #   EC2: create-orchestrator.sh, power.sh (start/stop machines)
     gcp/                          #   CS2 server + its agent + orchestrator on one Windows VM on Google Cloud (lessons)
   guides/                         # How-to guides: multiplayer test setup (CS2 server, orchestrator, network, players)
 research/
   analyze-pose/                   # Standalone Python pose audit (numpy), not part of the product
-  reforger-camera-spike/          # Arma Reforger camera spike: Enforce Script logger mod + analyze.py (layout, FOV, clock)
+  reforger-camera-spike/          # Arma Reforger camera spike: Enforce Script logger mod + analyze.py (layout, FOV, clock),
+                                  #   launcher/OdxReforger: net48 exe that installs the mod and starts the game
 ```
 
 ## Build & test

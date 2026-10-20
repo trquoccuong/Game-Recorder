@@ -1,0 +1,63 @@
+name: Release capture package
+
+# Builds the players' package (capture/dotnet/publish.ps1) and attaches the zip to a GitHub release capture-v<version>.
+# Start it by pushing a tag capture-v0.2.0, or by hand (Actions -> Release capture package -> Run workflow).
+# The package points at the orchestrator: repository variable ODX_ORCHESTRATOR (https://<domain>) and secret
+# ODX_ACCESS_KEY (deploy/.env on the orchestrator). The key ends up in the zip, so the releases stay private like the repo.
+
+on:
+  push:
+    tags: ['capture-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version, e.g. 0.2.0
+        required: true
+
+jobs:
+  package:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: capture/dotnet/global.json
+
+      # What ffmpeg/build-ffmpeg.sh needs; the ffmpeg it builds is cached by the script's hash, like publish.ps1 does.
+      - uses: msys2/setup-msys2@v2
+        id: msys2
+        with:
+          msystem: UCRT64
+          update: false
+          install: make diffutils mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-nasm mingw-w64-ucrt-x86_64-pkgconf
+
+      - uses: actions/cache@v4
+        with:
+          path: capture/dotnet/.cache/ffmpeg-*
+          key: ffmpeg-${{ hashFiles('capture/dotnet/ffmpeg/build-ffmpeg.sh') }}
+
+      - name: Package
+        working-directory: capture/dotnet
+        shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
+          ODX_ORCHESTRATOR: ${{ vars.ODX_ORCHESTRATOR }}
+          ODX_ACCESS_KEY: ${{ secrets.ODX_ACCESS_KEY }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME -replace '^capture-v', '' }
+          ./publish.ps1 -Version $version -Orchestrator $env:ODX_ORCHESTRATOR -AccessKey $env:ODX_ACCESS_KEY
+          "VERSION=$version" >> $env:GITHUB_ENV
+
+      - name: Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ODX_ORCHESTRATOR: ${{ vars.ODX_ORCHESTRATOR }}
+        run: |
+          gh release create "capture-v$env:VERSION" "capture/dotnet/dist/odx-capture-$env:VERSION-win-x64.zip" `
+            --target $env:GITHUB_SHA --title "Odx Capture $env:VERSION" `
+            --notes "Orchestrator: $env:ODX_ORCHESTRATOR. Unzip and run Odx Capture.exe."

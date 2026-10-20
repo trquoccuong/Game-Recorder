@@ -1,15 +1,18 @@
 # Builds a self-contained Windows x64 package: odx-app, the odx command-line tool (input, record, build, validate, agent,
-# simulate-game, game-server, merge), odx-orchestrator (multiplayer), the .NET runtime, a minimal ffmpeg and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
+# simulate-game, game-server, merge), the .NET runtime, a minimal ffmpeg and the game profiles (games/). Unzip it on any Windows 10 2004+ x64 machine and run
 # "Odx Capture.exe" (or bin\odx.exe); nothing else needs installing. Needs MSYS2 (ffmpeg) and the MSVC build tools
 # (NativeAOT launcher).
 #
 #   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0] [-Orchestrator https://<domain>] [-AccessKey <key>]
+#                                                        [-WithOrchestrator]
 #
+# -WithOrchestrator adds odx-orchestrator.exe, for running the orchestrator on Windows (guides/orchestrator.md); players
+# never run it, and a deployed orchestrator runs in Docker (deploy/).
 # -Orchestrator / -AccessKey preset the package's bin/odx-capture.json for a deployed orchestrator (deploy/up.sh prints
 # both), so players only type a room's invite code; without them the repository's odx-capture.json is shipped.
 #
 # Output: dist/odx-capture-<version>-win-x64/ (its data\ is kept across rebuilds) and dist/odx-capture-<version>-win-x64.zip
-param([string]$Version = "0.1.0", [string]$Orchestrator = "", [string]$AccessKey = "")
+param([string]$Version = "0.1.0", [string]$Orchestrator = "", [string]$AccessKey = "", [switch]$WithOrchestrator)
 $ErrorActionPreference = 'Stop'
 
 # ffmpeg is built from pinned sources by ffmpeg/build-ffmpeg.sh (minimal: only what odx record uses) in MSYS2 and
@@ -28,7 +31,7 @@ New-Item -ItemType Directory -Force $out, $bin, $cache, (Join-Path $out 'data\ca
 # NativeAOT finds the MSVC linker through vswhere.exe, which is not on PATH by default.
 $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PATH"
 
-# Layout: "Odx Capture.exe" (launcher) at the root; odx-app.exe, odx.exe, odx-orchestrator.exe, ffmpeg/ and
+# Layout: "Odx Capture.exe" (launcher) at the root; odx-app.exe, odx.exe (and odx-orchestrator.exe), ffmpeg/ and
 # games/ in bin/.
 # The launcher is NativeAOT (~2 MB): Windows Defender scans a new executable before its first run (12-27 s for the
 # 240 MB odx-app.exe); the launcher is scanned at once and shows the splash meanwhile.
@@ -38,9 +41,9 @@ $env:PATH = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer;$env:PAT
 # cold odx record).
 $publishes = @(
     @{ Project = 'Odx.App'; Out = $bin; Framework = $null },
-    @{ Project = 'Odx.Cli'; Out = $bin; Framework = 'net10.0-windows10.0.22621.0' },
-    @{ Project = 'Odx.Orchestrator'; Out = $bin; Framework = $null }
+    @{ Project = 'Odx.Cli'; Out = $bin; Framework = 'net10.0-windows10.0.22621.0' }
 )
+if ($WithOrchestrator) { $publishes += @{ Project = 'Odx.Orchestrator'; Out = $bin; Framework = $null } }
 foreach ($p in $publishes) {
     $frameworkArgs = if ($p.Framework) { @('-f', $p.Framework) } else { @() }
     dotnet publish (Join-Path $root "src/Apps/$($p.Project)") -c Release -r win-x64 --self-contained @frameworkArgs `

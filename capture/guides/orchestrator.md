@@ -7,16 +7,16 @@ when a round is over it sends each participant the round's files (`round.json`, 
 
 It does not need to be next to the CS2 server (its agent, `odx game-server`, only connects to it:
 [cs2-server.md](cs2-server.md#6-the-game-server-agent)). On a Linux server, `deploy/` runs it behind HTTPS (`README.md`,
-"Deploy the orchestrator"). On Windows, it is in the package (`bin\`).
+"Deploy the orchestrator"). On Windows, it is in a package built with `-WithOrchestrator` (`bin\`).
 
 The sessions to hand over are built afterwards by `odx merge`, from the rounds copied together by hand
 ([below](#build-the-sessions)).
 
 ## Get it
 
-`odx-orchestrator.exe` is in the package (`bin\`), next to `odx.exe`, `games\cs2.json` and `odx-capture.json`. Build
-the package with `dotnet/publish.ps1` (see [player-setup.md](player-setup.md#1-build-the-package)) or use one already
-built.
+`odx-orchestrator.exe` is in the package (`bin\`), next to `odx.exe`, `games\cs2.json` and `odx-capture.json`, when
+the package is built with `dotnet/publish.ps1 -WithOrchestrator` (see [player-setup.md](player-setup.md#1-build-the-package));
+the players' package leaves it out.
 
 ## Run
 

@@ -27,11 +27,11 @@ client/
 │   ├── native/          C++: in-game camera extractor (extractor/), CS2 server plugin (cs2-plugin/)
 │   ├── profiles/        Game profiles (bindings, window, network)
 │   ├── config/          odx-capture.json (deployment config), session_schema.json
-│   ├── deploy/          Orchestrator on a Linux server (Docker + Caddy); gcp/ for a Windows VM
+│   ├── deploy/          Orchestrator on a Linux server (Docker + Caddy); aws/ (EC2 scripts), gcp/ (Windows VM)
 │   └── guides/          How-to guides for a multiplayer test
 └── research/            Standalone tools, not part of the product
     ├── analyze-pose/            Pose audit of captured sessions (Python)
-    └── reforger-camera-spike/   Arma Reforger camera spike (Enforce Script mod + Python)
+    └── reforger-camera-spike/   Arma Reforger camera spike (Enforce Script mod, OdxReforger.exe launcher, Python)
 ```
 
 ## Components
@@ -95,9 +95,15 @@ ctest --test-dir build -C Debug
 
 # Players' package — from capture/dotnet/ (needs MSYS2 the first time) -> dist/odx-capture-<version>-win-x64.zip
 powershell -ExecutionPolicy Bypass -File publish.ps1 -Version 0.1.0
+
+# Arma Reforger launcher (any OS) -> research/reforger-camera-spike/launcher/OdxReforger/bin/Release/net48/OdxReforger.exe
+dotnet build -c Release research/reforger-camera-spike/launcher/OdxReforger
 ```
 
-CI (`.github/workflows/ci.yml`, Windows) runs the C# build and tests, then the extractor with ctest.
+CI (`.github/workflows/ci.yml`) runs the C# build and tests, then the extractor with ctest (Windows), and builds
+`OdxReforger.exe` (Linux; download it from the run's artifacts). The players' package is built by
+`.github/workflows/release-capture.yml`: push a tag `capture-v<version>` (or Run workflow) and the zip, pointed at the
+orchestrator in the repository variable `ODX_ORCHESTRATOR` and secret `ODX_ACCESS_KEY`, is attached to a release.
 
 ## First runs
 
@@ -119,5 +125,5 @@ A full two-player test (CS2 server, orchestrator, network, players): [`capture/g
 | Pick or add a game | `document/games/README.md` (compliance ground rules first) |
 | Use or change a tool | [`capture/README.md`](capture/README.md) |
 | Set up a multiplayer test | [`capture/guides/README.md`](capture/guides/README.md) |
-| Deploy the orchestrator | [`capture/README.md`, "Deploy the orchestrator"](capture/README.md#deploy-the-orchestrator-linux-server), [`capture/deploy/gcp/README.md`](capture/deploy/gcp/README.md) |
+| Deploy the orchestrator | [`capture/README.md`, "Deploy the orchestrator"](capture/README.md#deploy-the-orchestrator-linux-server), [`capture/deploy/aws/README.md`](capture/deploy/aws/README.md) (EC2 + Reforger server), [`capture/deploy/gcp/README.md`](capture/deploy/gcp/README.md) |
 | Contribute | [`CLAUDE.md`](CLAUDE.md): working rules (specs drive the code, one implementation per format, compliance) |
