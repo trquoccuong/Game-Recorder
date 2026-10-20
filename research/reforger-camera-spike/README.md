@@ -26,7 +26,7 @@ nothing here ships in `capture/`.
 | Path | What it is |
 |---|---|
 | `addon/OdxCameraSpike/OdxCameraSpike.gproj` | The Workbench project of the mod; depends on Arma Reforger (`58D0FB3206B6F859`) |
-| `addon/OdxCameraSpike/Scripts/Game/OdxCameraSpike.c` | The logger. `modded class ArmaReforgerScripted` hooks `OnUpdate` (every frame) and: <br>• writes one line per frame to `$profile:camera_spike.csv`: frame, tick, third person (1 / 0, -1 without a controlled character), transform (4 rows), vertical FOV, near / far, screen and render size, and 12 world points fixed around the first camera position (relative to the camera) with their engine projection; <br>• draws a 64 px square in the top-left corner, black, white for one frame every 4–6 s (uneven on purpose, so flashes can be paired) |
+| `addon/OdxCameraSpike/scripts/Game/OdxCameraSpike.c` | The logger. `modded class ArmaReforgerScripted` hooks `OnUpdate` (every frame) and: <br>• writes one line per frame to `$profile:camera_spike.csv`: frame, tick, third person (1 / 0, -1 without a controlled character), transform (4 rows), vertical FOV, near / far, screen and render size, and 12 world points fixed around the first camera position (relative to the camera) with their engine projection; <br>• draws a 64 px square in the top-left corner, black, white for one frame every 4–6 s (uneven on purpose, so flashes can be paired) |
 | `analyze.py` | Reads the log (and with `--capture` an `odx record` folder) and prints G1–G3 as JSON. `--selftest` builds a synthetic log and video with known answers and checks it finds them |
 | `requirements.txt` | numpy |
 
@@ -70,12 +70,13 @@ Either way works; Workbench shows compile errors, the game only logs them.
 -addonsDir D:\project\client\research\reforger-camera-spike\addon -addons OdxCameraSpike -profile D:\odx-dev\reforger-profile
 ```
 
-Or use `launcher\Launch-Odx.cmd` (a WinForms window: game folder, server `ip:port`, window or fullscreen, password,
-profile folder). On Launch it mirrors the addon into the game's `addons\` and starts `ArmaReforgerSteam.exe` with the arguments
-above plus `-client`. Run it from the repo, or copy `Launch-Odx.cmd`, `Launch-Odx.ps1` and the `OdxCameraSpike`
-folder into the game folder of another PC: `launcher\pack.ps1` zips exactly those
-(`D:\odx-dev\odx-reforger-launcher.zip`, `-Out` to change), to extract into the game folder. `-password` is passed only when filled in; it is unverified as a client parameter, and a
-command-line `-server` has no password.
+Or use `OdxReforger.exe` (a window: game folder, server `ip:port`, window or fullscreen, profile folder), one ~20 KB
+file with the addon embedded, for .NET Framework 4.8 (in Windows 10 1903+ and 11, nothing to install). Build it on any OS
+with the .NET SDK: `dotnet build -c Release launcher/OdxReforger` → `launcher/OdxReforger/bin/Release/net48/OdxReforger.exe`.
+Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's
+libraries), puts a "Odx Reforger" shortcut on the Desktop on the first run, remembers the fields in
+`%APPDATA%\OdxReforger\settings.txt`, and on Launch writes the addon into the game's `addons\` byte for byte (a server
+drops a client whose scripts differ) and starts `ArmaReforgerSteam.exe` with the arguments above plus `-client`.
 
 `-profile` puts `$profile:` on D:: it is the `profile\` folder inside it. The mod reports its state in the game's
 `console.log` (`logs\<date>\` in the same folder), prefixed `TBC_CameraSpike:`: "logging to …" once a camera exists. Start a single-player scenario (Game Master or Conflict on Everon).

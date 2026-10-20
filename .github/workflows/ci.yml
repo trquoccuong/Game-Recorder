@@ -32,3 +32,22 @@ jobs:
           cmake -B build
           cmake --build build --config Release
           ctest --test-dir build -C Release --output-on-failure
+
+  # The Arma Reforger launcher targets .NET Framework 4.8 (reference assemblies from NuGet), so it builds on Linux too;
+  # the exe, with the spike's addon embedded, is kept as the run's artifact.
+  reforger-launcher:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build OdxReforger.exe
+        run: dotnet build -c Release research/reforger-camera-spike/launcher/OdxReforger
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OdxReforger
+          path: research/reforger-camera-spike/launcher/OdxReforger/bin/Release/net48/OdxReforger.exe

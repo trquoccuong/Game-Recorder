@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- .NET Framework 4.8 ships with Windows 10 1903+ and 11: the exe (~30 KB plus the addon) runs without installing a
+       runtime. Builds on any OS with the .NET SDK: dotnet build -c Release -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>OdxReforger</AssemblyName>
+    <RootNamespace>OdxReforger</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="Microsoft.CSharp" />
+    <!-- The addon goes into the exe byte for byte: a server drops a client whose scripts differ. -->
+    <EmbeddedResource Include="..\..\addon\OdxCameraSpike\**\*" LogicalName="addon/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>
