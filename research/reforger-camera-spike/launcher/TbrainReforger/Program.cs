@@ -13,7 +13,7 @@ namespace TbrainReforger;
 
 static class Program
 {
-    const string AddonName = "TbrainCameraSpike";
+    const string AddonName = "TbrainCapture";
     const string GameExe = "ArmaReforgerSteam.exe";
 
     [STAThread]

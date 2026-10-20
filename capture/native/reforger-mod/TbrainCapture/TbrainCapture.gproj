@@ -1,0 +1,12 @@
+GameProject {
+ ID "TbrainCapture"
+ GUID "1BA51DA1129AB603"
+ TITLE "Tbrain Capture"
+ Dependencies {
+  "58D0FB3206B6F859"
+ }
+ Configurations {
+  GameProjectConfig PC {
+  }
+ }
+}

@@ -85,7 +85,12 @@ Arma covers every SOW interaction type, including collisions and vehicle coopera
 **What would need to be built:**
 1. **Script mod `tbrain_capture`** (Enforce Script, Workbench), published Unlisted:
    - server part: state sampler + event hooks → `$profile:tbrain/<session>/state.jsonl`, `events.jsonl`; round start/stop read from a control file the agent writes in the server profile (or polled over `RestContext` from the orchestrator);
-   - client part: HUD off, camera transform + vertical FOV per frame → `$profile:tbrain/camera.csv`, flash marker for clock alignment;
+   - client part: HUD off, camera transform + vertical FOV per frame. **Camera log built (2026-10-20):**
+     `capture/native/reforger-mod/TbrainCapture` (installed by TbrainReforger.exe; the server loads the same addon) logs
+     `$profile:tbrain/<round>.csv` while odx-app's `$profile:tbrain/control.txt` names the round. Clock: no flash marker
+     (it would show in the delivered video); each row carries `System.GetTickCount()` and `System.GetUnixTime()` (whole
+     seconds of the Windows clock), whose rollovers bound UTC − tick, and `clock_samples.csv` maps the Windows clock onto
+     QPC (`Odx.Capture/ReforgerCamera.cs`; ±3 ms on synthetic data, **not yet measured in game**). HUD off not built yet;
      per frame also the view: third person from `CameraHandlerComponent.IsInThirdPerson()` on the controlled entity (Script API;
      spike rec3: 16 switches tracked, both views reproject at 0.0 px; third-person FOV 72° vs 74° first person).
      The logged transform is the rendered camera in both views (behind the character in third person); third person has its own
@@ -95,7 +100,8 @@ Arma covers every SOW interaction type, including collisions and vehicle coopera
    - `IGameServerRecorder` for `odx game-server`: starts/stops the mod's server log per round and keeps it in `<work>/<session>/server/`;
    - `IGameMerger` for `odx merge`: state + events → `server_state.bin`, `events.jsonl`;
    - converter for the client camera log (Enfusion axes → canonical C2W, vertical FOV → intrinsics, script time → QPC via the flash marker), feeding `odx build --camera`.
-3. A client-side collector: the camera log lives in the player's Reforger profile (`$profile:` is `<-profile dir>\profile\` when the game is started with `-profile`, verified; default `Documents\My Games\ArmaReforger\profile` **[to verify]**); odx-app must copy it into the capture folder at the end of a round.
+3. A client-side collector (**built**, `ReforgerCamera.Collect`: profile `camera_source: reforger-mod`; reads the profile
+   folder from TbrainReforger.exe's settings): the camera log lives in the player's Reforger profile (`$profile:` is `<-profile dir>\profile\` when the game is started with `-profile`, verified; default `Documents\My Games\ArmaReforger\profile` **[to verify]**); odx-app must copy it into the capture folder at the end of a round.
 
 **Server:** private dedicated server (Windows or Linux, SteamCMD 1874900), `"battlEye": false`, `crossPlatform: false`, `game.password` set, `visible: false`, `disableThirdPerson: false` (the client wants first- and third-person data, 2026-10-18), `-maxFPS 60`, the capture mod in `mods`; pinned build (auto-update off; clients on the same version).
 
