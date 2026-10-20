@@ -71,7 +71,8 @@ until "${ssh_[@]}" test -f /var/lib/cloud/odx-ready 2> /dev/null; do sleep 10; d
 
 # Extracted over the previous copy, so deploy/.env, deploy/state/ and deploy/zerotier/ survive an update.
 git -C "$repo" archive --format=tar HEAD capture | "${ssh_[@]}" 'mkdir -p ~/odx && tar -x -C ~/odx'
-"${ssh_[@]}" bash -s -- "$domain" "${ip//./-}.sslip.io" "$profile" << 'EOF'
+# ssh joins its arguments into one command line, so each is quoted (an empty domain must stay an argument).
+"${ssh_[@]}" "bash -s -- $(printf '%q ' "$domain" "${ip//./-}.sslip.io" "$profile")" << 'EOF'
 set -euo pipefail
 cd ~/odx/capture/deploy
 [ -f .env ] || bash up.sh > /dev/null || true
