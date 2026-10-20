@@ -9,6 +9,7 @@
   },
   "localization": "en-US",
   "window_process": "ArmaReforgerSteam",
+  "camera_source": "reforger-mod",
   "network": {
     "protocol": "raw",
     "ports": [

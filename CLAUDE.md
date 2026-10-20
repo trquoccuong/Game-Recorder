@@ -95,6 +95,7 @@ capture/
   native/
     extractor/                    # C++20 + Lua 5.4: in-game camera extractor DLL (camera_samples.csv), odx_synth, profiles
     cs2-plugin/                   # C++ Metamod:Source 2.0 plugin: CS2 dedicated server net message log (JSONL)
+    reforger-mod/OdxCapture/   # Enforce Script mod for Arma Reforger: camera log per round (odx-app converts it)
   profiles/                       # game profiles (session.json fields + key/button -> action bindings); games/ in the package
   config/
     odx-capture.json           # deployment config copied next to the executables (time_server, orchestrator)

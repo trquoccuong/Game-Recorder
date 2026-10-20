@@ -71,7 +71,8 @@ Either way works; Workbench shows compile errors, the game only logs them.
 ```
 
 Or use `OdxReforger.exe` (a window: game folder, server `ip:port`, window or fullscreen, profile folder), one ~20 KB
-file with the addon embedded, for .NET Framework 4.8 (in Windows 10 1903+ and 11, nothing to install). Build it on any OS
+file with an addon embedded: since 2026-10-20 the capture mod `capture/native/reforger-mod/OdxCapture` (camera log per
+round for odx-app, no flash square), not this spike's addon; the spike runs with the launch options above. It is built for .NET Framework 4.8 (in Windows 10 1903+ and 11, nothing to install). Build it on any OS
 with the .NET SDK: `dotnet build -c Release launcher/OdxReforger` → `launcher/OdxReforger/bin/Release/net48/OdxReforger.exe`.
 CI puts the newest one, built from `main`, in the release
 [`reforger-launcher`](https://github.com/trquoccuong/client/releases/tag/reforger-launcher). Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's

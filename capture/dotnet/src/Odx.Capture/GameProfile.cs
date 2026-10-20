@@ -10,6 +10,8 @@ namespace Odx.Capture;
 /// <param name="WindowProcess">The game's process name (window_process): recorded instead of the monitor when the user
 /// picked none, so other windows and notifications stay out of the video.</param>
 /// <param name="Network">The game's network traffic to record in multiplayer (spec v3 §2.3); null records none.</param>
+/// <param name="CameraSource">Where the camera comes from when no extractor DLL writes camera_samples.csv:
+/// "reforger-mod" (<see cref="ReforgerCamera"/>); null for none.</param>
 public sealed record GameProfile(
     string GameTitle,
     string Platform,
@@ -17,7 +19,8 @@ public sealed record GameProfile(
     JsonObject InputMouseConvention,
     IReadOnlyDictionary<string, string> Bindings,
     string? WindowProcess = null,
-    PacketCaptureSpec? Network = null)
+    PacketCaptureSpec? Network = null,
+    string? CameraSource = null)
 {
     public static GameProfile Load(string path) =>
         Parse(JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new FormatException($"{path}: not a JSON object"), path);
@@ -33,7 +36,10 @@ public sealed record GameProfile(
                        throw new FormatException($"{source}: missing \"bindings\"");
         return new GameProfile(Required("game_title"), Required("platform"), Required("localization"),
             (JsonObject)convention.DeepClone(), bindings, json["window_process"]?.GetValue<string>(),
-            json["network"] is JsonObject network ? PacketCaptureSpec.Parse(network, source) : null);
+            json["network"] is JsonObject network ? PacketCaptureSpec.Parse(network, source) : null,
+            json["camera_source"]?.GetValue<string>() is { } camera
+                ? camera == ReforgerCamera.Source ? camera : throw new FormatException($"{source}: unknown camera_source \"{camera}\"")
+                : null);
     }
 }
 

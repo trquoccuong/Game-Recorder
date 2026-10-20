@@ -49,6 +49,7 @@ public sealed class CaptureRun : ICaptureRun
     private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _captureStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly string? _gameProfile;
+    private readonly string? _reforgerDir;
     private RecorderStatus? _lastStatus;
 
     public string SessionDir { get; }
@@ -65,6 +66,19 @@ public sealed class CaptureRun : ICaptureRun
         SessionDir = Path.Combine(options.OutputRoot, options.DirName ?? DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
         _gameProfile = options.GameProfile;
         Directory.CreateDirectory(SessionDir);
+        if (CameraSource(options.GameProfile) == ReforgerCamera.Source)
+        {
+            _reforgerDir = ReforgerCamera.OdxDir();
+            try
+            {
+                ReforgerCamera.Begin(_reforgerDir, Path.GetFileName(SessionDir));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                _stderr.Add($"cannot start the Arma Reforger camera log: {e.Message}");
+                _reforgerDir = null;
+            }
+        }
         string stopName = $@"Local\odx-stop-{Guid.NewGuid():N}";
         _stop = new EventWaitHandle(false, EventResetMode.ManualReset, stopName);
 
@@ -146,9 +160,26 @@ public sealed class CaptureRun : ICaptureRun
         var status = LastStatus is { Event: RecorderStatus.Stopped } stopped ? stopped : null;
         string inputCsv = Path.Combine(SessionDir, "input_events.csv");
         int inputEvents = File.Exists(inputCsv) ? Math.Max(0, File.ReadLines(inputCsv).Count() - 1) : 0;
+        if (_reforgerDir is not null &&
+            ReforgerCamera.Collect(_reforgerDir, Path.GetFileName(SessionDir), SessionDir, TimeSpan.FromSeconds(3)) is { } warning)
+            lock (_stderr) _stderr.Add(warning);
         List<string> errors;
         lock (_stderr) errors = [.. _stderr];
         return new RunResult(SessionDir, captureOk, status, inputEvents, errors, captureOk ? BuildSession() : null);
+    }
+
+    /// <summary>The profile's camera_source; an unreadable profile is reported when the session is built.</summary>
+    private static string? CameraSource(string? profile)
+    {
+        if (profile is null) return null;
+        try
+        {
+            return GameProfile.Load(profile).CameraSource;
+        }
+        catch (Exception e) when (e is IOException or FormatException or JsonException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 
     private BuildResult? BuildSession()

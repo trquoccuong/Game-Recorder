@@ -13,7 +13,7 @@ namespace OdxReforger;
 
 static class Program
 {
-    const string AddonName = "OdxCameraSpike";
+    const string AddonName = "OdxCapture";
     const string GameExe = "ArmaReforgerSteam.exe";
 
     [STAThread]
