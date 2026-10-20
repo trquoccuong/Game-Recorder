@@ -9,8 +9,9 @@ namespace Odx.Capture;
 /// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>
 /// <param name="NtpServer">Passed to odx input --ntp; null or empty measures nothing (Windows clock only).</param>
 /// <param name="NtpIntervalS">Seconds between NTP samples; agents use 1 s against the orchestrator on the LAN.</param>
+/// <param name="Audio">Also record what the PC plays to audio.m4a (odx record --audio).</param>
 public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer,
-    int NtpIntervalS = 15, string? DirName = null);
+    int NtpIntervalS = 15, string? DirName = null, bool Audio = false);
 
 /// <param name="Recording">odx record's final status (frame counts); null if it never reported one.</param>
 /// <param name="ToolErrors">stderr lines of the capture tools (warnings such as an unreachable NTP server included).</param>
@@ -74,6 +75,7 @@ public sealed class CaptureRun : ICaptureRun
         var recordArgs = new List<string> { "--out", SessionDir, "--fps", options.Fps.ToString(CultureInfo.InvariantCulture),
             "--stop-event", stopName, "--json-status" };
         recordArgs.AddRange(options.WindowProcess is string p ? ["--window", p] : ["--monitor"]);
+        if (options.Audio) recordArgs.Add("--audio");
         Process record;
         try
         {

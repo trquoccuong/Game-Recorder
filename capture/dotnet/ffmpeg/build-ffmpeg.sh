@@ -55,10 +55,10 @@ CONFIGURE=(
     --disable-everything --disable-autodetect --disable-doc --disable-debug --disable-network
     --disable-ffplay --disable-ffprobe
     --enable-gpl --enable-libx264 --enable-ffnvcodec --enable-nvenc
-    --enable-encoder=libx264,h264_nvenc
-    --enable-demuxer=rawvideo --enable-decoder=rawvideo
+    --enable-encoder=libx264,h264_nvenc,aac
+    --enable-demuxer=rawvideo,pcm_f32le,pcm_s16le --enable-decoder=rawvideo,pcm_f32le,pcm_s16le
     --enable-muxer=mp4 --enable-protocol=file,pipe,fd  # ffmpeg 9 reads '-i -' through fd:, not pipe:
-    --enable-filter=buffer,buffersink,crop,scale,format,null,fps
+    --enable-filter=buffer,buffersink,crop,scale,format,null,fps,abuffer,abuffersink,aformat,aresample,anull
 )
 (cd ffmpeg && PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" ./configure "${CONFIGURE[@]}" && make -j"$JOBS")
 

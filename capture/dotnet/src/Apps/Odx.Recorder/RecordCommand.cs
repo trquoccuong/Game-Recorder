@@ -1,5 +1,5 @@
 // odx record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder auto|x264|nvenc] [--ffmpeg <path>]
-//            [--cursor] [--seconds N] [--stop-event <name>] [--json-status]
+//            [--cursor] [--audio] [--seconds N] [--stop-event <name>] [--json-status]
 //
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
 // capture time (SystemRelativeTime), the same clock as odx input. Frames are resampled onto a constant-rate grid
@@ -7,7 +7,8 @@
 //   <dir>/video.mp4         CFR H.264, no B-frames
 //   <dir>/video_frames.csv  frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate
 //   <dir>/recording.json    capture id, capture and screen size, fps, encoder, start time (UTC + QPC),
-//                           counts of duplicated/dropped frames
+//                           counts of duplicated/dropped frames, audio (null without --audio)
+//   <dir>/audio.m4a         --audio: AAC of what the default playback device plays, sample 0 at video frame 0
 // Stop with Ctrl+C, --seconds, --stop-event (a named event set by Odx.App), or by closing the captured window.
 // --json-status: stdout carries only RecorderStatus JSON lines (started, progress every second, stopped).
 using System.Diagnostics;
@@ -29,7 +30,7 @@ public static class RecordCommand
         if (opts is null)
         {
             Console.Error.WriteLine("usage: odx record --out <dir> (--window <process name> | --monitor) [--fps 60] " +
-                                    "[--encoder auto|x264|nvenc] [--ffmpeg <path>] [--cursor] [--seconds N] [--stop-event <name>] [--json-status]");
+                                    "[--encoder auto|x264|nvenc] [--ffmpeg <path>] [--cursor] [--audio] [--seconds N] [--stop-event <name>] [--json-status]");
             return 2;
         }
         if (!GraphicsCaptureSession.IsSupported())
@@ -106,11 +107,29 @@ public static class RecordCommand
         var startUtc = DateTimeOffset.UtcNow;
         double? firstFrameLatencyMs = null;
         long framesWritten = 0;
+        AudioLoopback? audio = null;
+        string? audioError = null;
+        if (opts.Audio)
+        {
+            try
+            {
+                audio = new AudioLoopback(opts.Ffmpeg, Path.Combine(opts.OutDir, "audio.m4a"));
+                audio.Start();
+            }
+            catch (Exception e)
+            {
+                audio?.Dispose();
+                audio = null;
+                audioError = e.Message;
+                Console.Error.WriteLine($"audio not recorded: {e.Message}");
+            }
+        }
 
         void Emit(IReadOnlyList<GridTick> ticks)
         {
             foreach (var t in ticks)
             {
+                if (framesWritten == 0) audio?.SetOrigin(t.TGridMs);
                 encoder!.Write(shown);
                 frameLog.Write(t);
                 framesWritten++;
@@ -216,6 +235,24 @@ public static class RecordCommand
         framePool.Dispose();
         int ffmpegExit = encoder.Finish();
         encoder.Dispose();
+        object? audioMeta = audioError is null ? null : new Dictionary<string, object?> { ["error"] = audioError };
+        if (audio is not null)
+        {
+            int audioExit = audio.Finish(stopQpcMs);
+            audioError = audio.Error;
+            if (audioExit != 0) Console.Error.WriteLine($"audio ffmpeg exited with code {audioExit} {audioError}".Trim());
+            audioMeta = new Dictionary<string, object?>
+            {
+                ["file"] = "audio.m4a",
+                ["device"] = audio.Device,
+                ["sample_rate"] = audio.SampleRate,
+                ["channels"] = audio.Channels,
+                ["start_qpc_ms"] = audio.OriginMs,
+                ["ffmpeg_exit_code"] = audioExit,
+                ["error"] = audioError,
+            };
+            audio.Dispose();
+        }
         staging?.Dispose();
 
         var meta = new Dictionary<string, object?>
@@ -239,6 +276,7 @@ public static class RecordCommand
             ["first_frame_capture_latency_ms"] = firstFrameLatencyMs,
             ["ffmpeg_exit_code"] = ffmpegExit,
             ["error"] = error,
+            ["audio"] = audioMeta,
         };
         File.WriteAllText(Path.Combine(opts.OutDir, "recording.json"),
             JsonSerializer.Serialize(meta, new JsonSerializerOptions
@@ -264,12 +302,12 @@ public static class RecordCommand
 }
 
 internal sealed record Options(string OutDir, string? Window, double Fps, string Encoder, string Ffmpeg, bool Cursor,
-    double? Seconds, string? StopEvent, bool JsonStatus)
+    bool Audio, double? Seconds, string? StopEvent, bool JsonStatus)
 {
     public static Options? Parse(string[] args)
     {
         string? outDir = null, window = null, encoder = "auto", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null;
-        bool monitor = false, cursor = false, jsonStatus = false;
+        bool monitor = false, cursor = false, audio = false, jsonStatus = false;
         double fps = 60;
         double? seconds = null;
         var inv = System.Globalization.CultureInfo.InvariantCulture;
@@ -285,6 +323,7 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
                 case "--encoder": encoder = Next(); break;
                 case "--ffmpeg": ffmpeg = Next(); break;
                 case "--cursor": cursor = true; break;
+                case "--audio": audio = true; break;
                 case "--seconds" when double.TryParse(Next(), System.Globalization.NumberStyles.Float, inv, out var s): seconds = s; break;
                 case "--stop-event": stopEvent = Next(); break;
                 case "--json-status": jsonStatus = true; break;
@@ -292,6 +331,6 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
             }
         }
         if (outDir is null || encoder is null || ffmpeg is null || (window is null) == !monitor || fps <= 0) return null;
-        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, seconds, stopEvent, jsonStatus);
+        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, audio, seconds, stopEvent, jsonStatus);
     }
 }

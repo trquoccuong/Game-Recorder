@@ -81,6 +81,7 @@ public partial class MainWindow : Window
         LanguageBox.SelectedItem = Strings.Languages.First(l => l.Code == (_settings.Language ?? Strings.DefaultLanguage));
         FpsBox.ItemsSource = new[] { 30, 60 };
         FpsBox.SelectedItem = _settings.Fps;
+        AudioBox.IsChecked = _settings.RecordAudio;
         HotkeyBox.Text = _settings.Hotkey.ToString();
         PlayerBox.Text = _settings.PlayerId;
         var roomRows = _config.Orchestrator is null ? Visibility.Collapsed : Visibility.Visible;
@@ -111,6 +112,8 @@ public partial class MainWindow : Window
         HotkeyLabel.Content = _t.Hotkey;
         PlayerLabel.Content = _t.PlayerId;
         RoomLabel.Content = _t.Room;
+        AudioBox.Content = _t.AudioOption;
+        AudioBox.ToolTip = _t.AudioTooltip;
         LanBox.Content = _t.LanOption;
         LanBox.ToolTip = _t.LanTooltip;
         RoomBox.ToolTip = _t.RoomTooltip;
@@ -238,6 +241,7 @@ public partial class MainWindow : Window
         _settings.WindowProcess = (SourceBox.SelectedItem as SourceItem)?.Process;
         _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
         _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
+        _settings.RecordAudio = AudioBox.IsChecked == true;
         _settings.PlayerId = PlayerBox.Text.Trim();
         _settings.Save();
     }
@@ -282,7 +286,7 @@ public partial class MainWindow : Window
             RunState.Stopping => _t.Stopping,
             _ => _t.TrayStop,
         };
-        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = HotkeyBox.IsEnabled = idle;
+        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = AudioBox.IsEnabled = HotkeyBox.IsEnabled = idle;
         LanguageBox.IsEnabled = PlayerBox.IsEnabled = idle;
         bool inRoom = state == RunState.Agent && _agent?.Room is not null;
         RoomBox.Visibility = inRoom ? Visibility.Visible : Visibility.Collapsed;
@@ -632,7 +636,7 @@ public partial class MainWindow : Window
     /// <summary>AgentClient calls this off the UI thread when the orchestrator starts a round.</summary>
     private ICaptureRun StartAgentCapture(CaptureOptions options)
     {
-        var run = CaptureRun.Start(options);
+        var run = CaptureRun.Start(options with { Audio = _settings.RecordAudio });
         Dispatcher.Invoke(() =>
         {
             _run = run;
