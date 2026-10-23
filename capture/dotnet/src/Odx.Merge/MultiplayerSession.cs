@@ -214,7 +214,8 @@ public static class MultiplayerSession
         foreach (string f in CaptureFiles.Where(f => File.Exists(f == "session.json" ? Path.Combine(src, f) : CaptureFolder.Raw(src, f))))
             File.Copy(f == "session.json" ? Path.Combine(src, f) : CaptureFolder.Raw(src, f), Path.Combine(dst, "capture", f), true);
         File.Copy(Path.Combine(src, "frames.csv"), Path.Combine(dst, "frames.csv"), true);
-        if (File.Exists(Path.Combine(src, "video.mp4"))) File.Copy(Path.Combine(src, "video.mp4"), Path.Combine(dst, "video.mp4"), true);
+        foreach (string f in new[] { "video.mp4", SessionBuilder.KeyBindingsFile }.Where(f => File.Exists(Path.Combine(src, f))))
+            File.Copy(Path.Combine(src, f), Path.Combine(dst, f), true);
 
         var v2 = SessionValidator.ValidateSession(src).Where(i => i.Severity == Issue.ErrorSeverity).ToList();
         checks.Add(new QaCheck("player.v2", "spec v2 §1.5 vendor checks", v2.Count == 0,
@@ -258,7 +259,7 @@ public static class MultiplayerSession
         (string Key, string File)[] files =
         [
             ("video", "video.mp4"), ("frames_csv", "frames.csv"), ("frames_bin", FramesBin.FileName), ("events", "events.jsonl"),
-            ("packets_bin", PacketLog.BinFile), ("packets_txt", PacketLog.TextFile),
+            ("key_bindings", SessionBuilder.KeyBindingsFile), ("packets_bin", PacketLog.BinFile), ("packets_txt", PacketLog.TextFile),
         ];
         info["files"] = new JsonObject(files.Where(f => f.Key == "events" || File.Exists(Path.Combine(dst, f.File)))
             .Select(f => KeyValuePair.Create(f.Key, (JsonNode?)f.File)));

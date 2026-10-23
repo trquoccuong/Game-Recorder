@@ -202,6 +202,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         {
             Assert.True(File.Exists(Path.Combine(dir, "players", p, "video.mp4")));
             Assert.True(File.Exists(Path.Combine(dir, "players", p, "capture", "session.json")));
+            Assert.True(File.Exists(Path.Combine(dir, "players", p, SessionBuilder.KeyBindingsFile)));
             var events = MultiplayerSession.ReadEvents(Path.Combine(dir, "players", p, "events.jsonl"));
             var kill = events.Single(e => GameEvents.Type(e) == "kill");
             Assert.InRange(kill["frame_index"]!.GetValue<int>(), 0, SessionFixtures.NFrames - 1);
