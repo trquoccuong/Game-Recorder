@@ -7,7 +7,7 @@ namespace Odx.Capture;
 public static class CaptureFolder
 {
     public const string RawDir = "raw";
-    public static readonly string[] Delivered = ["video.mp4", "session.json", "frames.csv", "events.jsonl"];
+    public static readonly string[] Delivered = ["video.mp4", "session.json", "frames.csv", "events.jsonl", SessionBuilder.KeyBindingsFile];
 
     /// <summary>Where raw files are: raw/ once the folder is tidied, else the folder itself.</summary>
     public static string RawFolder(string dir)

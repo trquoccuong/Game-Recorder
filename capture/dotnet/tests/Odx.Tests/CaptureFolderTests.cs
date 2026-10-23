@@ -22,7 +22,7 @@ public class CaptureFolderTests
 
             CaptureFolder.Tidy(dir);
 
-            Assert.Equal(["frames.csv", "session.json"], Directory.GetFiles(dir).Select(Path.GetFileName).Order());
+            Assert.Equal(["frames.csv", "key_bindings.json", "session.json"], Directory.GetFiles(dir).Select(Path.GetFileName).Order());
             Assert.True(File.Exists(Path.Combine(dir, "raw", "video_frames.csv")));
             Assert.True(File.Exists(Path.Combine(dir, "raw", "profile.json")));
             SessionBuilder.Build(dir, GameProfile.Load(Path.Combine(dir, "raw", "profile.json")));

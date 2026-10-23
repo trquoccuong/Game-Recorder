@@ -27,6 +27,14 @@ public static class SessionBuilder
     /// <summary>A frame gets no camera if the newest sample before it is older than this (game hitch, profile failure).</summary>
     public const double MaxCameraAgeMs = 100;
 
+    public const string KeyBindingsFile = "key_bindings.json";
+
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        WriteIndented = true,
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+    };
+
     public static BuildReport Build(string captureDir, GameProfile profile, string vendorName = "odx", string? cameraDir = null)
     {
         var frames = VideoFrameLogReader.Read(CaptureFolder.Raw(captureDir, "video_frames.csv"));
@@ -73,13 +81,25 @@ public static class SessionBuilder
             // Not in the spec: how created_at_utc / ended_at_utc were obtained (spec v3 §4 asks for offset + RTT).
             ["vendor_clock_sync"] = ClockJson(clock),
         };
-        File.WriteAllText(Path.Combine(captureDir, "session.json"),
-            session.ToJsonString(new JsonSerializerOptions
-            {
-                WriteIndented = true,
-                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            }));
+        File.WriteAllText(Path.Combine(captureDir, "session.json"), session.ToJsonString(Json));
+        WriteKeyBindings(captureDir, profile);
         return new BuildReport(sessionId, frames.Count, durationMs, unbound, cameras?.Count(c => c is not null) ?? 0, clock);
+    }
+
+    /// <summary>
+    /// The SOW §2 key bindings, in the schema of the sample deliveries (reviews/sample-action-labeled-only.md): spec v2 dropped
+    /// the file but Client's QA still received it with every session.
+    /// </summary>
+    private static void WriteKeyBindings(string captureDir, GameProfile profile)
+    {
+        var json = new JsonObject
+        {
+            ["schema_version"] = "1.0",
+            ["game_title"] = profile.GameTitle,
+            ["platform"] = profile.Platform,
+            ["keys"] = new JsonArray(profile.Bindings.Select(b => (JsonNode)new JsonObject { ["key"] = b.Key, ["action"] = b.Value }).ToArray()),
+        };
+        File.WriteAllText(Path.Combine(captureDir, KeyBindingsFile), json.ToJsonString(Json));
     }
 
     private sealed class FrameCameras(string model, int count) : List<(double[,] C2w, Intrinsics Intrinsics)?>(count)

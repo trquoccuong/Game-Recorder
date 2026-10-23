@@ -76,6 +76,10 @@ public class SessionBuilderTests
             Assert.DoesNotContain(rows, r => r["input_keys"].Contains("Ctrl"));
             Assert.Equal(0, report.CameraFrames);
             Assert.Equal(Frames.Null, rows[0]["C2W_M00"]);
+            var bindings = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, SessionBuilder.KeyBindingsFile)))!;
+            Assert.Equal("1.0", bindings["schema_version"]!.GetValue<string>());
+            Assert.Equal(session["game_title"]!.GetValue<string>(), bindings["game_title"]!.GetValue<string>());
+            Assert.Contains(bindings["keys"]!.AsArray(), k => (string?)k!["key"] == "W" && (string?)k["action"] == "Forward");
         }
         finally
         {
