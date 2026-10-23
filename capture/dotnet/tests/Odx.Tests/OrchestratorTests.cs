@@ -170,6 +170,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
     {
         Skip.IfNot(SessionFixtures.HasFfmpeg, "needs ffmpeg + ffprobe");
         string template = SessionFixtures.MakeValidSession(Path.Combine(_root, "template"));
+        File.WriteAllText(Path.Combine(template, SessionBuilder.KeyBindingsFile), "{}");  // FakeCapture skips SessionBuilder
         var started = ConnectAgents(template, "p1", "p2");
         await WaitForAgents(2);
         var session = NextSession();
