@@ -6,6 +6,10 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- With CET shadow stacks on (the .NET 9+ default), the runtime fails fast at startup on Windows builds without
+         the later CET fixes ("Your Windows doesn't fully support CET"), e.g. 19045.2965 on a player PC that cannot
+         run Windows Update. -->
+    <CETCompat>false</CETCompat>
     <!-- publish.ps1 overrides it with -Version; the SDK appends +<git commit> to InformationalVersion. -->
     <Version>0.1.0</Version>
   </PropertyGroup>
