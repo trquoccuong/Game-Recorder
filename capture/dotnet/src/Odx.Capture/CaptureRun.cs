@@ -10,8 +10,9 @@ namespace Odx.Capture;
 /// <param name="NtpServer">Passed to odx input --ntp; null or empty measures nothing (Windows clock only).</param>
 /// <param name="NtpIntervalS">Seconds between NTP samples; agents use 1 s against the orchestrator on the LAN.</param>
 /// <param name="Audio">Also record what the PC plays, as video.mp4's audio track (odx record --audio).</param>
+/// <param name="Player">Named in player.json; null outside a room.</param>
 public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer,
-    int NtpIntervalS = 15, string? DirName = null, bool Audio = false);
+    int NtpIntervalS = 15, string? DirName = null, bool Audio = false, PlayerIdentity? Player = null);
 
 /// <param name="Recording">odx record's final status (frame counts); null if it never reported one.</param>
 /// <param name="ToolErrors">stderr lines of the capture tools (warnings such as an unreachable NTP server included).</param>
@@ -50,6 +51,7 @@ public sealed class CaptureRun : ICaptureRun
     private readonly TaskCompletionSource _started = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _captureStopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly string? _gameProfile;
+    private readonly PlayerIdentity? _player;
     private readonly string? _reforgerDir;
     private RecorderStatus? _lastStatus;
 
@@ -66,6 +68,7 @@ public sealed class CaptureRun : ICaptureRun
     {
         SessionDir = Path.Combine(options.OutputRoot, options.DirName ?? DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture));
         _gameProfile = options.GameProfile;
+        _player = options.Player;
         Directory.CreateDirectory(SessionDir);
         if (CameraSource(options.GameProfile) == ReforgerCamera.Source)
         {
@@ -197,7 +200,7 @@ public sealed class CaptureRun : ICaptureRun
         if (_gameProfile is null) return null;
         try
         {
-            var report = SessionBuilder.Build(SessionDir, GameProfile.Load(_gameProfile));
+            var report = SessionBuilder.Build(SessionDir, GameProfile.Load(_gameProfile), player: _player);
             return new BuildResult(report, SessionValidator.ValidateSession(SessionDir), null);
         }
         catch (Exception e) when (e is IOException or InvalidDataException or FormatException or JsonException)

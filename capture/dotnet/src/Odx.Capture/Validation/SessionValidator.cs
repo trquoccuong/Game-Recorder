@@ -13,7 +13,7 @@ public static class SessionValidator
         JsonObject session;
         try
         {
-            session = JsonNode.Parse(File.ReadAllText(Path.Combine(sessionDir, "session.json"))) as JsonObject
+            session = JsonNode.Parse(File.ReadAllText(CaptureFolder.Find(sessionDir, "session.json"))) as JsonObject
                       ?? throw new JsonException("session.json is not a JSON object");
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException)

@@ -54,11 +54,12 @@ public static class GameEvents
 [JsonDerivedType(typeof(RoomClosed), "room_closed")]
 [JsonDerivedType(typeof(LanMember), "lan_member")]
 [JsonDerivedType(typeof(RoundFiles), "round_record")]
+[JsonDerivedType(typeof(GameEvent), "game_event")]
 [JsonDerivedType(typeof(Incompatible), "incompatible")]
 public abstract record AgentMessage
 {
     /// <summary>Raised whenever a message changes in a way the other side cannot read; sent in <see cref="Hello"/>.</summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     public static readonly JsonSerializerOptions Json = new()
     {
@@ -191,6 +192,12 @@ public sealed record RoomClosed(string Code) : AgentMessage;
 
 /// <summary>Agent → orchestrator: this machine (ZeroTier node) joined the room's LAN; the orchestrator authorizes it.</summary>
 public sealed record LanMember(string NodeId) : AgentMessage;
+
+/// <summary>
+/// Orchestrator → each member of the room, as soon as a game event is stamped: the player's machine notes when it arrived
+/// (local_receive_* in its events.jsonl, as in the client's multiplayer delivery).
+/// </summary>
+public sealed record GameEvent(long EventId) : AgentMessage;
 
 public sealed record RoundFiles(string SessionId, string Round, string Events, string GameProfile) : AgentMessage
 {

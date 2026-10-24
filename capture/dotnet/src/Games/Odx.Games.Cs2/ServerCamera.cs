@@ -73,7 +73,7 @@ public static class ServerCamera
         for (int r = 0; r < 4; r++)
             for (int c = 0; c < 4; c++)
                 row[Frames.C2wColumns[r * 4 + c]] = Frames.FormatDouble(c2w[r, c]);
-        row["camera_model"] = "PINHOLE";
+        row["camera_model"] = "pinhole";
         row["camera_fx"] = Frames.FormatDouble(k.Fx);
         row["camera_fy"] = Frames.FormatDouble(k.Fy);
         row["camera_cx"] = Frames.FormatDouble(k.Cx);

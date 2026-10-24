@@ -27,7 +27,7 @@ message FrameRecord {
   optional double camera_fy = 7;
   optional double camera_cx = 8;
   optional double camera_cy = 9;
-  repeated double distortion = 10;  // camera_radial_k1..k6, camera_tangential_p1, p2
+  repeated double distortion = 10;  // unused: frames.csv has no distortion columns
   optional string input_keys = 11;
   optional string input_actions = 12;
   optional string input_mouse_buttons = 13;

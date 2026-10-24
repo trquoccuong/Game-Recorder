@@ -34,26 +34,53 @@ public static class PlayerTimeline
     {
         double t = GameEvents.UtcMs(e);
         var copy = (JsonObject)e.DeepClone();
+        AddVideoTime(copy, t, frameUtc);
+        return copy;
+    });
+
+    private static void AddVideoTime(JsonObject copy, double t, List<double> frameUtc)
+    {
         copy["video_time_ms"] = Math.Round(t - frameUtc[0], 1);
         int index = frameUtc.BinarySearch(t);
         if (index < 0) index = ~index - 1;
         copy["frame_index"] = t >= frameUtc[0] && t <= frameUtc[^1] ? index : null;
-        return copy;
-    });
+    }
 
     public static void WriteEvents(string path, IEnumerable<JsonObject> events) =>
         File.WriteAllLines(path, events.Select(e => e.ToJsonString(AgentMessage.Json)));
 
     /// <summary>
-    /// events.jsonl of a player's round folder: the round's server events (raw/server_events.jsonl) on this player's video;
-    /// without clock samples against the time service the events are written without video times.
+    /// events.jsonl of a player's round folder: the round's server events (raw/server_events.jsonl) on this player's video,
+    /// with the fields of the client's multiplayer delivery: when the event's notice reached this machine
+    /// (local_receive_utc, local_receive_time_us; absent when it never did) and the server time on this machine's clock
+    /// (server_time_as_local_us, from player.json's offset). Without clock samples against the time service the events are
+    /// written without video times.
     /// </summary>
-    public static void WriteRoundEvents(string captureDir, RoundRecord round)
+    /// <param name="receipts">When each event's notice arrived on this machine's Windows clock (Unix ms), by event_id.</param>
+    /// <returns>The highest event_id of the round; 0 without events.</returns>
+    public static long WriteRoundEvents(string captureDir, RoundRecord round, IReadOnlyDictionary<long, double>? receipts = null)
     {
         string serverEvents = CaptureFolder.Raw(captureDir, RoundRecord.EventsFileName);
-        if (!File.Exists(serverEvents)) return;
+        if (!File.Exists(serverEvents)) return 0;
         var events = File.ReadLines(serverEvents).Where(l => l.Length > 0).Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
         var frameUtc = ServerClock(captureDir, round.TimePort) is { } clock ? FrameUtc(captureDir, clock.Map) : null;
-        WriteEvents(Path.Combine(captureDir, "events.jsonl"), frameUtc is { Count: > 0 } ? OnVideo(events, frameUtc) : events);
+        double? offsetMs = PlayerFile.OffsetMs(captureDir);
+        long last = 0;
+        WriteEvents(Path.Combine(captureDir, "events.jsonl"), events.Select(e =>
+        {
+            var copy = (JsonObject)e.DeepClone();
+            long id = copy["event_id"]?.GetValue<long>() ?? 0;
+            last = Math.Max(last, id);
+            if (receipts is not null && receipts.TryGetValue(id, out double localMs))
+            {
+                copy["local_receive_utc"] = UtcText.Iso(localMs);
+                copy["local_receive_time_us"] = (long)Math.Round(localMs * 1000);
+            }
+            if (offsetMs is double offset && copy["server_time_us"]?.GetValue<long>() is long serverUs)
+                copy["server_time_as_local_us"] = serverUs - (long)Math.Round(offset * 1000);
+            if (frameUtc is { Count: > 0 }) AddVideoTime(copy, GameEvents.UtcMs(e), frameUtc);
+            return copy;
+        }).ToList());
+        return last;
     }
 }

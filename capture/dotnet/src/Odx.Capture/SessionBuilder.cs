@@ -29,13 +29,15 @@ public static class SessionBuilder
 
     public const string KeyBindingsFile = "key_bindings.json";
 
-    private static readonly JsonSerializerOptions Json = new()
+    internal static readonly JsonSerializerOptions Json = new()
     {
         WriteIndented = true,
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
-    public static BuildReport Build(string captureDir, GameProfile profile, string vendorName = "odx", string? cameraDir = null)
+    /// <param name="player">Named in player.json; null for a capture outside a room.</param>
+    public static BuildReport Build(string captureDir, GameProfile profile, string vendorName = "odx", string? cameraDir = null,
+        PlayerIdentity? player = null)
     {
         var frames = VideoFrameLogReader.Read(CaptureFolder.Raw(captureDir, "video_frames.csv"));
         if (frames.Count == 0) throw new InvalidDataException("video_frames.csv has no frames");
@@ -49,9 +51,10 @@ public static class SessionBuilder
         var inputs = Frames.AggregateInputs(times, mapped);
         int width = Required<int>(recording, "width"), height = Required<int>(recording, "height");
         var cameras = CameraPerFrame(cameraDir ?? captureDir, frames, width, height);
-        Frames.WriteCsv(Path.Combine(captureDir, "frames.csv"), frames.Select((f, i) => new FrameRow(i,
+        var rows = frames.Select((f, i) => new FrameRow(i,
             (long)Math.Round(f.TGridMs - times[0]), cameras?[i]?.C2w, cameras?[i] is null ? null : cameras.Model,
-            cameras?[i]?.Intrinsics, inputs[i])));
+            cameras?[i]?.Intrinsics, inputs[i])).ToList();
+        Frames.WriteCsv(Path.Combine(captureDir, "frames.csv"), rows);
 
         // Duration covers the last frame's display interval, so timestamp_ms[-1] + 1 frame ≈ duration_ms.
         double durationMs = frames.Count * 1000.0 / fps;
@@ -83,6 +86,9 @@ public static class SessionBuilder
         };
         File.WriteAllText(Path.Combine(captureDir, "session.json"), session.ToJsonString(Json));
         WriteKeyBindings(captureDir, profile);
+        ClientFramesBin.Write(Path.Combine(captureDir, ClientFramesBin.FileName), sessionId, rows,
+            times.Select(t => t - times[0]).ToList(), times.Select(clockMap.ToUnixMs).ToList());
+        PlayerFile.Write(captureDir, session, startUnixMs, player);
         return new BuildReport(sessionId, frames.Count, durationMs, unbound, cameras?.Count(c => c is not null) ?? 0, clock);
     }
 

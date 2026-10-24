@@ -33,8 +33,6 @@ public static class FramesBin
                 InputMouseDy = Number(r["input_mouse_dy"]) ?? 0,
             };
             if (Frames.C2wColumns.All(c => r[c] != Frames.Null)) record.C2W.AddRange(Frames.C2wColumns.Select(c => Number(r[c])!.Value));
-            if (Frames.DistortionColumns.All(c => r[c] != Frames.Null))
-                record.Distortion.AddRange(Frames.DistortionColumns.Select(c => Number(r[c])!.Value));
             if (Text(r["camera_model"]) is { } model) record.CameraModel = model;
             if (Number(r["camera_fx"]) is { } fx) record.CameraFx = fx;
             if (Number(r["camera_fy"]) is { } fy) record.CameraFy = fy;

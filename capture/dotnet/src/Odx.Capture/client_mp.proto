@@ -1,0 +1,41 @@
+// frames.bin of a player's round folder, in the format of the client's multiplayer delivery (sample round
+// 20261017-100551-2907ed-r03). No schema came with it: the field numbers and types are read off that sample's bytes, and
+// 12 and 13 never occur there. The file is a sequence of varint length-delimited messages: a FileHeader, then one
+// FrameRecord per frame of video.mp4.
+syntax = "proto3";
+
+package client.mp.v1;
+
+option csharp_namespace = "Odx.Capture.ClientMp";
+
+message FileHeader {
+  string magic = 1;           // "CLIENT-MP"
+  uint32 format_version = 2;  // 1
+  string record_type = 3;     // "client.mp.v1.FrameRecord"
+  string session_id = 4;
+  string producer = 5;
+  int64 created_unix_us = 6;
+  string description = 7;
+}
+
+// One frames.csv row at full double precision, plus when the frame was captured on the orchestrator's clock.
+message FrameRecord {
+  int64 frame_id = 1;
+  double timestamp_ms = 2;    // unrounded: frames.csv has it as an integer
+  int64 server_time_us = 3;   // UTC microseconds since the Unix epoch
+  repeated double c2w = 4;    // C2W_M00..C2W_M33, row-major; empty without a camera
+  bool has_camera = 5;
+  string camera_model = 6;
+  double camera_fx = 7;
+  double camera_fy = 8;
+  double camera_cx = 9;
+  double camera_cy = 10;
+  repeated double distortion = 11;  // six zeros with a camera, as in the sample
+  reserved 12, 13;
+  repeated string input_keys = 14;
+  repeated string input_actions = 15;
+  repeated string input_mouse_buttons = 16;
+  double input_mouse_dx = 17;
+  double input_mouse_dy = 18;
+  double vertical_fov_deg = 19;  // 2·atan(cy / fy)
+}

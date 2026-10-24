@@ -78,6 +78,19 @@ public class SessionBuilderTests
             Assert.Equal(Frames.Null, rows[0]["C2W_M00"]);
             var bindings = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, SessionBuilder.KeyBindingsFile)))!;
             Assert.True(JsonNode.DeepEquals(JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "profile.json"))), bindings));
+
+            var (header, records) = ClientFramesBin.Read(Path.Combine(dir, ClientFramesBin.FileName));
+            Assert.Equal(("CLIENT-MP", "client.mp.v1.FrameRecord", "cap-0001"), (header.Magic, header.RecordType, header.SessionId));
+            Assert.Equal(SessionFixtures.NFrames, records.Count);
+            Assert.Equal(["W"], records[30].InputKeys);
+            Assert.Equal(["Forward"], records[30].InputActions);
+            Assert.Equal(1_791_108_000_000_000 + (long)Math.Round(30 * 1000.0 / SessionFixtures.Fps * 1000), records[30].ServerTimeUs);
+            Assert.False(records[30].HasCamera);
+
+            var player = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, PlayerFile.FileName)))!;
+            Assert.Equal("cap-0001", (string?)player["session_id"]);
+            Assert.Equal("2026-10-04T10:00:00.000Z", (string?)player["recording"]!["video_first_frame_utc"]);
+            Assert.Null(player["player"]);
         }
         finally
         {
@@ -106,6 +119,10 @@ public class SessionBuilderTests
             var session = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "session.json")))!;
             Assert.Equal("2026-10-04T10:00:44.000Z", session["created_at_utc"]!.GetValue<string>());
             Assert.Equal("ntp", session["vendor_clock_sync"]!["source"]!.GetValue<string>());
+            var player = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, PlayerFile.FileName)))!;
+            Assert.Equal(44_000, (double)player["clock_sync"]!["offset_ms"]!);
+            Assert.Equal(PlayerFile.OffsetDefinition, (string?)player["clock_sync"]!["offset_definition"]);
+            Assert.Equal(25, (double)player["network"]!["ping_ms"]!);
             Assert.Empty(SessionValidator.ValidateSession(dir, video: SessionFixtures.HasFfmpeg));
         }
         finally
@@ -137,7 +154,7 @@ public class SessionBuilderTests
             }
             Assert.Equal(SessionFixtures.NFrames, report.CameraFrames);
             Assert.Empty(errors);
-            Assert.Equal("PINHOLE", rows[40]["camera_model"]);
+            Assert.Equal("pinhole", rows[40]["camera_model"]);
             for (int k = 0; k < 16; k++)
                 Assert.Equal(expected[40][k / 4, k % 4], Frames.ParseDouble(rows[40][Frames.C2wColumns[k]]), 1e-9);
             var fov = Geometry.IntrinsicsFromHfov(90, 320, 180);
