@@ -53,7 +53,8 @@ public static class PlayerTimeline
     /// events.jsonl of a player's round folder: the round's server events (raw/server_events.jsonl) on this player's video,
     /// with the fields of the client's multiplayer delivery: when the event's notice reached this machine
     /// (local_receive_utc, local_receive_time_us; absent when it never did) and the server time on this machine's clock
-    /// (server_time_as_local_us, from player.json's offset). Without clock samples against the time service the events are
+    /// (server_time_as_local_us, from player.json's offset). Fields are in the sample's order, its times to the microsecond,
+    /// without the orchestrator's utc_ms or a frame_index. Without clock samples against the time service the events are
     /// written without video times.
     /// </summary>
     /// <param name="receipts">When each event's notice arrived on this machine's Windows clock (Unix ms), by event_id.</param>
@@ -68,19 +69,25 @@ public static class PlayerTimeline
         long last = 0;
         WriteEvents(Path.Combine(captureDir, "events.jsonl"), events.Select(e =>
         {
-            var copy = (JsonObject)e.DeepClone();
+            var copy = new JsonObject();
+            foreach (string key in StampFields)
+                if (e[key] is { } value) copy[key] = value.DeepClone();
+            foreach (var (key, value) in e)
+                if (!StampFields.Contains(key) && key != "utc_ms") copy[key] = value?.DeepClone();
             long id = copy["event_id"]?.GetValue<long>() ?? 0;
             last = Math.Max(last, id);
             if (receipts is not null && receipts.TryGetValue(id, out double localMs))
             {
-                copy["local_receive_utc"] = UtcText.Iso(localMs);
+                copy["local_receive_utc"] = UtcText.IsoUs(localMs);
                 copy["local_receive_time_us"] = (long)Math.Round(localMs * 1000);
             }
             if (offsetMs is double offset && copy["server_time_us"]?.GetValue<long>() is long serverUs)
                 copy["server_time_as_local_us"] = serverUs - (long)Math.Round(offset * 1000);
-            if (frameUtc is { Count: > 0 }) AddVideoTime(copy, GameEvents.UtcMs(e), frameUtc);
+            if (frameUtc is { Count: > 0 }) copy["video_time_ms"] = Math.Round(GameEvents.UtcMs(e) - frameUtc[0], 3);
             return copy;
         }).ToList());
         return last;
     }
+
+    private static readonly string[] StampFields = ["event_id", "type", "utc", "server_time_us", "round_index", "session_id"];
 }
