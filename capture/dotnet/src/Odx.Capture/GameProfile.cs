@@ -22,6 +22,9 @@ public sealed record GameProfile(
     PacketCaptureSpec? Network = null,
     string? CameraSource = null)
 {
+    /// <summary>The profile file as read, written out as key_bindings.json.</summary>
+    public JsonObject Json { get; init; } = [];
+
     public static GameProfile Load(string path) =>
         Parse(JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new FormatException($"{path}: not a JSON object"), path);
 
@@ -39,7 +42,7 @@ public sealed record GameProfile(
             json["network"] is JsonObject network ? PacketCaptureSpec.Parse(network, source) : null,
             json["camera_source"]?.GetValue<string>() is { } camera
                 ? camera == ReforgerCamera.Source ? camera : throw new FormatException($"{source}: unknown camera_source \"{camera}\"")
-                : null);
+                : null) { Json = (JsonObject)json.DeepClone() };
     }
 }
 

@@ -86,21 +86,9 @@ public static class SessionBuilder
         return new BuildReport(sessionId, frames.Count, durationMs, unbound, cameras?.Count(c => c is not null) ?? 0, clock);
     }
 
-    /// <summary>
-    /// The SOW §2 key bindings, in the schema of the sample deliveries (reviews/sample-action-labeled-only.md): spec v2 dropped
-    /// the file but Client's QA still received it with every session.
-    /// </summary>
-    private static void WriteKeyBindings(string captureDir, GameProfile profile)
-    {
-        var json = new JsonObject
-        {
-            ["schema_version"] = "1.0",
-            ["game_title"] = profile.GameTitle,
-            ["platform"] = profile.Platform,
-            ["keys"] = new JsonArray(profile.Bindings.Select(b => (JsonNode)new JsonObject { ["key"] = b.Key, ["action"] = b.Value }).ToArray()),
-        };
-        File.WriteAllText(Path.Combine(captureDir, KeyBindingsFile), json.ToJsonString(Json));
-    }
+    /// <summary>The SOW §2 key bindings: the whole game profile, so the bindings come with the game's other settings.</summary>
+    private static void WriteKeyBindings(string captureDir, GameProfile profile) =>
+        File.WriteAllText(Path.Combine(captureDir, KeyBindingsFile), profile.Json.ToJsonString(Json));
 
     private sealed class FrameCameras(string model, int count) : List<(double[,] C2w, Intrinsics Intrinsics)?>(count)
     {
