@@ -22,8 +22,9 @@ public class CaptureFolderTests
 
             CaptureFolder.Tidy(dir);
 
-            Assert.Equal(["frames.csv", "key_bindings.json", "session.json"], Directory.GetFiles(dir).Select(Path.GetFileName).Order());
+            Assert.Equal(["frames.bin", "frames.csv", "key_bindings.json", "player.json"], Directory.GetFiles(dir).Select(Path.GetFileName).Order());
             Assert.True(File.Exists(Path.Combine(dir, "raw", "video_frames.csv")));
+            Assert.True(File.Exists(Path.Combine(dir, "raw", "session.json")));
             Assert.True(File.Exists(Path.Combine(dir, "raw", "profile.json")));
             SessionBuilder.Build(dir, GameProfile.Load(Path.Combine(dir, "raw", "profile.json")));
             Assert.Equal(frames, File.ReadAllText(Path.Combine(dir, "frames.csv")));
@@ -47,16 +48,24 @@ public class CaptureFolderTests
             double start = UtcAtT0 + 250 + 500;  // server time of video time 500 ms = frame 30
             File.WriteAllLines(Path.Combine(dir, "raw", RoundRecord.EventsFileName),
             [
-                new JsonObject { ["type"] = GameEvents.RoundStart, ["utc_ms"] = start }.ToJsonString(),
-                new JsonObject { ["type"] = GameEvents.RoundEnd, ["utc_ms"] = start + 60_000 }.ToJsonString(),
+                new JsonObject { ["type"] = GameEvents.RoundStart, ["utc_ms"] = start, ["event_id"] = 7,
+                    ["server_time_us"] = (long)(start * 1000) }.ToJsonString(),
+                new JsonObject { ["type"] = GameEvents.RoundEnd, ["utc_ms"] = start + 60_000, ["event_id"] = 8 }.ToJsonString(),
             ]);
+            File.WriteAllText(Path.Combine(dir, PlayerFile.FileName), """{"clock_sync": {"offset_ms": 250}}""");
 
-            PlayerTimeline.WriteRoundEvents(dir, new RoundRecord("s", "m", "Game", null, 1, start, null, 12300, []));
+            long last = PlayerTimeline.WriteRoundEvents(dir, new RoundRecord("s", "m", "Game", null, 1, start, null, 12300, []),
+                new Dictionary<long, double> { [7] = UtcAtT0 + 510.25 });
 
             var events = File.ReadLines(Path.Combine(dir, "events.jsonl")).Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
             Assert.Equal(500.0, events[0]["video_time_ms"]!.GetValue<double>(), 1);
             Assert.Equal(30, events[0]["frame_index"]!.GetValue<int>());
             Assert.Null(events[1]["frame_index"]);
+            Assert.Equal(8, last);
+            Assert.Equal((long)((UtcAtT0 + 510.25) * 1000), events[0]["local_receive_time_us"]!.GetValue<long>());
+            Assert.Equal(UtcText.Iso(UtcAtT0 + 510.25), (string?)events[0]["local_receive_utc"]);
+            Assert.Equal((long)((start - 250) * 1000), events[0]["server_time_as_local_us"]!.GetValue<long>());
+            Assert.Null(events[1]["local_receive_time_us"]);
         }
         finally
         {

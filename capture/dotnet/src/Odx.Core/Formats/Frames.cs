@@ -17,14 +17,17 @@ public static class Frames
     public static readonly string[] C2wColumns =
         Enumerable.Range(0, 16).Select(i => $"C2W_M{i / 4}{i % 4}").ToArray();
     public static readonly string[] IntrinsicColumns = ["camera_fx", "camera_fy", "camera_cx", "camera_cy"];
-    public static readonly string[] DistortionColumns =
-        [.. Enumerable.Range(1, 6).Select(i => $"camera_radial_k{i}"), "camera_tangential_p1", "camera_tangential_p2"];
     public static readonly string[] InputColumns =
         ["input_keys", "input_actions", "input_mouse_buttons", "input_mouse_dx", "input_mouse_dy"];
+    /// <summary>
+    /// The client's multiplayer delivery (sample round 20261017-100551-2907ed-r03): spec v2 §1.1.3 without the distortion
+    /// columns, which games never fill.
+    /// </summary>
     public static readonly string[] Columns =
-        ["frame_id", "timestamp_ms", .. C2wColumns, "camera_model", .. IntrinsicColumns, .. DistortionColumns, .. InputColumns];
+        ["frame_id", "timestamp_ms", .. C2wColumns, "camera_model", .. IntrinsicColumns, .. InputColumns];
 
-    public static readonly string[] CameraModels = ["PINHOLE", "OPENCV", "OPENCV_FISHEYE"];
+    /// <summary>Written in lower case as in the client's multiplayer delivery; spec v2 §1.5.4 spells them in upper case.</summary>
+    public static readonly string[] CameraModels = ["pinhole", "opencv", "opencv_fisheye"];
 
     /// <summary>Spec v2 §1.5.5 wants null distinguished from an empty string, so it is written as this literal.</summary>
     public const string Null = "null";
@@ -89,10 +92,9 @@ public static class Frames
         yield return r.FrameId.ToString(CultureInfo.InvariantCulture);
         yield return r.TimestampMs.ToString(CultureInfo.InvariantCulture);
         for (int i = 0; i < 16; i++) yield return r.C2w is { } m ? FormatDouble(m[i / 4, i % 4]) : Null;
-        yield return r.CameraModel ?? Null;
+        yield return r.CameraModel?.ToLowerInvariant() ?? Null;
         var k = r.Intrinsics;
         foreach (double? v in new[] { k?.Fx, k?.Fy, k?.Cx, k?.Cy }) yield return v is double d ? FormatDouble(d) : Null;
-        foreach (var _ in DistortionColumns) yield return Null;
         yield return r.Input.Keys ?? Null;
         yield return r.Input.Actions ?? Null;
         yield return r.Input.MouseButtons ?? Null;

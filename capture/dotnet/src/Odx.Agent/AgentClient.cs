@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -40,6 +41,8 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
     private string? _profileWindow;
     private PacketCaptureSpec? _armedNetwork;
     private readonly object _gate = new();
+    /// <summary>When each game event's notice arrived, on this machine's Windows clock (Unix ms), by event_id.</summary>
+    private readonly ConcurrentDictionary<long, double> _eventReceipts = new();
     private ICaptureRun? _run;
     private string? _runSessionId, _startingSessionId, _stopReason;
     private CancellationTokenSource? _stopBeforeStart;
@@ -359,6 +362,9 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
                 if (options.AutoReady && !IsHost && me is { Ready: false, State: "idle" } && r.CurrentSession is null)
                     await SetReadyAsync(true, stop);
                 break;
+            case GameEvent g:
+                _eventReceipts[g.EventId] = (DateTime.UtcNow - DateTime.UnixEpoch).TotalMilliseconds;
+                break;
             case RoundFiles files:
                 lock (_gate) _unconfirmed.Remove(files.SessionId);
                 _ = Task.Run(() => KeepRoundFiles(files), CancellationToken.None);
@@ -442,7 +448,7 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
         try
         {
             run = startCapture(new CaptureOptions(options.OutputRoot, WindowToRecord(), _armed!.Fps, _profilePath, _timeServer,
-                NtpIntervalS: 1, DirName: s.SessionId));
+                NtpIntervalS: 1, DirName: s.SessionId, Player: new PlayerIdentity(options.PlayerId, options.Name)));
         }
         catch (Exception e)
         {
@@ -553,7 +559,8 @@ public sealed class AgentClient(AgentOptions options, Func<CaptureOptions, ICapt
             if (!Directory.Exists(kept)) return;
             string raw = CaptureFolder.RawFolder(kept);
             files.WriteTo(raw);
-            PlayerTimeline.WriteRoundEvents(kept, RoundRecord.Load(raw));
+            long last = PlayerTimeline.WriteRoundEvents(kept, RoundRecord.Load(raw), _eventReceipts);
+            foreach (long id in _eventReceipts.Keys.Where(id => id <= last)) _eventReceipts.TryRemove(id, out _);
             Manifest.Write(kept);
         }
         catch (Exception e) when (e is IOException or JsonException or FormatException or InvalidDataException)

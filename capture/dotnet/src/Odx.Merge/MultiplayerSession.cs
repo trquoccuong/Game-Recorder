@@ -206,13 +206,13 @@ public static class MultiplayerSession
         };
 
         bool present = File.Exists(Path.Combine(src, "frames.csv")) && File.Exists(CaptureFolder.Raw(src, "video_frames.csv")) &&
-                       File.Exists(Path.Combine(src, "session.json"));
+                       File.Exists(CaptureFolder.Find(src, "session.json"));
         checks.Add(new QaCheck("player.missing", "the player's built capture is there", present,
             present ? "frames.csv, video_frames.csv, session.json" : player.Error ?? "no built capture"));
         if (!present) return Finish(dst, info, player.PlayerId, checks);
 
-        foreach (string f in CaptureFiles.Where(f => File.Exists(f == "session.json" ? Path.Combine(src, f) : CaptureFolder.Raw(src, f))))
-            File.Copy(f == "session.json" ? Path.Combine(src, f) : CaptureFolder.Raw(src, f), Path.Combine(dst, "capture", f), true);
+        foreach (string f in CaptureFiles.Where(f => File.Exists(CaptureFolder.Find(src, f))))
+            File.Copy(CaptureFolder.Find(src, f), Path.Combine(dst, "capture", f), true);
         File.Copy(Path.Combine(src, "frames.csv"), Path.Combine(dst, "frames.csv"), true);
         foreach (string f in new[] { "video.mp4", SessionBuilder.KeyBindingsFile }.Where(f => File.Exists(Path.Combine(src, f))))
             File.Copy(Path.Combine(src, f), Path.Combine(dst, f), true);
@@ -220,7 +220,7 @@ public static class MultiplayerSession
         var v2 = SessionValidator.ValidateSession(src).Where(i => i.Severity == Issue.ErrorSeverity).ToList();
         checks.Add(new QaCheck("player.v2", "spec v2 §1.5 vendor checks", v2.Count == 0,
             v2.Count == 0 ? "no errors" : $"{v2.Count} error(s): {string.Join(", ", v2.Select(i => i.Rule).Distinct())}"));
-        var capture = JsonNode.Parse(File.ReadAllText(Path.Combine(src, "session.json")))!.AsObject();
+        var capture = JsonNode.Parse(File.ReadAllText(CaptureFolder.Find(src, "session.json")))!.AsObject();
         string recordingPath = CaptureFolder.Raw(src, "recording.json");
         var recording = File.Exists(recordingPath) ? JsonNode.Parse(File.ReadAllText(recordingPath))!.AsObject() : null;
         AddRecordingInfo(info, capture, recording, profile);

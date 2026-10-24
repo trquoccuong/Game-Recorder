@@ -81,7 +81,8 @@ internal static class Rules
         Err("camera.sparse_nulls", "v2 §1.5.3", Needs.Camera, d =>
             PerFrame(d, i => SessionData.CameraColumns.Any(c => d.Rows[i][c] == Frames.Null), "camera columns null mid-session")),
         Err("camera.model", "v2 §1.5.4", Needs.Camera, d =>
-            PerFrame(d, i => d.Rows[i]["camera_model"] is var m && m != Frames.Null && !Frames.CameraModels.Contains(m),
+            PerFrame(d, i => d.Rows[i]["camera_model"] is var m && m != Frames.Null &&
+                             !Frames.CameraModels.Contains(m, StringComparer.OrdinalIgnoreCase),
                 $"camera_model must be one of {string.Join(", ", Frames.CameraModels)}")),
         Err("c2w.bottom_row", "v2 §1.5.3", Needs.Camera, d =>
             PerFrame(d, i => d.C2w[i] is { } m && !(m[3, 0] == 0 && m[3, 1] == 0 && m[3, 2] == 0 && m[3, 3] == 1),

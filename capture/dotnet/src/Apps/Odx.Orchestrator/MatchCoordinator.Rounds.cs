@@ -13,7 +13,7 @@ public sealed partial class MatchCoordinator
         e["utc_ms"] ??= NtpResponder.NowUnixMs();
         double utc = GameEvents.UtcMs(e);
         string type = GameEvents.Type(e);
-        Stamp(e, utc);
+        Stamp(room, e, utc, effects);
         effects.Changed.Add(room);
 
         if (room.Current is { Counting: true } counting &&
@@ -44,11 +44,12 @@ public sealed partial class MatchCoordinator
         if (type == GameEvents.MatchEnd) room.MatchId = null;
     }
 
-    private void Stamp(JsonObject e, double utc)
+    private void Stamp(Room room, JsonObject e, double utc, Effects effects)
     {
         e["event_id"] = ++_eventId;
         e["utc"] = UtcText.Iso(utc);
         e["server_time_us"] = (long)Math.Round(utc * 1000);
+        foreach (var member in room.Members) effects.Sends.Add((member, new GameEvent(_eventId)));
     }
 
     private static void AddToRound(Room room, JsonObject e)
@@ -127,7 +128,7 @@ public sealed partial class MatchCoordinator
                 ["utc_ms"] = round.Record.StartUtcMs,
                 ["players"] = new JsonArray(round.Record.Players.Select(p => (JsonNode)p.PlayerId).ToArray()),
             };
-            Stamp(e, round.Record.StartUtcMs);
+            Stamp(round.Room, e, round.Record.StartUtcMs, effects);
             AddToRound(round.Room, e);
             effects.Changed.Add(round.Room);
         }
@@ -155,7 +156,7 @@ public sealed partial class MatchCoordinator
         StopServer(round, Stop.Cancelled, effects);
         var e = new JsonObject { ["type"] = "round_cancelled", ["utc_ms"] = utc, ["cancelled_session_id"] = round.Record.SessionId,
             ["reason"] = reason };
-        Stamp(e, utc);
+        Stamp(room, e, utc, effects);
         room.BetweenRounds.Add(e);
         effects.Cancelled.Add(round);
         effects.Changed.Add(room);

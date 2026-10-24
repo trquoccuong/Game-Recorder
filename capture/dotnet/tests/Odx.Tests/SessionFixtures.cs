@@ -138,7 +138,7 @@ public static class SessionFixtures
         ["session.duration_units"] = d => EditSession(d, s => s["duration_seconds"] = 4.0),
         ["session.duration_timestamps"] = d => EditSession(d, s => s["ended_at_utc"] = "2026-10-04T10:00:12Z"),
         ["session.frame_count_fps"] = d => EditSession(d, s => s["fps"] = 30),
-        ["frames.headers"] = d => EditRows(d, _ => Frames.Columns.Where(c => c != "camera_tangential_p2").ToList()),
+        ["frames.headers"] = d => EditRows(d, _ => Frames.Columns.Where(c => c != "input_mouse_buttons").ToList()),
         ["frames.row_count"] = d => EditSession(d, s => s["frame_count"] = NFrames - 1),
         ["frames.frame_id_sequence"] = d => EditRows(d, rows => rows[5]["frame_id"] = "7"),
         ["frames.timestamp_monotonic"] = d => EditRows(d, rows => rows[50]["timestamp_ms"] = rows[49]["timestamp_ms"]),

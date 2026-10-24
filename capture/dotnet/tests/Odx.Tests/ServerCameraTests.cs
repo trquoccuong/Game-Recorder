@@ -56,7 +56,7 @@ public class ServerCameraTests
             Math.Atan2(-Frames.ParseDouble(r["C2W_M12"]), -Frames.ParseDouble(r["C2W_M02"])) * 180 / Math.PI;
         Assert.Equal(180, Math.Abs(Yaw(rows[0])), 6);  // halfway from 170 to -170
         Assert.Equal(-170, Yaw(rows[1]), 6);
-        Assert.Equal("PINHOLE", rows[0]["camera_model"]);
+        Assert.Equal("pinhole", rows[0]["camera_model"]);
         Assert.Equal(Frames.Null, rows[2]["C2W_M00"]);  // between a living and a dead tick
         Assert.Equal(Frames.Null, rows[3]["C2W_M00"]);
         Assert.Equal(Frames.Null, rows[4]["C2W_M00"]);  // after the recording
