@@ -58,12 +58,13 @@ public class CaptureFolderTests
                 new Dictionary<long, double> { [7] = UtcAtT0 + 510.25 });
 
             var events = File.ReadLines(Path.Combine(dir, "events.jsonl")).Select(l => JsonNode.Parse(l)!.AsObject()).ToList();
-            Assert.Equal(500.0, events[0]["video_time_ms"]!.GetValue<double>(), 1);
-            Assert.Equal(30, events[0]["frame_index"]!.GetValue<int>());
-            Assert.Null(events[1]["frame_index"]);
+            Assert.Equal(500.0, events[0]["video_time_ms"]!.GetValue<double>(), 3);
+            Assert.Equal(["event_id", "type", "server_time_us", "local_receive_utc", "local_receive_time_us",
+                "server_time_as_local_us", "video_time_ms"], events[0].Select(kv => kv.Key));
+            Assert.Null(events[1]["utc_ms"]);
             Assert.Equal(8, last);
             Assert.Equal((long)((UtcAtT0 + 510.25) * 1000), events[0]["local_receive_time_us"]!.GetValue<long>());
-            Assert.Equal(UtcText.Iso(UtcAtT0 + 510.25), (string?)events[0]["local_receive_utc"]);
+            Assert.Equal(UtcText.IsoUs(UtcAtT0 + 510.25), (string?)events[0]["local_receive_utc"]);
             Assert.Equal((long)((start - 250) * 1000), events[0]["server_time_as_local_us"]!.GetValue<long>());
             Assert.Null(events[1]["local_receive_time_us"]);
         }

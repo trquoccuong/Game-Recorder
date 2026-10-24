@@ -47,7 +47,7 @@ public sealed partial class MatchCoordinator
     private void Stamp(Room room, JsonObject e, double utc, Effects effects)
     {
         e["event_id"] = ++_eventId;
-        e["utc"] = UtcText.Iso(utc);
+        e["utc"] = UtcText.IsoUs(utc);
         e["server_time_us"] = (long)Math.Round(utc * 1000);
         foreach (var member in room.Members) effects.Sends.Add((member, new GameEvent(_eventId)));
     }
