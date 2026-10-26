@@ -13,7 +13,7 @@ internal sealed record AudioInput(string SampleFormat, int SampleRate, int Chann
 
 /// <summary>
 /// Streams what one process tree plays (WASAPI process loopback: the game only, not voice chat, browsers or system
-/// sounds, on whatever device it plays) as PCM into a named pipe that the video's ffmpeg
+/// sounds, on whatever device it plays), or else the whole default playback device, as PCM into a named pipe that the video's ffmpeg
 /// muxes into video.mp4, with sample 0 at <see cref="SetOrigin"/> on the QPC clock (the first video grid tick).
 /// Packets are placed by their QPC position. WASAPI delivers nothing while nothing plays, so silence is written up to
 /// <see cref="LagMs"/> behind now: the audio keeps pace with the video and ffmpeg never waits for it. The device clock's
@@ -40,7 +40,10 @@ internal sealed class AudioLoopback : IDisposable
     private long _framesWritten;
 
     public AudioInput Input { get; }
-    public int ProcessId { get; }
+    /// <summary>The game process recorded; null when the whole default playback device is.</summary>
+    public int? ProcessId { get; }
+    /// <summary>The playback device recorded; null when only the game process is.</summary>
+    public string? Device { get; }
     public double? OriginMs => _originMs;
     /// <summary>Why audio stopped being written (ffmpeg closed the pipe).</summary>
     public string? Error { get; private set; }
@@ -61,13 +64,44 @@ internal sealed class AudioLoopback : IDisposable
             1_000_000, 0, format, Guid.Empty);
         _client.SetEventHandle(_packetReady.SafeWaitHandle.DangerousGetHandle());
         _capture = _client.AudioCaptureClient;
-
-        string name = "odx-audio-" + Guid.NewGuid().ToString("N");
-        _pipe = new NamedPipeServerStream(name, PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-        _connected = _pipe.WaitForConnectionAsync();
-        Input = new AudioInput("f32le", format.SampleRate, format.Channels, @"\\.\pipe\" + name);
+        (_pipe, _connected, Input) = OpenPipe("f32le", format);
         _thread = new Thread(Run) { IsBackground = true, Name = "audio loopback" };
     }
+
+    /// <summary>Everything the default playback device plays (voice chat and other apps included); polled every 10 ms.</summary>
+    /// <exception cref="NotSupportedException">The device's mix format is neither 32-bit float nor 16-bit PCM.</exception>
+    public AudioLoopback()
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        Device = device.FriendlyName;
+        _client = device.AudioClient;
+        var format = _client.MixFormat;
+        string sampleFormat = format switch
+        {
+            { BitsPerSample: 32 } when IsFloat(format) => "f32le",
+            { BitsPerSample: 16 } when !IsFloat(format) => "s16le",
+            _ => throw new NotSupportedException($"audio mix format {format} is not supported"),
+        };
+        _bytesPerFrame = format.BlockAlign;
+        _client.Initialize(AudioClientShareMode.Shared, AudioClientStreamFlags.Loopback, 1_000_000, 0, format, Guid.Empty);
+        _capture = _client.AudioCaptureClient;
+        (_pipe, _connected, Input) = OpenPipe(sampleFormat, format);
+        _thread = new Thread(Run) { IsBackground = true, Name = "audio loopback" };
+    }
+
+    private static (NamedPipeServerStream, Task, AudioInput) OpenPipe(string sampleFormat, WaveFormat format)
+    {
+        string name = "odx-audio-" + Guid.NewGuid().ToString("N");
+        var pipe = new NamedPipeServerStream(name, PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        return (pipe, pipe.WaitForConnectionAsync(), new AudioInput(sampleFormat, format.SampleRate, format.Channels, @"\\.\pipe\" + name));
+    }
+
+    private static readonly Guid SubtypeIeeeFloat = new("00000003-0000-0010-8000-00aa00389b71");  // KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+
+    private static bool IsFloat(WaveFormat format) =>
+        format.Encoding == WaveFormatEncoding.IeeeFloat ||
+        format is WaveFormatExtensible { SubFormat: var s } && s == SubtypeIeeeFloat;
 
     public void Start()
     {

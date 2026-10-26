@@ -1,11 +1,12 @@
 // odx record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder auto|x264|nvenc] [--ffmpeg <path>]
-//            [--cursor] [--audio] [--seconds N] [--stop-event <name>] [--json-status]
+//            [--cursor] [--audio [--audio-process <process name>]] [--seconds N] [--stop-event <name>] [--json-status]
 //
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
 // capture time (SystemRelativeTime), the same clock as odx input. Frames are resampled onto a constant-rate grid
 // (GridResampler) and piped to ffmpeg, so the MP4 is CFR and its frame N is row N of video_frames.csv. Writes:
-//   <dir>/video.mp4         CFR H.264, no B-frames; --audio (with --window): plus an AAC track of the game process's own
-//                           sound (not voice chat, browsers or other apps), sample 0 at video frame 0
+//   <dir>/video.mp4         CFR H.264, no B-frames; --audio: plus an AAC track, sample 0 at video frame 0, of the game
+//                           process's own sound (--audio-process, else the --window process; not voice chat, browsers or
+//                           other apps), or of everything the default playback device plays when no game process is known
 //   <dir>/video_frames.csv  frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate
 //   <dir>/recording.json    capture id, capture and screen size, fps, encoder, start time (UTC + QPC),
 //                           counts of duplicated/dropped frames, audio (null without --audio)
@@ -30,7 +31,7 @@ public static class RecordCommand
         if (opts is null)
         {
             Console.Error.WriteLine("usage: odx record --out <dir> (--window <process name> | --monitor) [--fps 60] " +
-                                    "[--encoder auto|x264|nvenc] [--ffmpeg <path>] [--cursor] [--audio] [--seconds N] [--stop-event <name>] [--json-status]");
+                                    "[--encoder auto|x264|nvenc] [--ffmpeg <path>] [--cursor] [--audio [--audio-process <process name>]] [--seconds N] [--stop-event <name>] [--json-status]");
             return 2;
         }
         if (!GraphicsCaptureSession.IsSupported())
@@ -115,8 +116,10 @@ public static class RecordCommand
         {
             try
             {
-                audio = new AudioLoopback(gameProcessId
-                    ?? throw new NotSupportedException("audio is recorded from the game process, so it needs --window"));
+                if (opts.AudioProcess is string audioProcess)
+                    gameProcessId = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(audioProcess)).FirstOrDefault()?.Id;
+                // No game process known: the whole playback device, voice chat and other apps included.
+                audio = gameProcessId is int pid ? new AudioLoopback(pid) : new AudioLoopback();
                 audio.Start();
             }
             catch (Exception e)
@@ -247,6 +250,7 @@ public static class RecordCommand
             audioMeta = new Dictionary<string, object?>
             {
                 ["process_id"] = audio.ProcessId,
+                ["device"] = audio.Device,
                 ["sample_rate"] = audio.Input.SampleRate,
                 ["channels"] = audio.Input.Channels,
                 ["start_qpc_ms"] = audio.OriginMs,
@@ -305,11 +309,11 @@ public static class RecordCommand
 }
 
 internal sealed record Options(string OutDir, string? Window, double Fps, string Encoder, string Ffmpeg, bool Cursor,
-    bool Audio, double? Seconds, string? StopEvent, bool JsonStatus)
+    bool Audio, string? AudioProcess, double? Seconds, string? StopEvent, bool JsonStatus)
 {
     public static Options? Parse(string[] args)
     {
-        string? outDir = null, window = null, encoder = "auto", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null;
+        string? outDir = null, window = null, encoder = "auto", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null, audioProcess = null;
         bool monitor = false, cursor = false, audio = false, jsonStatus = false;
         double fps = 60;
         double? seconds = null;
@@ -327,6 +331,7 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
                 case "--ffmpeg": ffmpeg = Next(); break;
                 case "--cursor": cursor = true; break;
                 case "--audio": audio = true; break;
+                case "--audio-process": audioProcess = Next(); break;
                 case "--seconds" when double.TryParse(Next(), System.Globalization.NumberStyles.Float, inv, out var s): seconds = s; break;
                 case "--stop-event": stopEvent = Next(); break;
                 case "--json-status": jsonStatus = true; break;
@@ -334,6 +339,6 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
             }
         }
         if (outDir is null || encoder is null || ffmpeg is null || (window is null) == !monitor || fps <= 0) return null;
-        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, audio, seconds, stopEvent, jsonStatus);
+        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, audio, audioProcess, seconds, stopEvent, jsonStatus);
     }
 }
