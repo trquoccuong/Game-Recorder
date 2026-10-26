@@ -105,6 +105,12 @@ Arma covers every SOW interaction type, including collisions and vehicle coopera
 
 **Server:** private dedicated server (Windows or Linux, SteamCMD 1874900), `"battlEye": false`, `crossPlatform: false`, `game.password` set, `visible: false`, `disableThirdPerson: false` (the client wants first- and third-person data, 2026-10-18), `-maxFPS 60`, the capture mod in `mods`; pinned build (auto-update off; clients on the same version).
 
+**Server profile files read by `TbrainCapture`** (`$profile:tbrain/`, on AWS `/opt/reforger/profile/profile/tbrain/`; copies in
+`capture/deploy/aws/reforger/`): `spawn_points.txt` (extra spawn points, [arma-reforger-spawn-points.md](./arma-reforger-spawn-points.md))
+and `settings.txt` (`time_of_day hh:mm` stops the clock, `invincible 1` for players;
+[arma-reforger-daytime-invincible.md](./arma-reforger-daytime-invincible.md)). No file = vanilla; editing one + restarting the
+server needs no new addon.
+
 **Pinned server builds (SteamDB depot manifests, 2026-10-19).** An old build is fetched by manifest; `download_depot` needs a
 Steam account (anonymous login fails with `missing license for depot (No subscription)`), any account works since the server app
 is free. Merge the data depot with one binary depot into one folder; on Linux, `chmod +x` the binaries.

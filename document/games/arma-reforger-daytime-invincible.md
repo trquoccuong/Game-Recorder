@@ -1,6 +1,6 @@
 # Arma Reforger: always day, invincible players (task)
 
-> Status: `to test` (API read from the online docs only; nothing built or run yet) ·
+> Status: `in progress` (built and tested on a local 1.6.0.68 server, §6; AWS deploy left) ·
 > Written 2026-10-26 · Back to [arma-reforger.md](./arma-reforger.md)
 > To be tested on a Windows PC with the game 1.6.0.68, a local command-line server and Arma Reforger Tools (Workbench).
 
@@ -201,4 +201,33 @@ class TBC_Settings
 
 ## 6. Results
 
-(to fill in after the test)
+Built: `TbrainCapture/scripts/Game/TbrainServerSettings.c` (§3, the draft with `time_of_day` parsed strictly: `hh:mm`,
+0–23, 0–59); deploy copy `capture/deploy/aws/reforger/settings.txt` (`time_of_day 10:00`, `invincible 1`).
+
+**§4 checked in the 1.6.0.68 sources** (`data*.pak`, 2026-10-26):
+
+1. `OnPlayerSpawned(int playerId, IEntity controlledEntity)` is `event protected` in `BaseGameMode`; it runs on the server
+   when a player spawns.
+2. `ChimeraWorld.CastFrom`, `GetTimeAndWeatherManager()`, `SetHoursMinutesSeconds(int, int, int, bool)`,
+   `SetIsDayAutoAdvanced(bool)` as in §2.
+3. Combat Ops Everon has `SCR_TimeAndWeatherHandlerComponent` with a random start time (`m_bRandomStartingDaytime`); it sets
+   the time in `OnWorldPostProcess`, before `OnGameStart()`, so no delay is needed.
+4. `SCR_SpawnProtectionComponent` turns damage handling back on after its protection time or when the player fires; the
+   Combat Ops game mode does not use it (damage stayed off, below). `SCR_DamageManagerComponent.Kill()` goes through
+   `HandleDamage`, so damage handling off blocks it too.
+
+**Local command-line server** (Windows, 1.6.0.68, a test-only script logging the clock every 20 s and the player's damage
+state, then calling `Kill()` 30 s after spawning; not in the repo):
+
+| Check | Result |
+|---|---|
+| `time_of_day 22:00` | Scenario started at 19:34; the clock went to 22:00 and stayed (`auto advanced false`) |
+| `time_of_day 10:00` | Scenario started at 06:08 (random start confirmed); 10:00 from 17:43 to 18:18 (35 min), daylight on the client that joined 25 min after start |
+| `invincible 1` | `TBC_Settings: player 1 invincible` on spawn; damage handling off at +2 s and +20 s, health 100 |
+| `Kill()` on the player | No death, health 100 |
+| Playing (user, 2026-10-26) | No death in play: OK |
+| Malformed line | `TBC_Settings: line 3 not understood: bogus line`; the other lines still applied |
+| Spawn points | Still 20 created; no script error from the addon |
+
+Not tested yet: respawn after a death (none happened), AI still dying (§5 step 5), no file (§5 step 6), camera log with
+odx-app (§5 step 7), AWS (§5 step 8).
