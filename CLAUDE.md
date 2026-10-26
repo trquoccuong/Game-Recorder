@@ -106,7 +106,8 @@ capture/
   guides/                         # How-to guides: multiplayer test setup (CS2 server, orchestrator, network, players)
 research/
   analyze-pose/                   # Standalone Python pose audit (numpy), not part of the product
-  reforger-camera-spike/          # Arma Reforger camera spike: Enforce Script logger mod + analyze.py (layout, FOV, clock),
+  reforger-camera-spike/          # Arma Reforger camera spike: Enforce Script logger mod + analyze.py (layout, FOV, clock)
+  reforger-spawn-survey/          # Everon terrain survey mod + picker behind capture/deploy/aws/reforger/spawn_points.txt,
                                   #   launcher/OdxReforger: net48 exe that installs the mod and starts the game
 ```
 

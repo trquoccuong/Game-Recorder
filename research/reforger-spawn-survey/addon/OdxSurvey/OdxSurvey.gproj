@@ -1,0 +1,12 @@
+GameProject {
+ ID "OdxSurvey"
+ GUID "6E3F2C9A41B7D805"
+ TITLE "Odx Spawn Survey"
+ Dependencies {
+  "58D0FB3206B6F859"
+ }
+ Configurations {
+  GameProjectConfig PC {
+  }
+ }
+}
