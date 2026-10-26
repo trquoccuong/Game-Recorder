@@ -169,6 +169,7 @@ failed with `handshake timeout`. The client's own manifests (app 1874880) are no
 - Does a client started the normal way (Steam → `ArmaReforger_BE.exe -exe ArmaReforgerSteam.exe`, BattlEye loaded) join a `battlEye: false` server and keep a local mod, and does BattlEye leave `odx input` / `odx record` alone? Spike (2026-10-18) only covered the client started as `ArmaReforgerSteam.exe` directly, without BattlEye (see §5, "Spike: servers and BattlEye").
 - Virtual LAN across two PCs: latency (direct vs relay), Windows Firewall on the virtual adapter (Public profile), MTU, and `pktmon` capturing on the ZeroTier adapter. The 2026-10-19 test ran on one PC.
 - Command-line server: does a client with no internet start and join? Is third person on by default per scenario?
+- Extra spawn points (~10 on Everon) through `TbrainCapture`, and whether to add invincibility: task in [arma-reforger-spawn-points.md](./arma-reforger-spawn-points.md).
 - Default PC bindings: third-party lists disagree (e.g. "Perform Action" on `Y` vs `F`); confirm in the game's Controls menu and record the bindings each player actually uses.
 
 ## 8. Sources
