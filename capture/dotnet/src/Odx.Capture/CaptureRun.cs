@@ -9,7 +9,7 @@ namespace Odx.Capture;
 /// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>
 /// <param name="NtpServer">Passed to odx input --ntp; null or empty measures nothing (Windows clock only).</param>
 /// <param name="NtpIntervalS">Seconds between NTP samples; agents use 1 s against the orchestrator on the LAN.</param>
-/// <param name="Audio">Also record what the PC plays, as video.mp4's audio track (odx record --audio).</param>
+/// <param name="Audio">Also record the game process's own sound, as video.mp4's audio track (odx record --audio).</param>
 /// <param name="Player">Named in player.json; null outside a room.</param>
 public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer,
     int NtpIntervalS = 15, string? DirName = null, bool Audio = false, PlayerIdentity? Player = null);
