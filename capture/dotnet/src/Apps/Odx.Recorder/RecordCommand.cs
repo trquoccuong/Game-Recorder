@@ -4,8 +4,8 @@
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
 // capture time (SystemRelativeTime), the same clock as odx input. Frames are resampled onto a constant-rate grid
 // (GridResampler) and piped to ffmpeg, so the MP4 is CFR and its frame N is row N of video_frames.csv. Writes:
-//   <dir>/video.mp4         CFR H.264, no B-frames; --audio: plus an AAC track of what the default playback device plays,
-//                           sample 0 at video frame 0
+//   <dir>/video.mp4         CFR H.264, no B-frames; --audio (with --window): plus an AAC track of the game process's own
+//                           sound (not voice chat, browsers or other apps), sample 0 at video frame 0
 //   <dir>/video_frames.csv  frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate
 //   <dir>/recording.json    capture id, capture and screen size, fps, encoder, start time (UTC + QPC),
 //                           counts of duplicated/dropped frames, audio (null without --audio)
@@ -43,6 +43,7 @@ public static class RecordCommand
         CaptureInterop.UsePhysicalPixels();
         GraphicsCaptureItem item;
         IntPtr monitor, window = IntPtr.Zero;
+        int? gameProcessId = null;
         if (opts.Window is string processName)
         {
             var proc = Process.GetProcessesByName(Path.GetFileNameWithoutExtension(processName))
@@ -53,6 +54,7 @@ public static class RecordCommand
                 return 1;
             }
             window = proc.MainWindowHandle;
+            gameProcessId = proc.Id;
             item = CaptureInterop.ItemForWindow(window);
             monitor = CaptureInterop.MonitorOf(window);
         }
@@ -113,7 +115,8 @@ public static class RecordCommand
         {
             try
             {
-                audio = new AudioLoopback();
+                audio = new AudioLoopback(gameProcessId
+                    ?? throw new NotSupportedException("audio is recorded from the game process, so it needs --window"));
                 audio.Start();
             }
             catch (Exception e)
@@ -240,7 +243,7 @@ public static class RecordCommand
             if (audio.Error is not null) Console.Error.WriteLine($"audio: {audio.Error}");
             audioMeta = new Dictionary<string, object?>
             {
-                ["device"] = audio.Device,
+                ["process_id"] = audio.ProcessId,
                 ["sample_rate"] = audio.Input.SampleRate,
                 ["channels"] = audio.Input.Channels,
                 ["start_qpc_ms"] = audio.OriginMs,
