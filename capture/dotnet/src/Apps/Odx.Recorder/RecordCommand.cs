@@ -239,7 +239,10 @@ public static class RecordCommand
         object? audioMeta = audioError is null ? null : new Dictionary<string, object?> { ["error"] = audioError };
         if (audio is not null)
         {
-            audio.Finish(stopQpcMs);  // before encoder.Finish: ffmpeg ends once both of its inputs have
+            // Video ends first: ffmpeg stops reading the audio pipe while it waits for video, so audio's final padding would
+            // block forever. Both inputs must end before encoder.Finish waits for ffmpeg to exit.
+            encoder.EndVideo();
+            audio.Finish(stopQpcMs);
             if (audio.Error is not null) Console.Error.WriteLine($"audio: {audio.Error}");
             audioMeta = new Dictionary<string, object?>
             {
