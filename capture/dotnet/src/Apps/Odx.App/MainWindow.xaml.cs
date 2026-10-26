@@ -240,7 +240,7 @@ public partial class MainWindow : Window
     {
         _settings.WindowProcess = (SourceBox.SelectedItem as SourceItem)?.Process;
         _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
-        _settings.Fps = FpsBox.SelectedItem as int? ?? 60;
+        _settings.Fps = FpsBox.SelectedItem as int? ?? 30;
         _settings.RecordAudio = AudioBox.IsChecked == true;
         _settings.PlayerId = PlayerBox.Text.Trim();
         _settings.Save();

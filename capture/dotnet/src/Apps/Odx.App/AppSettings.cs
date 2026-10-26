@@ -13,7 +13,7 @@ public sealed class AppSettings
 
     /// <summary>Process name passed to odx record --window; null records the primary monitor.</summary>
     public string? WindowProcess { get; set; }
-    public int Fps { get; set; } = 60;
+    public int Fps { get; set; } = 30;
     public bool RecordAudio { get; set; }
     /// <summary>"en" or "vi"; null follows the Windows display language.</summary>
     public string? Language { get; set; }
