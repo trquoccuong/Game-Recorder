@@ -136,7 +136,7 @@ public sealed class Strings
         LeaveRoom = "Leave room",
         CloseRoom = "Close room",
         AudioOption = "Record audio",
-        AudioTooltip = "Also record the game's sound into the video (only the game: no voice chat, browser or other apps; Windows 11)",
+        AudioTooltip = "Also record the game's sound into the video (only the game, no voice chat or other apps, when the window or the game profile names its process; otherwise everything this PC plays)",
         LanOption = "LAN (ZeroTier)",
         LanTooltip = "Create the room with a virtual LAN, for games that only play over LAN (e.g. Warcraft III): everyone in the room is on one LAN",
         LanStatus = lan => lan.Status switch
@@ -234,7 +234,7 @@ public sealed class Strings
         LeaveRoom = "Rời room",
         CloseRoom = "Đóng room",
         AudioOption = "Ghi âm thanh",
-        AudioTooltip = "Ghi tiếng game vào video (chỉ tiếng game, không có voice chat, trình duyệt hay app khác; cần Windows 11)",
+        AudioTooltip = "Ghi tiếng game vào video (chỉ tiếng game, không có voice chat hay app khác, khi biết process của game qua cửa sổ hoặc profile game; nếu không thì ghi mọi âm thanh máy này phát ra)",
         LanOption = "LAN (ZeroTier)",
         LanTooltip = "Tạo room có mạng LAN ảo, cho game chỉ chơi được qua LAN (vd. Warcraft III): mọi người trong room chung một mạng LAN",
         LanStatus = lan => lan.Status switch

@@ -9,7 +9,8 @@ namespace Odx.Capture;
 /// <param name="GameProfile">Game profile JSON used to build the session after recording; null skips the build.</param>
 /// <param name="NtpServer">Passed to odx input --ntp; null or empty measures nothing (Windows clock only).</param>
 /// <param name="NtpIntervalS">Seconds between NTP samples; agents use 1 s against the orchestrator on the LAN.</param>
-/// <param name="Audio">Also record the game process's own sound, as video.mp4's audio track (odx record --audio).</param>
+/// <param name="Audio">Also record the game process's own sound (the window's, else the profile's window_process), or
+/// everything the PC plays when neither is known, as video.mp4's audio track (odx record --audio).</param>
 /// <param name="Player">Named in player.json; null outside a room.</param>
 public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer,
     int NtpIntervalS = 15, string? DirName = null, bool Audio = false, PlayerIdentity? Player = null);
@@ -70,7 +71,8 @@ public sealed class CaptureRun : ICaptureRun
         _gameProfile = options.GameProfile;
         _player = options.Player;
         Directory.CreateDirectory(SessionDir);
-        if (CameraSource(options.GameProfile) == ReforgerCamera.Source)
+        var profile = TryLoadProfile(options.GameProfile);
+        if (profile?.CameraSource == ReforgerCamera.Source)
         {
             _reforgerDir = ReforgerCamera.OdxDir();
             try
@@ -94,6 +96,9 @@ public sealed class CaptureRun : ICaptureRun
             "--stop-event", stopName, "--json-status" };
         recordArgs.AddRange(options.WindowProcess is string p ? ["--window", p] : ["--monitor"]);
         if (options.Audio) recordArgs.Add("--audio");
+        // Recording the monitor: the profile still names the game, so only its sound is recorded.
+        if (options.Audio && options.WindowProcess is null && profile?.WindowProcess is string game)
+            recordArgs.AddRange(["--audio-process", game]);
         Process record;
         try
         {
@@ -181,13 +186,13 @@ public sealed class CaptureRun : ICaptureRun
         return new RunResult(SessionDir, captureOk, status, inputEvents, errors, build);
     }
 
-    /// <summary>The profile's camera_source; an unreadable profile is reported when the session is built.</summary>
-    private static string? CameraSource(string? profile)
+    /// <summary>Null without a profile; an unreadable profile is reported when the session is built.</summary>
+    private static GameProfile? TryLoadProfile(string? profile)
     {
         if (profile is null) return null;
         try
         {
-            return GameProfile.Load(profile).CameraSource;
+            return GameProfile.Load(profile);
         }
         catch (Exception e) when (e is IOException or FormatException or JsonException or InvalidOperationException)
         {
