@@ -98,7 +98,8 @@ listens on 2001. A client joining it saw both points on the deploy map once they
 Asked for 20 points spread evenly over the map, instead of 10 picked by hand.
 [`capture/deploy/aws/reforger/spawn_points.txt`](../../capture/deploy/aws/reforger/spawn_points.txt), made by:
 
-1. A temporary survey addon (not kept) on the local server: every 100 m over the world bounds (15 748 samples), keep a point
+1. A survey addon ([`research/reforger-spawn-survey`](../../research/reforger-spawn-survey/README.md): addon, picker, map,
+   and the survey data) on the local server: every 100 m over the world bounds (15 748 samples), keep a point
    when the terrain is ≥ 3 m above the ocean, a downward trace (entities, world, ocean) from 60 m above hits nothing above the
    ground (no building, tree, rock), the surface normal is within ~22° of vertical and the terrain within ±6 m varies by
    ≤ 2 m: 2919 points.
