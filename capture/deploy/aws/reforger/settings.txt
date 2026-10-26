@@ -1,0 +1,5 @@
+# OdxCapture server settings (document/games/arma-reforger-daytime-invincible.md), copied to $profile:odx/
+# hours:minutes, the clock stays there; no line = the scenario's own (random) start time and day cycle
+time_of_day 10:00
+# 1 = player characters take no damage; deaths are combat data for the client, so real rounds only once agreed
+invincible 1
