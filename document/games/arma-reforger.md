@@ -108,7 +108,7 @@ Arma covers every SOW interaction type, including collisions and vehicle coopera
 **Server profile files read by `TbrainCapture`** (`$profile:tbrain/`, on AWS `/opt/reforger/profile/profile/tbrain/`; copies in
 `capture/deploy/aws/reforger/`): `spawn_points.txt` (extra spawn points, [arma-reforger-spawn-points.md](./arma-reforger-spawn-points.md))
 and `settings.txt` (`time_of_day hh:mm` stops the clock, `invincible 1` for players;
-[arma-reforger-daytime-invincible.md](./arma-reforger-daytime-invincible.md)). No file = vanilla; editing one + restarting the
+[arma-reforger-daytime-invincible.md](./arma-reforger-daytime-invincible.md); `ai 0` for no AI, [arma-reforger-no-ai.md](./arma-reforger-no-ai.md)). No file = vanilla; editing one + restarting the
 server needs no new addon.
 
 **Pinned server builds (SteamDB depot manifests, 2026-10-19).** An old build is fetched by manifest; `download_depot` needs a
@@ -177,6 +177,7 @@ failed with `handshake timeout`. The client's own manifests (app 1874880) are no
 - Command-line server: does a client with no internet start and join? Is third person on by default per scenario?
 - Extra spawn points (~10 on Everon) through `TbrainCapture`, and whether to add invincibility: task in [arma-reforger-spawn-points.md](./arma-reforger-spawn-points.md).
 - Always day and invincible players on the test server (script, settings file): task in [arma-reforger-daytime-invincible.md](./arma-reforger-daytime-invincible.md).
+- No AI on the test server, to lower its load (settings file): task in [arma-reforger-no-ai.md](./arma-reforger-no-ai.md).
 - Default PC bindings: third-party lists disagree (e.g. "Perform Action" on `Y` vs `F`); confirm in the game's Controls menu and record the bindings each player actually uses.
 
 ## 8. Sources

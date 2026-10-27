@@ -3,3 +3,5 @@
 time_of_day 10:00
 # 1 = player characters take no damage; deaths are combat data for the client, so real rounds only once agreed
 invincible 1
+# 0 = no AI characters on the map, less load on the server (document/games/arma-reforger-no-ai.md)
+ai 0
