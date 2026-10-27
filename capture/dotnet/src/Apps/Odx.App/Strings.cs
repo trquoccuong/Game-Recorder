@@ -70,7 +70,7 @@ public sealed class Strings
     public required string TrayStop { get; init; }
 
     public required string Ready { get; init; }
-    public required Func<bool, string> ReadyWithEncoder { get; init; }
+    public required Func<string, string> ReadyWithEncoder { get; init; }
     public required Func<int, string> CountdownStatus { get; init; }
     public required string Cancelled { get; init; }
     public required string StartingCapture { get; init; }
@@ -165,7 +165,12 @@ public sealed class Strings
         TrayCancel = "Cancel",
         TrayStop = "Stop recording",
         Ready = "Ready",
-        ReadyWithEncoder = gpu => gpu ? "Ready · video encoder: NVENC (GPU)" : "Ready · video encoder: x264 (CPU; NVENC not available here)",
+        ReadyWithEncoder = encoder => encoder switch
+        {
+            "nvenc" => "Ready · video encoder: NVENC (GPU)",
+            "mf" => "Ready · video encoder: Media Foundation (GPU)",
+            _ => "Ready · video encoder: x264 (CPU; no GPU encoder available here)",
+        },
         CountdownStatus = n => $"Recording starts in {n}…",
         Cancelled = "Cancelled",
         StartingCapture = "Starting capture…",
@@ -263,7 +268,12 @@ public sealed class Strings
         TrayCancel = "Hủy",
         TrayStop = "Dừng ghi",
         Ready = "Sẵn sàng",
-        ReadyWithEncoder = gpu => gpu ? "Sẵn sàng · mã hóa video: NVENC (GPU)" : "Sẵn sàng · mã hóa video: x264 (CPU; máy này không dùng được NVENC)",
+        ReadyWithEncoder = encoder => encoder switch
+        {
+            "nvenc" => "Sẵn sàng · mã hóa video: NVENC (GPU)",
+            "mf" => "Sẵn sàng · mã hóa video: Media Foundation (GPU)",
+            _ => "Sẵn sàng · mã hóa video: x264 (CPU; máy này không có bộ mã hóa GPU)",
+        },
         CountdownStatus = n => $"Bắt đầu ghi sau {n}…",
         Cancelled = "Đã hủy",
         StartingCapture = "Đang khởi động ghi…",

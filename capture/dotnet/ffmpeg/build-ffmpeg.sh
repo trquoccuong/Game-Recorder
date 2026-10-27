@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the minimal static ffmpeg.exe that `odx record` needs, in an MSYS2 UCRT64 shell:
-#   raw BGRA frames on a pipe -> crop -> libx264 or h264_nvenc -> MP4 file.
+#   raw NV12 frames on a pipe -> libx264, h264_nvenc or h264_mf (Media Foundation: Intel Quick Sync, AMD) -> MP4 file.
 # Everything else (other codecs, demuxers, filters, network, ffprobe, ffplay) is left out: ~100 MB -> a few MB.
 #
 #   bash build-ffmpeg.sh <out_dir>
@@ -54,8 +54,8 @@ CONFIGURE=(
     --extra-cflags="-I$PREFIX/include" --extra-ldflags="-L$PREFIX/lib -static"
     --disable-everything --disable-autodetect --disable-doc --disable-debug --disable-network
     --disable-ffplay --disable-ffprobe
-    --enable-gpl --enable-libx264 --enable-ffnvcodec --enable-nvenc
-    --enable-encoder=libx264,h264_nvenc,aac
+    --enable-gpl --enable-libx264 --enable-ffnvcodec --enable-nvenc --enable-mediafoundation --enable-d3d11va  # mfenc.c needs d3d11va
+    --enable-encoder=libx264,h264_nvenc,h264_mf,aac
     --enable-demuxer=rawvideo,pcm_f32le,pcm_s16le --enable-decoder=rawvideo,pcm_f32le,pcm_s16le
     --enable-muxer=mp4 --enable-protocol=file,pipe,fd  # ffmpeg 9 reads '-i -' through fd:, not pipe:
     --enable-filter=buffer,buffersink,crop,scale,format,null,fps,abuffer,abuffersink,aformat,aresample,anull

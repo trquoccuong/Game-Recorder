@@ -679,7 +679,7 @@ public partial class MainWindow : Window
     private async Task CheckEncoderAsync()
     {
         string encoder = await Task.Run(() => EncoderChoice.Resolve(ExternalTools.Ffmpeg(), "auto"));
-        if (_state == RunState.Idle && StatusText.Text == _t.Ready) SetStatus(t => t.ReadyWithEncoder(encoder == "nvenc"));
+        if (_state == RunState.Idle && StatusText.Text == _t.Ready) SetStatus(t => t.ReadyWithEncoder(encoder));
     }
 
     private async Task RefreshWindowsAsync()
