@@ -4,10 +4,11 @@ using Odx.Core;
 
 namespace Odx.Capture;
 
-/// <summary>frames.bin of a player's round folder (client_mp.proto): frames.csv at full precision plus server time.</summary>
+/// <summary>frames_bin.bin of a player's round folder (client_mp.proto): frames.csv at full precision plus server time.</summary>
 public static class ClientFramesBin
 {
-    public const string FileName = "frames.bin";
+    /// <summary>As in the delivered player folder AMRF-100-S01 (2026-10-27); spec v3 §1 names it frames.bin.</summary>
+    public const string FileName = "frames_bin.bin";
 
     /// <param name="timestampsMs">Unrounded ms since frame 0, one per row.</param>
     /// <param name="frameUtcMs">UTC of each frame on the session's clock (the orchestrator's time service in a room).</param>

@@ -8,11 +8,12 @@ public static class CaptureFolder
 {
     public const string RawDir = "raw";
     /// <summary>
-    /// As in the client's multiplayer delivery (sample round 20261017-100551-2907ed-r03), plus key_bindings.json; the spec v2
-    /// session.json goes to raw/, its fields are in player.json.
+    /// As in the delivered player folder AMRF-100-S01 (2026-10-27): the client's multiplayer delivery (sample round
+    /// 20261017-100551-2907ed-r03) plus key_bindings.json and the spec v2 session.json.
     /// </summary>
     public static readonly string[] Delivered =
-        ["video.mp4", PlayerFile.FileName, "frames.csv", ClientFramesBin.FileName, "events.jsonl", SessionBuilder.KeyBindingsFile];
+        ["video.mp4", PlayerFile.FileName, "session.json", "frames.csv", ClientFramesBin.FileName, "events.jsonl",
+         SessionBuilder.KeyBindingsFile];
 
     /// <summary>Where raw files are: raw/ once the folder is tidied, else the folder itself.</summary>
     public static string RawFolder(string dir)
@@ -23,8 +24,7 @@ public static class CaptureFolder
 
     public static string Raw(string dir, string name) => Path.Combine(RawFolder(dir), name);
 
-    /// <summary>A file at the top of the folder, else in raw/: session.json is on top until the folder is tidied, and stays
-    /// there in folders tidied by 0.1.6 and earlier.</summary>
+    /// <summary>A file at the top of the folder, else in raw/: folders tidied by 0.1.7 to 0.1.12 have session.json in raw/.</summary>
     public static string Find(string dir, string name) =>
         Path.Combine(dir, name) is var top && File.Exists(top) ? top : Raw(dir, name);
 

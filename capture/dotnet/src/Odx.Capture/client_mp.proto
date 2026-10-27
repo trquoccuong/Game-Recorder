@@ -1,4 +1,4 @@
-// frames.bin of a player's round folder, in the format of the client's multiplayer delivery (sample round
+// frames_bin.bin of a player's round folder, in the format of the client's multiplayer delivery (sample round
 // 20261017-100551-2907ed-r03). No schema came with it: the field numbers and types are read off that sample's bytes, and
 // 12 and 13 never occur there. The file is a sequence of varint length-delimited messages: a FileHeader, then one
 // FrameRecord per frame of video.mp4.
