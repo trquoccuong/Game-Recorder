@@ -82,6 +82,9 @@ public partial class MainWindow : Window
         FpsBox.ItemsSource = new[] { 30, 60 };
         FpsBox.SelectedItem = _settings.Fps;
         AudioBox.IsChecked = _settings.RecordAudio;
+        ObsBox.IsChecked = _settings.RecordWithObs;
+        ObsAddressBox.Text = _settings.ObsAddress;
+        ObsPasswordBox.Password = _settings.ObsPassword ?? "";
         HotkeyBox.Text = _settings.Hotkey.ToString();
         PlayerBox.Text = _settings.PlayerId;
         var roomRows = _config.Orchestrator is null ? Visibility.Collapsed : Visibility.Visible;
@@ -114,6 +117,11 @@ public partial class MainWindow : Window
         RoomLabel.Content = _t.Room;
         AudioBox.Content = _t.AudioOption;
         AudioBox.ToolTip = _t.AudioTooltip;
+        ObsLabel.Content = _t.Video;
+        ObsBox.Content = _t.ObsOption;
+        ObsBox.ToolTip = _t.ObsTooltip;
+        ObsAddressBox.ToolTip = _t.ObsAddressTooltip;
+        ObsPasswordBox.ToolTip = _t.ObsPasswordTooltip;
         LanBox.Content = _t.LanOption;
         LanBox.ToolTip = _t.LanTooltip;
         RoomBox.ToolTip = _t.RoomTooltip;
@@ -242,9 +250,14 @@ public partial class MainWindow : Window
         _settings.GameProfile = (GameBox.SelectedItem as GameItem)?.Path;
         _settings.Fps = FpsBox.SelectedItem as int? ?? 30;
         _settings.RecordAudio = AudioBox.IsChecked == true;
+        _settings.RecordWithObs = ObsBox.IsChecked == true;
+        _settings.ObsAddress = ObsAddressBox.Text.Trim();
+        _settings.ObsPassword = ObsPasswordBox.Password.Length > 0 ? ObsPasswordBox.Password : null;
         _settings.PlayerId = PlayerBox.Text.Trim();
         _settings.Save();
     }
+
+    private void Obs_Click(object sender, RoutedEventArgs e) => SetState(_state);
 
     private void Toggle()
     {
@@ -286,7 +299,11 @@ public partial class MainWindow : Window
             RunState.Stopping => _t.Stopping,
             _ => _t.TrayStop,
         };
-        SourceBox.IsEnabled = GameBox.IsEnabled = FpsBox.IsEnabled = AudioBox.IsEnabled = HotkeyBox.IsEnabled = idle;
+        SourceBox.IsEnabled = GameBox.IsEnabled = HotkeyBox.IsEnabled = ObsBox.IsEnabled = idle;
+        // With OBS, its own frame rate and audio settings apply.
+        bool obs = ObsBox.IsChecked == true;
+        FpsBox.IsEnabled = AudioBox.IsEnabled = idle && !obs;
+        ObsAddressBox.IsEnabled = ObsPasswordBox.IsEnabled = idle && obs;
         LanguageBox.IsEnabled = PlayerBox.IsEnabled = idle;
         bool inRoom = state == RunState.Agent && _agent?.Room is not null;
         RoomBox.Visibility = inRoom ? Visibility.Visible : Visibility.Collapsed;
@@ -636,7 +653,7 @@ public partial class MainWindow : Window
     /// <summary>AgentClient calls this off the UI thread when the orchestrator starts a round.</summary>
     private ICaptureRun StartAgentCapture(CaptureOptions options)
     {
-        var run = CaptureRun.Start(options with { Audio = _settings.RecordAudio });
+        var run = CaptureRun.Start(options with { Audio = _settings.RecordAudio, Obs = _settings.Obs });
         Dispatcher.Invoke(() =>
         {
             _run = run;

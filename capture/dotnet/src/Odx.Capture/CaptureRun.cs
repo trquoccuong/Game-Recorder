@@ -12,8 +12,13 @@ namespace Odx.Capture;
 /// <param name="Audio">Also record the game process's own sound (the window's, else the profile's window_process), or
 /// everything the PC plays when neither is known, as video.mp4's audio track (odx record --audio).</param>
 /// <param name="Player">Named in player.json; null outside a room.</param>
+/// <param name="Obs">Record the video with the player's OBS (odx record --obs) instead of Windows.Graphics.Capture; OBS's
+/// own frame rate and audio settings apply.</param>
 public sealed record CaptureOptions(string OutputRoot, string? WindowProcess, int Fps, string? GameProfile, string? NtpServer,
-    int NtpIntervalS = 15, string? DirName = null, bool Audio = false, PlayerIdentity? Player = null);
+    int NtpIntervalS = 15, string? DirName = null, bool Audio = false, PlayerIdentity? Player = null, ObsConnection? Obs = null);
+
+/// <param name="Address">host:port of OBS's WebSocket server.</param>
+public sealed record ObsConnection(string Address, string? Password);
 
 /// <param name="Recording">odx record's final status (frame counts); null if it never reported one.</param>
 /// <param name="ToolErrors">stderr lines of the capture tools (warnings such as an unreachable NTP server included).</param>
@@ -99,10 +104,11 @@ public sealed class CaptureRun : ICaptureRun
         // Recording the monitor: the profile still names the game, so only its sound is recorded.
         if (options.Audio && options.WindowProcess is null && profile?.WindowProcess is string game)
             recordArgs.AddRange(["--audio-process", game]);
+        if (options.Obs is { } obs) recordArgs.AddRange(["--obs", obs.Address]);
         Process record;
         try
         {
-            record = Launch("record", recordArgs, line =>
+            record = Launch("record", recordArgs, env: options.Obs?.Password, onStdout: line =>
             {
                 if (RecorderStatus.TryParse(line) is not { } status) return;
                 Volatile.Write(ref _lastStatus, status);
@@ -121,7 +127,8 @@ public sealed class CaptureRun : ICaptureRun
 
     public void Stop() => _stop.Set();
 
-    private Process Launch(string command, IEnumerable<string> args, Action<string>? onStdout = null)
+    /// <param name="env">The OBS password, passed in the environment so that no other process sees it on a command line.</param>
+    private Process Launch(string command, IEnumerable<string> args, string? env = null, Action<string>? onStdout = null)
     {
         var psi = new ProcessStartInfo(ExternalTools.Odx())
         {
@@ -132,6 +139,7 @@ public sealed class CaptureRun : ICaptureRun
         };
         psi.ArgumentList.Add(command);
         foreach (var a in args) psi.ArgumentList.Add(a);
+        if (!string.IsNullOrEmpty(env)) psi.Environment["ODX_OBS_PASSWORD"] = env;
         var proc = Process.Start(psi)!;
         proc.ErrorDataReceived += (_, e) =>
         {
