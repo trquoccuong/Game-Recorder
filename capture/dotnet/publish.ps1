@@ -83,6 +83,21 @@ $ffmpegDir = Join-Path $bin 'ffmpeg'
 New-Item -ItemType Directory -Force $ffmpegDir | Out-Null
 Copy-Item (Join-Path $ffmpegBuild '*') $ffmpegDir
 
+# Smoke test: odx record encodes raw NV12 into an MP4, and odx record --obs remuxes a recording (here that MP4).
+$smoke = Join-Path ([IO.Path]::GetTempPath()) "odx-ffmpeg-smoke-$PID"
+New-Item -ItemType Directory -Force $smoke | Out-Null
+try {
+    $ffmpegExe = Join-Path $ffmpegDir 'ffmpeg.exe'
+    [IO.File]::WriteAllBytes("$smoke\frames.nv12", (New-Object byte[] (64 * 64 * 3 / 2 * 10)))
+    & $ffmpegExe -v error -y -f rawvideo -pix_fmt nv12 -s 64x64 -framerate 30 -i "$smoke\frames.nv12" -c:v libx264 "$smoke\a.mp4"
+    if ($LASTEXITCODE -ne 0) { throw 'bundled ffmpeg cannot encode raw NV12 to MP4' }
+    & $ffmpegExe -v error -y -i "$smoke\a.mp4" -map 0:v:0 -c copy -movflags +faststart "$smoke\b.mp4"
+    if ($LASTEXITCODE -ne 0) { throw 'bundled ffmpeg cannot remux an MP4 (odx record --obs)' }
+}
+finally {
+    Remove-Item -Recurse -Force $smoke
+}
+
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $packageZip = Join-Path $dist "$name.zip"
 if (Test-Path $packageZip) { Remove-Item -Force $packageZip }

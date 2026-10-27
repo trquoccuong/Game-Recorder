@@ -24,6 +24,13 @@ public sealed record GameItem(string Label, string? Path, string? WindowProcess 
     public override string ToString() => Label;
 }
 
+/// <summary>What the OBS test found: OBS's output against spec v3 §2 (1080p target, 720p/30 floor).</summary>
+public sealed record ObsCheck(string Version, int Width, int Height, double Fps, bool Recording)
+{
+    public bool BelowFloor => Width < 1280 || Height < 720 || Fps < 30;
+    public bool BelowTarget => Width < 1920 || Height < 1080;
+}
+
 public partial class MainWindow : Window
 {
     private const int WM_HOTKEY = 0x0312;
@@ -122,6 +129,11 @@ public partial class MainWindow : Window
         ObsBox.ToolTip = _t.ObsTooltip;
         ObsAddressBox.ToolTip = _t.ObsAddressTooltip;
         ObsPasswordBox.ToolTip = _t.ObsPasswordTooltip;
+        ObsTestButton.Content = _t.ObsTest;
+        ObsConnectionLabel.Content = _t.ObsConnection;
+        ObsAddressLabel.Text = _t.ObsAddress;
+        ObsPasswordLabel.Text = _t.ObsPassword;
+        ObsTestButton.ToolTip = _t.ObsTestTooltip;
         LanBox.Content = _t.LanOption;
         LanBox.ToolTip = _t.LanTooltip;
         RoomBox.ToolTip = _t.RoomTooltip;
@@ -257,7 +269,45 @@ public partial class MainWindow : Window
         _settings.Save();
     }
 
-    private void Obs_Click(object sender, RoutedEventArgs e) => SetState(_state);
+    private void Obs_Changed(object sender, RoutedEventArgs e)
+    {
+        if (IsLoaded) SetState(_state);  // also fires while the constructor restores the setting
+    }
+
+    /// <summary>Connects to OBS as a recording would, and shows what OBS will record.</summary>
+    private async void ObsTest_Click(object sender, RoutedEventArgs e)
+    {
+        string address = ObsAddressBox.Text.Trim();
+        string? password = ObsPasswordBox.Password.Length > 0 ? ObsPasswordBox.Password : null;
+        ObsTestButton.IsEnabled = false;
+        SetStatus(t => t.ObsTesting(address));
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            await using var obs = await ObsClient.ConnectAsync(address, password, timeout.Token);
+            var version = await obs.RequestAsync("GetVersion", cancel: timeout.Token);
+            var video = await obs.RequestAsync("GetVideoSettings", cancel: timeout.Token);
+            var record = await obs.RequestAsync("GetRecordStatus", cancel: timeout.Token);
+            var check = new ObsCheck((string?)version["obsVersion"] ?? "?", video["outputWidth"]!.GetValue<int>(),
+                video["outputHeight"]!.GetValue<int>(),
+                video["fpsNumerator"]!.GetValue<double>() / video["fpsDenominator"]!.GetValue<double>(),
+                record["outputActive"]?.GetValue<bool>() == true);
+            SetStatus(t => t.ObsConnected(check));
+        }
+        catch (ObsException ex)
+        {
+            string error = ex.Message;
+            SetStatus(t => t.ObsTestFailed(error));
+        }
+        catch (OperationCanceledException)
+        {
+            SetStatus(t => t.ObsTestFailed(t.ObsNoAnswer));
+        }
+        finally
+        {
+            ObsTestButton.IsEnabled = _state == RunState.Idle;
+        }
+    }
 
     private void Toggle()
     {
@@ -303,7 +353,9 @@ public partial class MainWindow : Window
         // With OBS, its own frame rate and audio settings apply.
         bool obs = ObsBox.IsChecked == true;
         FpsBox.IsEnabled = AudioBox.IsEnabled = idle && !obs;
-        ObsAddressBox.IsEnabled = ObsPasswordBox.IsEnabled = idle && obs;
+        ObsAddressBox.IsEnabled = ObsPasswordBox.IsEnabled = ObsTestButton.IsEnabled = idle;
+        ObsConnectionLabel.Visibility = ObsConnectionPanel.Visibility = ObsTestButton.Visibility =
+            obs ? Visibility.Visible : Visibility.Collapsed;
         LanguageBox.IsEnabled = PlayerBox.IsEnabled = idle;
         bool inRoom = state == RunState.Agent && _agent?.Room is not null;
         RoomBox.Visibility = inRoom ? Visibility.Visible : Visibility.Collapsed;
