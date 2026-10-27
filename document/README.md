@@ -10,3 +10,5 @@ Markdown versions of the source PDFs in [`raw/`](./raw).
 | [Software Plan](./software-plan.md) | Rev 2 · 2026-10-04 | Plan for a C++/Lua game data extractor + capture pipeline: architecture, game list & compliance, timeline, risks, open questions |
 
 Reading order: SOW → Spec v2 (base format) → Spec v3 (multiplayer layers on top of v2).
+
+Open issues: [odx record does not stop (END after ~1 min 4 s)](./issues/odx-record-stop-hang.md).
