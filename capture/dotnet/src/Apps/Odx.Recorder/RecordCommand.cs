@@ -1,4 +1,4 @@
-// odx record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder auto|x264|nvenc] [--ffmpeg <path>]
+﻿// odx record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder auto|x264|nvenc|mf] [--ffmpeg <path>]
 //            [--cursor] [--audio [--audio-process <process name>]] [--seconds N] [--stop-event <name>] [--json-status]
 //
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
@@ -13,7 +13,6 @@
 // Stop with Ctrl+C, --seconds, --stop-event (a named event set by Odx.App), or by closing the captured window.
 // --json-status: stdout carries only RecorderStatus JSON lines (started, progress every second, stopped).
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using Odx.Core;
 using Vortice.Direct3D;
@@ -31,7 +30,7 @@ public static class RecordCommand
         if (opts is null)
         {
             Console.Error.WriteLine("usage: odx record --out <dir> (--window <process name> | --monitor) [--fps 60] " +
-                                    "[--encoder auto|x264|nvenc] [--ffmpeg <path>] [--cursor] [--audio [--audio-process <process name>]] [--seconds N] [--stop-event <name>] [--json-status]");
+                                    "[--encoder auto|x264|nvenc|mf] [--ffmpeg <path>] [--cursor] [--audio [--audio-process <process name>]] [--seconds N] [--stop-event <name>] [--json-status]");
             return 2;
         }
         if (!GraphicsCaptureSession.IsSupported())
@@ -70,7 +69,7 @@ public static class RecordCommand
         var (screenWidth, screenHeight) = CaptureInterop.MonitorSize(monitor);
         Directory.CreateDirectory(opts.OutDir);
 
-        D3D11.D3D11CreateDevice(null, DriverType.Hardware, DeviceCreationFlags.BgraSupport, null, out ID3D11Device? device)
+        D3D11.D3D11CreateDevice(null, DriverType.Hardware, DeviceCreationFlags.BgraSupport | DeviceCreationFlags.VideoSupport, null, out ID3D11Device? device)
             .CheckError();
         using var d3d = device!;
         var context = d3d.ImmediateContext;
@@ -89,9 +88,10 @@ public static class RecordCommand
         var stop = new ManualResetEventSlim();
         string? error = null;
         bool stopped = false;
-        byte[] shown = [];   // frame currently on screen (last captured)
-        byte[] incoming = [];
-        ID3D11Texture2D? staging = null;
+        FrameWriter? writer = null;
+        byte[]? shown = null;   // frame currently on screen (last captured)
+        Nv12Converter? converter = null;
+        (ID3D11Texture2D Staging, double T)? pending = null;   // converted, read when the next frame arrives
         AudioLoopback? audio = null;
         string? audioError = null;
 
@@ -103,15 +103,17 @@ public static class RecordCommand
             (cropX, cropY, width, height) = window == IntPtr.Zero
                 ? (0, 0, frameWidth, frameHeight)
                 : CaptureInterop.ClientArea(window, frameWidth, frameHeight);
-            shown = new byte[width * height * 4];
-            incoming = new byte[width * height * 4];
-            return new FfmpegEncoder(opts.Ffmpeg, Path.Combine(opts.OutDir, "video.mp4"), width, height, opts.Fps,
+            converter = new Nv12Converter(d3d, context, cropX, cropY, width, height);
+            (width, height) = (converter.Width, converter.Height);
+            var started = new FfmpegEncoder(opts.Ffmpeg, Path.Combine(opts.OutDir, "video.mp4"), width, height, opts.Fps,
                 encoderName.Result, audio?.Input);
+            writer = new FrameWriter(started, frameLog, converter.FrameBytes);
+            shown = writer.Rent();
+            return started;
         }
         double startQpcMs = QpcClock.NowMs();
         var startUtc = DateTimeOffset.UtcNow;
         double? firstFrameLatencyMs = null;
-        long framesWritten = 0;
         if (opts.Audio)
         {
             try
@@ -131,15 +133,21 @@ public static class RecordCommand
             }
         }
 
-        void Emit(IReadOnlyList<GridTick> ticks)
+        // The ticks show the frame on screen until now; next (null at stop) replaces it.
+        void Emit(IReadOnlyList<GridTick> ticks, byte[]? next)
         {
-            foreach (var t in ticks)
-            {
-                if (framesWritten == 0) audio?.SetOrigin(t.TGridMs);
-                encoder!.Write(shown);
-                frameLog.Write(t);
-                framesWritten++;
-            }
+            if (ticks is [{ Index: 0 } first, ..]) audio?.SetOrigin(first.TGridMs);
+            writer!.Submit(shown!, ticks);
+            shown = next;
+        }
+
+        void ShowPending()
+        {
+            if (pending is not { } p) return;
+            pending = null;
+            var incoming = writer!.Rent();
+            converter!.Read(p.Staging, incoming);
+            Emit(resampler.Advance(p.T), incoming);
         }
 
         framePool.FrameArrived += (pool, _) =>
@@ -161,46 +169,19 @@ public static class RecordCommand
                     stop.Set();
                     return;
                 }
-                double t = frame.SystemRelativeTime.TotalMilliseconds;  // QPC-based, same clock as QpcClock.NowMs()
-                firstFrameLatencyMs ??= QpcClock.NowMs() - t;
-
-                using (var texture = CaptureInterop.Texture(frame.Surface))
+                if (writer!.Error is string writeError)
                 {
-                    if (staging is null)
-                    {
-                        var desc = texture.Description;
-                        desc.Usage = ResourceUsage.Staging;
-                        desc.BindFlags = BindFlags.None;
-                        desc.CPUAccessFlags = CpuAccessFlags.Read;
-                        desc.MiscFlags = ResourceOptionFlags.None;
-                        staging = d3d.CreateTexture2D(desc);
-                    }
-                    context.CopyResource(staging, texture);
-                }
-                var mapped = context.Map(staging, 0, MapMode.Read);
-                try
-                {
-                    for (int y = 0; y < height; y++)
-                        Marshal.Copy(mapped.DataPointer + (nint)((cropY + y) * (long)mapped.RowPitch + cropX * 4), incoming,
-                            y * width * 4, width * 4);
-                }
-                finally
-                {
-                    context.Unmap(staging, 0);
-                }
-
-                try
-                {
-                    Emit(resampler.Advance(t));  // ticks before t still show the previous frame
-                }
-                catch (IOException e)
-                {
-                    error = $"ffmpeg pipe closed: {e.Message}";
+                    error = writeError;
                     stopped = true;
                     stop.Set();
                     return;
                 }
-                (shown, incoming) = (incoming, shown);
+                double t = frame.SystemRelativeTime.TotalMilliseconds;  // QPC-based, same clock as QpcClock.NowMs()
+                firstFrameLatencyMs ??= QpcClock.NowMs() - t;
+
+                using var texture = CaptureInterop.Texture(frame.Surface);
+                var staging = converter!.Convert(texture);                ShowPending();
+                pending = (staging, t);
             }
         };
         item.Closed += (_, _) => stop.Set();
@@ -219,7 +200,7 @@ public static class RecordCommand
         using (var progress = opts.JsonStatus ? new Timer(_ =>
                {
                    RecorderStatus s;
-                   lock (gate) s = new(RecorderStatus.Progress, framesWritten, resampler.Duplicates, resampler.DroppedSourceFrames);
+                   lock (gate) s = new(RecorderStatus.Progress, writer?.Written ?? 0, resampler.Duplicates, resampler.DroppedSourceFrames);
                    Console.WriteLine(s.ToJson());
                }, null, 1000, 1000) : null)
         {
@@ -233,10 +214,14 @@ public static class RecordCommand
             if (!stopped)
             {
                 stopped = true;
-                try { Emit(resampler.Finish(stopQpcMs)); } catch (IOException e) { error ??= $"ffmpeg pipe closed: {e.Message}"; }
+                ShowPending();
+                Emit(resampler.Finish(stopQpcMs), null);
             }
-            frameLog.Flush();
         }
+        writer!.Complete();
+        error ??= writer.Error;
+        long framesWritten = writer.Written;
+        frameLog.Flush();
         session.Dispose();
         framePool.Dispose();
         object? audioMeta = audioError is null ? null : new Dictionary<string, object?> { ["error"] = audioError };
@@ -260,7 +245,7 @@ public static class RecordCommand
         int ffmpegExit = encoder.Finish();
         encoder.Dispose();
         audio?.Dispose();
-        staging?.Dispose();
+        converter?.Dispose();
 
         var meta = new Dictionary<string, object?>
         {

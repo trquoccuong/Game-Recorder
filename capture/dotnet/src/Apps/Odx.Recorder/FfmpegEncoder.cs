@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace Odx.Recorder;
 
 /// <summary>
-/// Encodes raw BGRA frames piped to an ffmpeg process into a constant-frame-rate MP4 without B-frames, with an AAC track
+/// Encodes raw NV12 frames piped to an ffmpeg process into a constant-frame-rate MP4 without B-frames, with an AAC track
 /// from an <see cref="AudioInput"/> when given.
 /// </summary>
 internal sealed class FfmpegEncoder : IDisposable
@@ -17,24 +17,24 @@ internal sealed class FfmpegEncoder : IDisposable
         {
             "nvenc" => "-c:v h264_nvenc -preset p4 -rc vbr -cq 23 -bf 0 -g 120",
             "x264" => "-c:v libx264 -preset veryfast -crf 20 -bf 0 -g 120",
-            _ => throw new ArgumentException($"unknown encoder '{encoder}' (nvenc|x264)"),
+            // Media Foundation's hardware H.264 encoder: Intel Quick Sync, AMD or NVIDIA, whichever GPU has one.
+            "mf" => "-c:v h264_mf -hw_encoding 1 -rate_control quality -quality 70 -bf 0 -g 120",
+            _ => throw new ArgumentException($"unknown encoder '{encoder}' (nvenc|mf|x264)"),
         };
         var fr = fps.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        // yuv420p needs even dimensions: crop a trailing odd row/column if the window size is odd.
         // The audio input comes first: ffmpeg opens inputs in order, and the pipe's writer waits for it to connect.
         // Both inputs start at timestamp 0, so audio sample 0 is video frame 0.
         var (audioIn, audioOut) = audio is null ? ("", "")
             : ($"-f {audio.SampleFormat} -ar {audio.SampleRate} -ac {audio.Channels} -i \"{audio.Pipe}\" ",
                "-map 1:v -map 0:a -c:a aac -b:a 160k ");
-        var args = $"-y -loglevel error {audioIn}-f rawvideo -pix_fmt bgra -s {width}x{height} -framerate {fr} -i - " +
-                   $"{audioOut}-vf crop=trunc(iw/2)*2:trunc(ih/2)*2 {codec} -pix_fmt yuv420p -r {fr} \"{output}\"";
+        var args = $"-y -loglevel error {audioIn}-f rawvideo -pix_fmt nv12 -s {width}x{height} -framerate {fr} -i - " +
+                   $"{audioOut}{codec} -r {fr} \"{output}\"";
         _proc = Process.Start(new ProcessStartInfo(ffmpeg, args)
         {
             RedirectStandardInput = true,
             UseShellExecute = false,
         }) ?? throw new InvalidOperationException("cannot start ffmpeg");
-        _stdin = _proc.StandardInput.BaseStream;
-    }
+        _stdin = _proc.StandardInput.BaseStream;    }
 
     public void Write(byte[] bgraFrame) => _stdin.Write(bgraFrame, 0, bgraFrame.Length);
 

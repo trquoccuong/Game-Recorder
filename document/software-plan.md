@@ -385,7 +385,8 @@ Both tools run **outside the game process**, and stamp every sample with **QPC**
 2. `GridResampler` (`Odx.Core`, unit-tested) maps them onto a constant-rate grid: tick *k* (t0 + k/fps) shows the most recent captured frame with time ≤ the tick.
    - Repeats are flagged `duplicate = 1`.
    - Frames replaced before any tick are counted as `dropped_source_frames`.
-3. Grid frames are piped as BGRA to ffmpeg: `h264_nvenc` (or `libx264`), no B-frames, GOP 120, even dimensions.
+3. Each frame is cropped to an even size and converted to NV12 on the GPU (D3D11 video processor, BT.601 limited range), read back one frame later (no wait on the GPU), and written to ffmpeg by its own thread (the capture callback never waits for the encoder). Encoder (`auto`): `h264_nvenc`, else `h264_mf` (Media Foundation: Intel Quick Sync, AMD), else `libx264`; no B-frames, GOP 120.
+   - Measured 2026-10-27 (i7-8750H, 1080p30, ffmpeg CPU): BGRA + x264 1.8 cores; NV12 + x264 1.2; NV12 + `h264_mf` 0.22. `h264_mf` repeats more frames in its first 1–2 s (encoder start-up on the GPU that also draws the desktop).
 4. Result: a CFR MP4 whose frame *N* is row *N* of `video_frames.csv`. This is the "first-frame gate + fixed-grid resample" pattern from the ETS2 collector review.
 
 **How `frames.csv` is built (C#, `Odx.Core`, single implementation):**
