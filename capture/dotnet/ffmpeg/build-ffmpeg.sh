@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the minimal static ffmpeg.exe that `odx record` needs, in an MSYS2 UCRT64 shell:
-#   raw NV12 frames on a pipe -> libx264, h264_nvenc or h264_mf (Media Foundation: Intel Quick Sync, AMD) -> MP4 file.
+#   raw NV12 frames on a pipe -> libx264, h264_nvenc or h264_mf (Media Foundation: Intel Quick Sync, AMD) -> MP4 file;
+#   --obs: OBS's recording (MP4, hybrid/fragmented MP4, MOV, MKV, FLV or MPEG-TS) remuxed into an MP4, streams copied.
 # Everything else (other codecs, demuxers, filters, network, ffprobe, ffplay) is left out: ~100 MB -> a few MB.
 #
 #   bash build-ffmpeg.sh <out_dir>
@@ -57,6 +58,8 @@ CONFIGURE=(
     --enable-gpl --enable-libx264 --enable-ffnvcodec --enable-nvenc --enable-mediafoundation --enable-d3d11va  # mfenc.c needs d3d11va
     --enable-encoder=libx264,h264_nvenc,h264_mf,aac
     --enable-demuxer=rawvideo,pcm_f32le,pcm_s16le --enable-decoder=rawvideo,pcm_f32le,pcm_s16le
+    --enable-demuxer=mov,matroska,flv,mpegts --enable-parser=h264,hevc,av1,aac,opus --enable-bsf=aac_adtstoasc
+    --enable-decoder=aac  # MPEG-TS gives AAC's sample rate only once a frame is decoded
     --enable-muxer=mp4 --enable-protocol=file,pipe,fd  # ffmpeg 9 reads '-i -' through fd:, not pipe:
     --enable-filter=buffer,buffersink,crop,scale,format,null,fps,abuffer,abuffersink,aformat,aresample,anull
 )

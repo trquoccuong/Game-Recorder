@@ -21,6 +21,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.Resources>
             <Style TargetType="Label">
@@ -56,22 +57,29 @@
         </StackPanel>
 
         <Label x:Name="ObsLabel" Grid.Row="4" />
-        <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,6">
-            <CheckBox x:Name="ObsBox" AutomationProperties.AutomationId="ObsBox" VerticalAlignment="Center"
-                      Click="Obs_Click" />
-            <TextBox x:Name="ObsAddressBox" AutomationProperties.AutomationId="ObsAddressBox" Width="130" Margin="12,0,0,0"
+        <CheckBox x:Name="ObsBox" AutomationProperties.AutomationId="ObsBox" Grid.Row="4" Grid.Column="1"
+                  Margin="0,0,0,6" VerticalAlignment="Center" Checked="Obs_Changed" Unchecked="Obs_Changed" />
+
+        <!-- OBS connection row: shown only while "Record with OBS" is ticked. -->
+        <Label x:Name="ObsConnectionLabel" Grid.Row="5" />
+        <StackPanel x:Name="ObsConnectionPanel" Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="0,0,0,6">
+            <TextBlock x:Name="ObsAddressLabel" VerticalAlignment="Center" Margin="0,0,4,0" />
+            <TextBox x:Name="ObsAddressBox" AutomationProperties.AutomationId="ObsAddressBox" Width="120"
                      VerticalContentAlignment="Center" />
-            <PasswordBox x:Name="ObsPasswordBox" AutomationProperties.AutomationId="ObsPasswordBox" Width="120"
-                         Margin="6,0,0,0" VerticalContentAlignment="Center" />
+            <TextBlock x:Name="ObsPasswordLabel" VerticalAlignment="Center" Margin="12,0,4,0" />
+            <PasswordBox x:Name="ObsPasswordBox" AutomationProperties.AutomationId="ObsPasswordBox" Width="100"
+                         VerticalContentAlignment="Center" />
         </StackPanel>
+        <Button x:Name="ObsTestButton" AutomationProperties.AutomationId="ObsTestButton" Grid.Row="5" Grid.Column="2"
+                Click="ObsTest_Click" />
 
         <!-- Room rows: shown only when odx-capture.json names an orchestrator. -->
-        <Label x:Name="PlayerLabel" Grid.Row="5" />
-        <TextBox x:Name="PlayerBox" AutomationProperties.AutomationId="PlayerBox" Grid.Row="5" Grid.Column="1" Width="200"
+        <Label x:Name="PlayerLabel" Grid.Row="6" />
+        <TextBox x:Name="PlayerBox" AutomationProperties.AutomationId="PlayerBox" Grid.Row="6" Grid.Column="1" Width="200"
                  HorizontalAlignment="Left" Margin="0,0,0,6" VerticalContentAlignment="Center" />
 
-        <Label x:Name="RoomLabel" Grid.Row="6" />
-        <StackPanel x:Name="RoomPanel" Grid.Row="6" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,6">
+        <Label x:Name="RoomLabel" Grid.Row="7" />
+        <StackPanel x:Name="RoomPanel" Grid.Row="7" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,6">
             <!-- The current room's invite code, selectable so the host can copy it; the code to join is asked in a dialog. -->
             <TextBox x:Name="RoomBox" AutomationProperties.AutomationId="RoomBox" Width="110" IsReadOnly="True"
                      Visibility="Collapsed" FontFamily="Consolas" FontSize="14" FontWeight="SemiBold"
@@ -81,16 +89,16 @@
             <CheckBox x:Name="LanBox" AutomationProperties.AutomationId="LanBox" Margin="8,0,0,6" VerticalAlignment="Center" />
         </StackPanel>
 
-        <Label x:Name="HotkeyLabel" Grid.Row="7" />
-        <TextBox x:Name="HotkeyBox" AutomationProperties.AutomationId="HotkeyBox" Grid.Row="7" Grid.Column="1"
+        <Label x:Name="HotkeyLabel" Grid.Row="8" />
+        <TextBox x:Name="HotkeyBox" AutomationProperties.AutomationId="HotkeyBox" Grid.Row="8" Grid.Column="1"
                  Margin="0,0,0,6" IsReadOnly="True" IsReadOnlyCaretVisible="False" VerticalContentAlignment="Center"
                  GotKeyboardFocus="Hotkey_GotFocus" LostKeyboardFocus="Hotkey_LostFocus"
                  PreviewKeyDown="Hotkey_PreviewKeyDown" />
 
-        <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Grid.Row="8"
+        <Button x:Name="StartStopButton" AutomationProperties.AutomationId="StartStopButton" Grid.Row="9"
                 Grid.ColumnSpan="3" Margin="0,8,0,8" Padding="0,8" FontSize="14" Click="StartStop_Click" />
 
-        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Grid.Row="9"
+        <TextBlock x:Name="StatusText" AutomationProperties.AutomationId="StatusText" Grid.Row="10"
                    Grid.ColumnSpan="3" TextWrapping="Wrap" />
     </Grid>
 </Window>

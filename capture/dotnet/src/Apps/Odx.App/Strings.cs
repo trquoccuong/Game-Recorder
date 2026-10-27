@@ -51,6 +51,15 @@ public sealed class Strings
     public required string ObsTooltip { get; init; }
     public required string ObsAddressTooltip { get; init; }
     public required string ObsPasswordTooltip { get; init; }
+    public required string ObsTest { get; init; }
+    public required string ObsConnection { get; init; }
+    public required string ObsAddress { get; init; }
+    public required string ObsPassword { get; init; }
+    public required string ObsTestTooltip { get; init; }
+    public required Func<string, string> ObsTesting { get; init; }
+    public required Func<ObsCheck, string> ObsConnected { get; init; }
+    public required Func<string, string> ObsTestFailed { get; init; }
+    public required string ObsNoAnswer { get; init; }
     public required string LanTooltip { get; init; }
     public required Func<LanState, string> LanStatus { get; init; }
     public required string LanInstallTitle { get; init; }
@@ -147,6 +156,18 @@ public sealed class Strings
         ObsTooltip = "OBS records the video with its own scene, output and audio settings (set it to constant frame rate, 1080p, 30 or 60 FPS); Odx Capture starts and stops it. OBS must be open, with Tools > WebSocket Server Settings > Enable WebSocket server",
         ObsAddressTooltip = "Address of OBS's WebSocket server (Tools > WebSocket Server Settings), usually 127.0.0.1:4455",
         ObsPasswordTooltip = "OBS's WebSocket server password (Tools > WebSocket Server Settings > Show Connect Info); empty if authentication is off",
+        ObsTest = "Test",
+        ObsConnection = "OBS WebSocket",
+        ObsAddress = "Host",
+        ObsPassword = "Password",
+        ObsTestTooltip = "Check that OBS is open, its WebSocket server is on and the password is right, and show what it will record",
+        ObsTesting = address => $"Connecting to OBS at {address}…",
+        ObsConnected = c => $"OBS {c.Version} connected: records {c.Width}x{c.Height} at {c.Fps:0.##} FPS" +
+            (c.BelowFloor ? ". Below the 1280x720, 30 FPS minimum: raise it in OBS > Settings > Video" :
+             c.BelowTarget ? ". The target is 1920x1080 (OBS > Settings > Video > Output Resolution)" : "") +
+            (c.Recording ? ". OBS is recording now: stop it before you start" : ""),
+        ObsTestFailed = error => $"OBS not reachable: {error}. Open OBS and turn on Tools > WebSocket Server Settings > Enable WebSocket server",
+        ObsNoAnswer = "no answer within 5 s",
         LanOption = "LAN (ZeroTier)",
         LanTooltip = "Create the room with a virtual LAN, for games that only play over LAN (e.g. Warcraft III): everyone in the room is on one LAN",
         LanStatus = lan => lan.Status switch
@@ -255,6 +276,18 @@ public sealed class Strings
         ObsTooltip = "OBS ghi video theo scene, output và audio đã chỉnh trong OBS (đặt frame rate cố định, 1080p, 30 hoặc 60 FPS); Odx Capture tự bật và tắt ghi. OBS phải đang mở, có bật Tools > WebSocket Server Settings > Enable WebSocket server",
         ObsAddressTooltip = "Địa chỉ WebSocket server của OBS (Tools > WebSocket Server Settings), thường là 127.0.0.1:4455",
         ObsPasswordTooltip = "Mật khẩu WebSocket server của OBS (Tools > WebSocket Server Settings > Show Connect Info); để trống nếu tắt xác thực",
+        ObsTest = "Kiểm tra",
+        ObsConnection = "OBS WebSocket",
+        ObsAddress = "Host",
+        ObsPassword = "Mật khẩu",
+        ObsTestTooltip = "Kiểm tra OBS đang mở, đã bật WebSocket server và đúng mật khẩu, và xem OBS sẽ ghi gì",
+        ObsTesting = address => $"Đang kết nối OBS tại {address}…",
+        ObsConnected = c => $"Đã kết nối OBS {c.Version}: ghi {c.Width}x{c.Height}, {c.Fps:0.##} FPS" +
+            (c.BelowFloor ? ". Dưới mức tối thiểu 1280x720, 30 FPS: tăng lên trong OBS > Settings > Video" :
+             c.BelowTarget ? ". Mục tiêu là 1920x1080 (OBS > Settings > Video > Output Resolution)" : "") +
+            (c.Recording ? ". OBS đang ghi: hãy dừng trước khi bắt đầu" : ""),
+        ObsTestFailed = error => $"Không kết nối được OBS: {error}. Mở OBS và bật Tools > WebSocket Server Settings > Enable WebSocket server",
+        ObsNoAnswer = "không có phản hồi sau 5 giây",
         LanOption = "LAN (ZeroTier)",
         LanTooltip = "Tạo room có mạng LAN ảo, cho game chỉ chơi được qua LAN (vd. Warcraft III): mọi người trong room chung một mạng LAN",
         LanStatus = lan => lan.Status switch
