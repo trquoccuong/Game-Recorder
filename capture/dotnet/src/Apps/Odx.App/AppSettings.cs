@@ -15,6 +15,12 @@ public sealed class AppSettings
     public string? WindowProcess { get; set; }
     public int Fps { get; set; } = 30;
     public bool RecordAudio { get; set; }
+    public bool RecordWithObs { get; set; }
+    public string ObsAddress { get; set; } = "127.0.0.1:4455";
+    /// <summary>OBS's WebSocket password, kept in clear like OBS keeps it in its own settings.</summary>
+    public string? ObsPassword { get; set; }
+
+    public ObsConnection? Obs => RecordWithObs ? new ObsConnection(ObsAddress, ObsPassword) : null;
     /// <summary>"en" or "vi"; null follows the Windows display language.</summary>
     public string? Language { get; set; }
     /// <summary>Game profile JSON used to build the session after recording; null skips the build.</summary>
@@ -25,7 +31,7 @@ public sealed class AppSettings
     /// <param name="timeServer">time_server of odx-capture.json; null uses the Windows clock only.</param>
     /// <remarks>Recordings go to the package's data\captures\ (<see cref="PackageFolders"/>).</remarks>
     public CaptureOptions ToCaptureOptions(string? timeServer) =>
-        new(PackageFolders.Captures, WindowProcess, Fps, GameProfile, timeServer, Audio: RecordAudio);
+        new(PackageFolders.Captures, WindowProcess, Fps, GameProfile, timeServer, Audio: RecordAudio, Obs: Obs);
 
     public static AppSettings Load()
     {

@@ -55,6 +55,15 @@
                       VerticalAlignment="Center" />
         </StackPanel>
 
+        <Label x:Name="ObsLabel" Grid.Row="4" />
+        <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="0,0,0,6">
+            <CheckBox x:Name="ObsBox" AutomationProperties.AutomationId="ObsBox" VerticalAlignment="Center"
+                      Click="Obs_Click" />
+            <TextBox x:Name="ObsAddressBox" AutomationProperties.AutomationId="ObsAddressBox" Width="130" Margin="12,0,0,0"
+                     VerticalContentAlignment="Center" />
+            <PasswordBox x:Name="ObsPasswordBox" AutomationProperties.AutomationId="ObsPasswordBox" Width="120"
+                         Margin="6,0,0,0" VerticalContentAlignment="Center" />
+        </StackPanel>
 
         <!-- Room rows: shown only when odx-capture.json names an orchestrator. -->
         <Label x:Name="PlayerLabel" Grid.Row="5" />

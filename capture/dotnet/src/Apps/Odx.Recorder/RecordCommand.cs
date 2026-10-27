@@ -1,5 +1,6 @@
 ﻿// odx record --out <dir> (--window <process name> | --monitor) [--fps 60] [--encoder auto|x264|nvenc|mf] [--ffmpeg <path>]
-//            [--cursor] [--audio [--audio-process <process name>]] [--seconds N] [--stop-event <name>] [--json-status]
+//            [--cursor] [--audio [--audio-process <process name>]] [--obs <host:port>] [--seconds N] [--stop-event <name>]
+//            [--json-status]
 //
 // Records a game window (or the primary monitor) with Windows.Graphics.Capture. Every captured frame carries its QPC
 // capture time (SystemRelativeTime), the same clock as odx input. Frames are resampled onto a constant-rate grid
@@ -10,6 +11,8 @@
 //   <dir>/video_frames.csv  frame_index,t_grid_qpc_ms,t_source_qpc_ms,duplicate
 //   <dir>/recording.json    capture id, capture and screen size, fps, encoder, start time (UTC + QPC),
 //                           counts of duplicated/dropped frames, audio (null without --audio)
+// --obs: OBS records instead, with its own scene, output and audio settings (ObsRecorder); the WebSocket password, if
+// any, comes from the ODX_OBS_PASSWORD environment variable. The same three files are written.
 // Stop with Ctrl+C, --seconds, --stop-event (a named event set by Odx.App), or by closing the captured window.
 // --json-status: stdout carries only RecorderStatus JSON lines (started, progress every second, stopped).
 using System.Diagnostics;
@@ -30,9 +33,10 @@ public static class RecordCommand
         if (opts is null)
         {
             Console.Error.WriteLine("usage: odx record --out <dir> (--window <process name> | --monitor) [--fps 60] " +
-                                    "[--encoder auto|x264|nvenc|mf] [--ffmpeg <path>] [--cursor] [--audio [--audio-process <process name>]] [--seconds N] [--stop-event <name>] [--json-status]");
+                                    "[--encoder auto|x264|nvenc|mf] [--ffmpeg <path>] [--cursor] [--audio [--audio-process <process name>]] [--obs <host:port>] [--seconds N] [--stop-event <name>] [--json-status]");
             return 2;
         }
+        if (opts.Obs is string obs) return RunObs(opts, obs);
         if (!GraphicsCaptureSession.IsSupported())
         {
             Console.Error.WriteLine("Windows.Graphics.Capture is not supported on this system");
@@ -180,7 +184,8 @@ public static class RecordCommand
                 firstFrameLatencyMs ??= QpcClock.NowMs() - t;
 
                 using var texture = CaptureInterop.Texture(frame.Surface);
-                var staging = converter!.Convert(texture);                ShowPending();
+                var staging = converter!.Convert(texture);
+                ShowPending();
                 pending = (staging, t);
             }
         };
@@ -291,14 +296,47 @@ public static class RecordCommand
         if (error is not null) Console.Error.WriteLine(error);
         return error is null && ffmpegExit == 0 ? 0 : 1;
     }
+
+    private static int RunObs(Options opts, string address)
+    {
+        using var stop = new CancellationTokenSource();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Cancel(); };
+        if (opts.StopEvent is string stopEventName)
+        {
+            var stopEvent = EventWaitHandle.OpenExisting(stopEventName);
+            _ = Task.Run(() => { stopEvent.WaitOne(); stop.Cancel(); });
+        }
+        if (opts.Seconds is double seconds) stop.CancelAfter(TimeSpan.FromSeconds(seconds));
+        void Status(RecorderStatus s)
+        {
+            if (opts.JsonStatus) Console.WriteLine(s.ToJson());
+            else if (s.Event == RecorderStatus.Started) Console.WriteLine($"OBS recording {s.Width}x{s.Height} @ {s.Fps} fps (Ctrl+C to stop)");
+            else if (s.Event == RecorderStatus.Stopped) Console.WriteLine($"stopped: {s.Frames} frames");
+        }
+        string? error;
+        try
+        {
+            error = ObsRecorder.RunAsync(new ObsRecordOptions(address, Environment.GetEnvironmentVariable(ObsPasswordVariable),
+                opts.OutDir, opts.Ffmpeg), Status, stop.Token).GetAwaiter().GetResult();
+        }
+        catch (Exception e) when (e is ObsException or TimeoutException)
+        {
+            error = e.Message;
+            if (opts.JsonStatus) Console.WriteLine(new RecorderStatus(RecorderStatus.Stopped, Error: error).ToJson());
+        }
+        if (error is not null) Console.Error.WriteLine(error);
+        return error is null ? 0 : 1;
+    }
+
+    public const string ObsPasswordVariable = "ODX_OBS_PASSWORD";
 }
 
 internal sealed record Options(string OutDir, string? Window, double Fps, string Encoder, string Ffmpeg, bool Cursor,
-    bool Audio, string? AudioProcess, double? Seconds, string? StopEvent, bool JsonStatus)
+    bool Audio, string? AudioProcess, string? Obs, double? Seconds, string? StopEvent, bool JsonStatus)
 {
     public static Options? Parse(string[] args)
     {
-        string? outDir = null, window = null, encoder = "auto", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null, audioProcess = null;
+        string? outDir = null, window = null, encoder = "auto", ffmpeg = ExternalTools.Ffmpeg(), stopEvent = null, audioProcess = null, obs = null;
         bool monitor = false, cursor = false, audio = false, jsonStatus = false;
         double fps = 60;
         double? seconds = null;
@@ -317,6 +355,7 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
                 case "--cursor": cursor = true; break;
                 case "--audio": audio = true; break;
                 case "--audio-process": audioProcess = Next(); break;
+                case "--obs": obs = Next(); break;
                 case "--seconds" when double.TryParse(Next(), System.Globalization.NumberStyles.Float, inv, out var s): seconds = s; break;
                 case "--stop-event": stopEvent = Next(); break;
                 case "--json-status": jsonStatus = true; break;
@@ -324,6 +363,6 @@ internal sealed record Options(string OutDir, string? Window, double Fps, string
             }
         }
         if (outDir is null || encoder is null || ffmpeg is null || (window is null) == !monitor || fps <= 0) return null;
-        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, audio, audioProcess, seconds, stopEvent, jsonStatus);
+        return new Options(outDir, window, fps, encoder, ffmpeg, cursor, audio, audioProcess, obs, seconds, stopEvent, jsonStatus);
     }
 }

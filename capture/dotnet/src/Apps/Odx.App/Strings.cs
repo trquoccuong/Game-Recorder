@@ -46,6 +46,11 @@ public sealed class Strings
     public required string LanOption { get; init; }
     public required string AudioOption { get; init; }
     public required string AudioTooltip { get; init; }
+    public required string Video { get; init; }
+    public required string ObsOption { get; init; }
+    public required string ObsTooltip { get; init; }
+    public required string ObsAddressTooltip { get; init; }
+    public required string ObsPasswordTooltip { get; init; }
     public required string LanTooltip { get; init; }
     public required Func<LanState, string> LanStatus { get; init; }
     public required string LanInstallTitle { get; init; }
@@ -137,6 +142,11 @@ public sealed class Strings
         CloseRoom = "Close room",
         AudioOption = "Record audio",
         AudioTooltip = "Also record the game's sound into the video (only the game, no voice chat or other apps, when the window or the game profile names its process; otherwise everything this PC plays)",
+        Video = "Video",
+        ObsOption = "Record with OBS",
+        ObsTooltip = "OBS records the video with its own scene, output and audio settings (set it to constant frame rate, 1080p, 30 or 60 FPS); Odx Capture starts and stops it. OBS must be open, with Tools > WebSocket Server Settings > Enable WebSocket server",
+        ObsAddressTooltip = "Address of OBS's WebSocket server (Tools > WebSocket Server Settings), usually 127.0.0.1:4455",
+        ObsPasswordTooltip = "OBS's WebSocket server password (Tools > WebSocket Server Settings > Show Connect Info); empty if authentication is off",
         LanOption = "LAN (ZeroTier)",
         LanTooltip = "Create the room with a virtual LAN, for games that only play over LAN (e.g. Warcraft III): everyone in the room is on one LAN",
         LanStatus = lan => lan.Status switch
@@ -240,6 +250,11 @@ public sealed class Strings
         CloseRoom = "Đóng room",
         AudioOption = "Ghi âm thanh",
         AudioTooltip = "Ghi tiếng game vào video (chỉ tiếng game, không có voice chat hay app khác, khi biết process của game qua cửa sổ hoặc profile game; nếu không thì ghi mọi âm thanh máy này phát ra)",
+        Video = "Video",
+        ObsOption = "Ghi bằng OBS",
+        ObsTooltip = "OBS ghi video theo scene, output và audio đã chỉnh trong OBS (đặt frame rate cố định, 1080p, 30 hoặc 60 FPS); Odx Capture tự bật và tắt ghi. OBS phải đang mở, có bật Tools > WebSocket Server Settings > Enable WebSocket server",
+        ObsAddressTooltip = "Địa chỉ WebSocket server của OBS (Tools > WebSocket Server Settings), thường là 127.0.0.1:4455",
+        ObsPasswordTooltip = "Mật khẩu WebSocket server của OBS (Tools > WebSocket Server Settings > Show Connect Info); để trống nếu tắt xác thực",
         LanOption = "LAN (ZeroTier)",
         LanTooltip = "Tạo room có mạng LAN ảo, cho game chỉ chơi được qua LAN (vd. Warcraft III): mọi người trong room chung một mạng LAN",
         LanStatus = lan => lan.Status switch
