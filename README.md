@@ -1,7 +1,6 @@
 # Odyssey — Tbrain game data capture
 
-Tbrain builds the software that records multiplayer gameplay for Odyssey (Round 4 SOW: 20,000 hours of multi-agent,
-shared-state gameplay, delivered by 2026-12-31). Every session follows the client's canonical format: one video per
+Tbrain builds the software that records multiplayer gameplay. Every session follows the client's canonical format: one video per
 player, per-frame camera pose and intrinsics, input, and in multiplayer the server's state and every player on one clock.
 
 - [Repository layout](#repository-layout)
