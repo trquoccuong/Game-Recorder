@@ -22,9 +22,9 @@ public class CaptureFolderTests
 
             CaptureFolder.Tidy(dir);
 
-            Assert.Equal(["frames.bin", "frames.csv", "key_bindings.json", "player.json"], Directory.GetFiles(dir).Select(Path.GetFileName).Order());
+            Assert.Equal(["frames.csv", "frames_bin.bin", "key_bindings.json", "player.json", "session.json"],
+                Directory.GetFiles(dir).Select(Path.GetFileName).Order(StringComparer.Ordinal));
             Assert.True(File.Exists(Path.Combine(dir, "raw", "video_frames.csv")));
-            Assert.True(File.Exists(Path.Combine(dir, "raw", "session.json")));
             Assert.True(File.Exists(Path.Combine(dir, "raw", "profile.json")));
             SessionBuilder.Build(dir, GameProfile.Load(Path.Combine(dir, "raw", "profile.json")));
             Assert.Equal(frames, File.ReadAllText(Path.Combine(dir, "frames.csv")));
