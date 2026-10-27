@@ -1,7 +1,7 @@
 # odx record does not stop: END after ~1 min 4 s, capture failed (issue)
 
-> Status: `investigating` (cause not confirmed, no code change yet) ·
-> Written 2026-10-27 · Code read on macOS only, not reproduced on Windows
+> Status: `fixed` (hang: deadlock at the first video frame, §6) · stutter not reproduced as a recorder fault ·
+> Written 2026-10-27 · Reproduced and fixed on Windows 2026-10-27
 
 ## 1. Symptom
 
@@ -80,3 +80,35 @@ in the table below.
 
 Pick the fix once §4 says which cause it is. Whatever the cause, the stop must not depend on ffmpeg draining an unbounded
 backlog or reading a pipe forever.
+
+## 6. Result (Windows, 2026-10-27)
+
+Machine: i7-8750H, GTX 1060 (driver 496.13), Windows build 26200, 1920x1080, ffmpeg 9.0.2, 30 fps. The gyan.dev ffmpeg on
+PATH needs NVIDIA driver 610+ for NVENC, so every run used x264 (the packaged build needs 471+).
+
+**Hang: a deadlock, a variant of cause 1.** Reproduced with `odx record --window ArmaReforgerSteam --audio` started
+right after the game loaded (1 of 1, then 1 of 1 again); the stop never came and the process had to be killed. Stack
+(`dotnet-stack`) of the hung process:
+
+- capture thread (`FrameArrived`, holding the video `gate`): `Emit` → `AudioLoopback.SetOrigin` (holding `_gate`) →
+  `Place` → `PipeStream.Write`, blocked;
+- audio thread: `AudioLoopback.Run`, waiting for `_gate`;
+- main thread (stop): waiting for `gate`.
+
+At the first grid tick `SetOrigin` wrote the audio held since `audio.Start()` into the pipe before the first video frame
+was written. ffmpeg had already opened the audio pipe but reads no more audio until the first video frame is in, so the
+write never completed. It happens only when ffmpeg connects before that tick and more audio is held than ffmpeg's probe
+reads, hence intermittent, and likelier on a game that has just started.
+
+Fix: `SetOrigin` only sets the origin; the audio thread writes the held packets (`PlaceEarly`), so no pipe write happens
+while the video lock is held. After the fix: 4 of 4 runs on a freshly started game stopped in ~1 s; each video.mp4 has
+its AAC track (30.000 s video, 29.99–30.005 s audio, game music audible).
+
+**Other runs, none hung (stop 1–5.5 s after the end of 60 s):** monitor and window, audio on (process and device) and
+off, x264, with an ffplay 1080p60 "game" and with Arma Reforger.
+
+**Stutter:** with timing probes on `encoder.Write` (> 200 ms) and on gaps between captured frames, no write was ever
+blocked. Duplicate runs lined up with gaps in the frames Windows delivered (the callback was not late), i.e. the source
+did not present new frames (Reforger's menu right after loading, an idle desktop). One early ffplay run had 10 s of
+duplicates without audio and could not be repeated. Not a recorder fault on this machine; if testers still see stutter
+with this fix, step 4 of §4 on their machine is the next check.

@@ -109,16 +109,14 @@ internal sealed class AudioLoopback : IDisposable
         _thread.Start();
     }
 
-    /// <summary>QPC time (ms) of sample 0; packets captured before it are held until it is known.</summary>
+    /// <summary>
+    /// QPC time (ms) of sample 0; packets captured before it are held until it is known. No pipe write here: the caller
+    /// holds the video lock, and ffmpeg reads no more audio until the first video frame is in, so the audio thread
+    /// writes the held packets.
+    /// </summary>
     public void SetOrigin(double qpcMs)
     {
-        lock (_gate)
-        {
-            if (_originMs is not null) return;
-            _originMs = qpcMs;
-            foreach (var (data, at) in _early) Place(data, at);
-            _early.Clear();
-        }
+        lock (_gate) _originMs ??= qpcMs;
     }
 
     /// <summary>Pads to <paramref name="stopQpcMs"/> and closes the pipe, so ffmpeg sees the audio end.</summary>
@@ -129,7 +127,8 @@ internal sealed class AudioLoopback : IDisposable
         _client.Stop();
         lock (_gate)
         {
-            SetOrigin(stopQpcMs);
+            _originMs ??= stopQpcMs;
+            PlaceEarly();
             WriteSilence(FrameAt(stopQpcMs) - _framesWritten);
             if (!_connected.Wait(TimeSpan.FromSeconds(10))) Error ??= "ffmpeg did not open the audio pipe";
             else Flush();
@@ -154,14 +153,26 @@ internal sealed class AudioLoopback : IDisposable
                 lock (_gate)
                 {
                     if (_originMs is null) _early.Add((data, at));
-                    else Place(data, at);
+                    else
+                    {
+                        PlaceEarly();
+                        Place(data, at);
+                    }
                 }
             }
             lock (_gate)
             {
-                if (_originMs is not null) WriteSilence(FrameAt(QpcClock.NowMs() - LagMs) - _framesWritten);
+                if (_originMs is null) continue;
+                PlaceEarly();
+                WriteSilence(FrameAt(QpcClock.NowMs() - LagMs) - _framesWritten);
             }
         }
+    }
+
+    private void PlaceEarly()
+    {
+        foreach (var (data, at) in _early) Place(data, at);
+        _early.Clear();
     }
 
     private long FrameAt(double qpcMs) => (long)Math.Round((qpcMs - _originMs!.Value) * Input.SampleRate / 1000);

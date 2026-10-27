@@ -11,4 +11,4 @@ Markdown versions of the source PDFs in [`raw/`](./raw).
 
 Reading order: SOW → Spec v2 (base format) → Spec v3 (multiplayer layers on top of v2).
 
-Open issues: [odx record does not stop (END after ~1 min 4 s)](./issues/odx-record-stop-hang.md).
+Issues: [odx record does not stop (END after ~1 min 4 s)](./issues/odx-record-stop-hang.md) (fixed).
