@@ -19,8 +19,8 @@ On Windows with the 1.6.0.68 server build (`document/games/arma-reforger.md`, "P
 ```powershell
 $run = 'D:\odx-dev\reforger-survey'
 & D:\odx-dev\reforger-server-1.6.0.68\ArmaReforgerServer.exe -server '{DFAC5FABD11F2390}Missions/26_CombatOpsEveron.conf' `
-    -profile "$run\profile" -logsDir "$run\logs" -addonsDir D:\project\client\research\reforger-spawn-survey\addon -addons OdxSurvey
-# wait for "TBC_Survey: kept N of M" in the log (about 30 s after the world loads), then stop the server
+    -profile "$run\profile" -logsDir "$run\logs" -addonsDir D:\project\Game-Recorder\research\reforger-spawn-survey\addon -addons OdxSurvey
+# wait for "ODX_Survey: kept N of M" in the log (about 30 s after the world loads), then stop the server
 python -I pick_spawns.py "$run\profile\profile\odx\survey.txt" spawn_points.txt 20
 powershell -File draw_map.ps1 -Survey "$run\profile\profile\odx\survey.txt" -Points spawn_points.txt
 ```

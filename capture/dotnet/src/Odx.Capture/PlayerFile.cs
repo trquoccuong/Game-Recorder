@@ -8,7 +8,7 @@ public sealed record PlayerIdentity(string PlayerId, string Name);
 
 /// <summary>
 /// player.json of a player's round folder, as in the client's multiplayer delivery (sample round
-/// 20261017-100551-2907ed-r03): the spec v2 session.json fields written as there (vendor "Odx", times to the second,
+/// 20261017-100551-2907ed-r03): the spec v2 session.json fields written as there (vendor_name as the config spells it, times to the second,
 /// whole milliseconds, no vendor_* extras: those stay in raw/session.json), plus the player, their ping and clock offset
 /// against the time server, and the first frame's UTC.
 /// </summary>
@@ -17,12 +17,13 @@ public static class PlayerFile
     public const string FileName = "player.json";
     public const string OffsetDefinition = "server_clock - player_clock";
 
-    public static void Write(string captureDir, JsonObject session, double firstFrameUtcMs, PlayerIdentity? player)
+    public static void Write(string captureDir, JsonObject session, double firstFrameUtcMs, PlayerIdentity? player,
+        string vendorName)
     {
         var json = (JsonObject)session.DeepClone();
         json.Remove("vendor_tool_version");
         json.Remove("vendor_clock_sync");
-        json["vendor_name"] = "Odx";
+        json["vendor_name"] = vendorName;
         long durationMs = (long)Math.Round(session["duration_ms"]!.GetValue<double>());
         json["created_at_utc"] = UtcText.IsoSeconds(firstFrameUtcMs);
         json["ended_at_utc"] = UtcText.IsoSeconds(firstFrameUtcMs + durationMs);

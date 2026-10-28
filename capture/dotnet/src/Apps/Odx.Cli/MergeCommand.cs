@@ -13,7 +13,7 @@ namespace Odx.Cli;
 
 public static class MergeCommand
 {
-    public const string Vendor = "odx";
+    public static string Vendor => CaptureConfig.Load().VendorName.ToLowerInvariant();
 
     /// <summary>What odx merge knows of each game: its server side (IGameMerger) and its players' traffic (IPacketDecoder).</summary>
     public static readonly GameModules Games = new([new Cs2Merger()], [new CsgoPacketDecoder(), new W3gsPacketDecoder()]);

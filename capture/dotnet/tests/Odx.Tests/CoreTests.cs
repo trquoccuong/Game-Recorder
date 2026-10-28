@@ -168,6 +168,15 @@ public class CaptureConfigTests
     }
 
     [Fact]
+    public void Reads_the_client_format_names_else_placeholders()
+    {
+        var c = CaptureConfig.Load(Dir("""{"vendor_name": "Acme", "frames_bin_magic": "X-MP", "frames_bin_record_type": "x.v1.R"}"""));
+        Assert.Equal(("Acme", "X-MP", "x.v1.R"), (c.VendorName, c.FramesBinMagic, c.FramesBinRecordType));
+        var d = CaptureConfig.Load(Dir("""{"vendor_name": ""}"""));
+        Assert.Equal(("Vendor", "CLIENT-MP", "client.mp.v1.FrameRecord"), (d.VendorName, d.FramesBinMagic, d.FramesBinRecordType));
+    }
+
+    [Fact]
     public void Invalid_file_is_reported() =>
         Assert.Throws<InvalidDataException>(() => CaptureConfig.Load(Dir("{ time_server")));
 }

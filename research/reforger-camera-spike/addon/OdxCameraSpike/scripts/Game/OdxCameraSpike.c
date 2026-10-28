@@ -4,18 +4,18 @@
 // video to map System.GetTickCount() onto QPC.
 modded class ArmaReforgerScripted
 {
-	protected ref TBC_CameraSpike m_TbcSpike;
+	protected ref ODX_CameraSpike m_OdxSpike;
 
 	override void OnUpdate(BaseWorld world, float timeslice)
 	{
 		super.OnUpdate(world, timeslice);
-		if (!m_TbcSpike)
-			m_TbcSpike = new TBC_CameraSpike();
-		m_TbcSpike.Update(this, world, timeslice);
+		if (!m_OdxSpike)
+			m_OdxSpike = new ODX_CameraSpike();
+		m_OdxSpike.Update(this, world, timeslice);
 	}
 }
 
-class TBC_CameraSpike
+class ODX_CameraSpike
 {
 	static const string PATH = "$profile:camera_spike.csv";
 	static const int FLASH_SIZE_PX = 64;
@@ -154,7 +154,7 @@ class TBC_CameraSpike
 		if (state == m_State)
 			return;
 		m_State = state;
-		Print("TBC_CameraSpike: " + state);
+		Print("ODX_CameraSpike: " + state);
 	}
 
 	protected static string F(float v)

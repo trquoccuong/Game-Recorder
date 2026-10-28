@@ -6,11 +6,11 @@ modded class SCR_BaseGameMode
 	{
 		super.OnGameStart();
 		if (IsMaster())
-			TBC_Survey.Run();
+			ODX_Survey.Run();
 	}
 }
 
-class TBC_Survey
+class ODX_Survey
 {
 	static void Run()
 	{
@@ -18,7 +18,7 @@ class TBC_Survey
 		vector mins, maxs;
 		world.GetBoundBox(mins, maxs);
 		float ocean = world.GetOceanBaseHeight();
-		Print("TBC_Survey: bounds " + mins.ToString() + " " + maxs.ToString() + " ocean " + ocean);
+		Print("ODX_Survey: bounds " + mins.ToString() + " " + maxs.ToString() + " ocean " + ocean);
 		FileHandle survey = FileIO.OpenFile("$profile:odx/survey.txt", FileMode.WRITE);
 		int kept = 0;
 		int total = 0;
@@ -52,7 +52,7 @@ class TBC_Survey
 			}
 		}
 		survey.Close();
-		Print("TBC_Survey: kept " + kept + " of " + total);
+		Print("ODX_Survey: kept " + kept + " of " + total);
 	}
 }
 

@@ -7,18 +7,18 @@
 // and the vertical FOV in degrees.
 modded class ArmaReforgerScripted
 {
-	protected ref TBC_CameraLog m_TbcCamera;
+	protected ref ODX_CameraLog m_OdxCamera;
 
 	override void OnUpdate(BaseWorld world, float timeslice)
 	{
 		super.OnUpdate(world, timeslice);
-		if (!m_TbcCamera)
-			m_TbcCamera = new TBC_CameraLog();
-		m_TbcCamera.Update(this);
+		if (!m_OdxCamera)
+			m_OdxCamera = new ODX_CameraLog();
+		m_OdxCamera.Update(this);
 	}
 }
 
-class TBC_CameraLog
+class ODX_CameraLog
 {
 	static const string DIR = "$profile:odx/";
 	static const string CONTROL = "$profile:odx/control.txt";
@@ -79,7 +79,7 @@ class TBC_CameraLog
 			m_Log.WriteLine("end");
 			m_Log.Close();
 			m_Log = null;
-			Print("TBC_CameraLog: closed " + m_Round);
+			Print("ODX_CameraLog: closed " + m_Round);
 		}
 		m_Round = round;
 		if (round == "")
@@ -87,11 +87,11 @@ class TBC_CameraLog
 		m_Log = FileIO.OpenFile(DIR + round + ".csv", FileMode.WRITE);
 		if (!m_Log)
 		{
-			Print("TBC_CameraLog: cannot open " + DIR + round + ".csv");
+			Print("ODX_CameraLog: cannot open " + DIR + round + ".csv");
 			return;
 		}
 		m_Log.WriteLine(HEADER);
-		Print("TBC_CameraLog: logging " + round);
+		Print("ODX_CameraLog: logging " + round);
 	}
 
 	// 1 / 0 for the locally controlled entity's camera, -1 when there is none (dead, spectating, no camera handler).

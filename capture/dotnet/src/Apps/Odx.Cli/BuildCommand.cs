@@ -4,6 +4,7 @@
 // capture folder; without them the camera columns are null). Exit code 1 if the folder cannot be built.
 
 using Odx.Capture;
+using Odx.Core;
 
 namespace Odx.Cli;
 
@@ -11,7 +12,7 @@ public static class BuildCommand
 {
     public static int Run(string[] args)
     {
-        string? dir = null, profilePath = null, vendor = "odx", cameraDir = null;
+        string? dir = null, profilePath = null, vendor = null, cameraDir = null;
         for (int i = 0; i < args.Length; i++)
         {
             switch (args[i])
@@ -31,7 +32,9 @@ public static class BuildCommand
 
         try
         {
-            var report = SessionBuilder.Build(dir, GameProfile.Load(profilePath), vendor, cameraDir);
+            var config = CaptureConfig.Load();
+            if (vendor is not null) config = config with { VendorName = vendor };
+            var report = SessionBuilder.Build(dir, GameProfile.Load(profilePath), config, cameraDir);
             Console.WriteLine($"built {report.SessionId}: {report.FrameCount} frames, {report.DurationMs / 1000:F1} s, " +
                               $"camera on {report.CameraFrames} frames");
             var c = report.Clock;

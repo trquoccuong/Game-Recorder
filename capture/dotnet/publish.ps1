@@ -4,15 +4,19 @@
 # (NativeAOT launcher).
 #
 #   powershell -ExecutionPolicy Bypass -File publish.ps1 [-Version 0.1.0] [-Orchestrator https://<domain>] [-AccessKey <key>]
-#                                                        [-WithOrchestrator]
+#                                                        [-VendorName <name>] [-FramesBinMagic <magic>]
+#                                                        [-FramesBinRecordType <type>] [-WithOrchestrator]
 #
 # -WithOrchestrator adds odx-orchestrator.exe, for running the orchestrator on Windows (guides/orchestrator.md); players
 # never run it, and a deployed orchestrator runs in Docker (deploy/).
 # -Orchestrator / -AccessKey preset the package's bin/odx-capture.json for a deployed orchestrator (deploy/up.sh prints
 # both), so players only type a room's invite code; without them the repository's odx-capture.json is shipped.
+# -VendorName / -FramesBinMagic / -FramesBinRecordType: the client's delivery format names (CaptureConfig), kept out of
+# the repository; without them the package writes placeholders.
 #
 # Output: dist/odx-capture-<version>-win-x64/ (its data\ is kept across rebuilds) and dist/odx-capture-<version>-win-x64.zip
-param([string]$Version = "0.1.0", [string]$Orchestrator = "", [string]$AccessKey = "", [switch]$WithOrchestrator)
+param([string]$Version = "0.1.0", [string]$Orchestrator = "", [string]$AccessKey = "", [string]$VendorName = "",
+      [string]$FramesBinMagic = "", [string]$FramesBinRecordType = "", [switch]$WithOrchestrator)
 $ErrorActionPreference = 'Stop'
 
 # ffmpeg is built from pinned sources by ffmpeg/build-ffmpeg.sh (minimal: only what odx record uses) in MSYS2 and
@@ -60,6 +64,11 @@ $configPath = Join-Path $bin 'odx-capture.json'
 $config = Get-Content $configPath -Raw | ConvertFrom-Json
 if ($Orchestrator) { $config.orchestrator = $Orchestrator }
 if ($AccessKey) { $config | Add-Member -NotePropertyName access_key -NotePropertyValue $AccessKey -Force }
+if ($VendorName) { $config | Add-Member -NotePropertyName vendor_name -NotePropertyValue $VendorName -Force }
+if ($FramesBinMagic) { $config | Add-Member -NotePropertyName frames_bin_magic -NotePropertyValue $FramesBinMagic -Force }
+if ($FramesBinRecordType) {
+    $config | Add-Member -NotePropertyName frames_bin_record_type -NotePropertyValue $FramesBinRecordType -Force
+}
 [IO.File]::WriteAllText($configPath, ($config | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 
 $buildScript = Join-Path $root 'ffmpeg/build-ffmpeg.sh'

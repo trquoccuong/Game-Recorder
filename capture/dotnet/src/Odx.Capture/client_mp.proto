@@ -9,9 +9,9 @@ package client.mp.v1;
 option csharp_namespace = "Odx.Capture.ClientMp";
 
 message FileHeader {
-  string magic = 1;           // "CLIENT-MP"
+  string magic = 1;           // frames_bin_magic of the deployment config (CaptureConfig)
   uint32 format_version = 2;  // 1
-  string record_type = 3;     // "client.mp.v1.FrameRecord"
+  string record_type = 3;     // frames_bin_record_type of the deployment config
   string session_id = 4;
   string producer = 5;
   int64 created_unix_us = 6;

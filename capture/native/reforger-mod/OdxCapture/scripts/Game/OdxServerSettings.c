@@ -10,23 +10,23 @@ modded class SCR_BaseGameMode
 		super.OnGameStart();
 		if (!IsMaster())
 			return;
-		TBC_Settings.Load();
+		ODX_Settings.Load();
 		// The scenario sets its own start time earlier, in SCR_TimeAndWeatherHandlerComponent.OnWorldPostProcess.
-		if (TBC_Settings.s_bFixedTime)
-			TBC_Settings.ApplyTime();
-		if (TBC_Settings.s_bNoAI)
-			TBC_Settings.DisableAI();
+		if (ODX_Settings.s_bFixedTime)
+			ODX_Settings.ApplyTime();
+		if (ODX_Settings.s_bNoAI)
+			ODX_Settings.DisableAI();
 	}
 
 	override protected void OnPlayerSpawned(int playerId, IEntity controlledEntity)
 	{
 		super.OnPlayerSpawned(playerId, controlledEntity);
-		if (IsMaster() && TBC_Settings.s_bInvincible && controlledEntity)
-			TBC_Settings.MakeInvincible(playerId, controlledEntity);
+		if (IsMaster() && ODX_Settings.s_bInvincible && controlledEntity)
+			ODX_Settings.MakeInvincible(playerId, controlledEntity);
 	}
 }
 
-class TBC_Settings
+class ODX_Settings
 {
 	static const string FILE = "$profile:odx/settings.txt";
 	static bool s_bFixedTime;
@@ -39,13 +39,13 @@ class TBC_Settings
 	{
 		if (!FileIO.FileExists(FILE))
 		{
-			Print("TBC_Settings: no " + FILE + ", vanilla time and damage");
+			Print("ODX_Settings: no " + FILE + ", vanilla time and damage");
 			return;
 		}
 		FileHandle file = FileIO.OpenFile(FILE, FileMode.READ);
 		if (!file)
 		{
-			Print("TBC_Settings: cannot open " + FILE);
+			Print("ODX_Settings: cannot open " + FILE);
 			return;
 		}
 		string line;
@@ -63,16 +63,16 @@ class TBC_Settings
 			if (parts.Count() == 2 && parts[0] == "invincible" && (parts[1] == "0" || parts[1] == "1"))
 			{
 				s_bInvincible = parts[1] == "1";
-				Print("TBC_Settings: invincible players " + s_bInvincible);
+				Print("ODX_Settings: invincible players " + s_bInvincible);
 				continue;
 			}
 			if (parts.Count() == 2 && parts[0] == "ai" && (parts[1] == "0" || parts[1] == "1"))
 			{
 				s_bNoAI = parts[1] == "0";
-				Print("TBC_Settings: AI " + !s_bNoAI);
+				Print("ODX_Settings: AI " + !s_bNoAI);
 				continue;
 			}
-			Print("TBC_Settings: line " + lineNumber + " not understood: " + line);
+			Print("ODX_Settings: line " + lineNumber + " not understood: " + line);
 		}
 		file.Close();
 	}
@@ -102,12 +102,12 @@ class TBC_Settings
 			manager = world.GetTimeAndWeatherManager();
 		if (!manager)
 		{
-			Print("TBC_Settings: no time and weather manager, time not set");
+			Print("ODX_Settings: no time and weather manager, time not set");
 			return;
 		}
 		manager.SetHoursMinutesSeconds(s_iHours, s_iMinutes, 0, true);
 		manager.SetIsDayAutoAdvanced(false);
-		Print("TBC_Settings: time fixed at " + s_iHours + ":" + s_iMinutes);
+		Print("ODX_Settings: time fixed at " + s_iHours + ":" + s_iMinutes);
 	}
 
 	static void MakeInvincible(int playerId, IEntity character)
@@ -116,11 +116,11 @@ class TBC_Settings
 			character.FindComponent(SCR_CharacterDamageManagerComponent));
 		if (!damage)
 		{
-			Print("TBC_Settings: player " + playerId + " has no character damage manager");
+			Print("ODX_Settings: player " + playerId + " has no character damage manager");
 			return;
 		}
 		damage.EnableDamageHandling(false);
-		Print("TBC_Settings: player " + playerId + " invincible");
+		Print("ODX_Settings: player " + playerId + " invincible");
 	}
 
 	// The AI limit stops the spawners that ask the AI world first (-disableAI sets the same limit); the AI the scenario
@@ -130,11 +130,11 @@ class TBC_Settings
 		AIWorld aiWorld = GetGame().GetAIWorld();
 		if (!aiWorld)
 		{
-			Print("TBC_Settings: no AI world, AI not disabled");
+			Print("ODX_Settings: no AI world, AI not disabled");
 			return;
 		}
 		aiWorld.SetAILimit(0);
-		Print("TBC_Settings: AI limit 0");
+		Print("ODX_Settings: AI limit 0");
 		RemoveAI();
 		GetGame().GetCallqueue().CallLater(RemoveAI, 2000, true);
 	}
@@ -155,7 +155,7 @@ class TBC_Settings
 			EntityPrefabData prefab = character.GetPrefabData();
 			if (prefab)
 				prefabName = prefab.GetPrefabName();
-			Print("TBC_Settings: AI removed " + prefabName);
+			Print("ODX_Settings: AI removed " + prefabName);
 			SCR_EntityHelper.DeleteEntityAndChildren(character);
 		}
 	}

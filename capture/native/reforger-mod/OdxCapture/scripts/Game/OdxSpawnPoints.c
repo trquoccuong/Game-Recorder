@@ -9,11 +9,11 @@ modded class SCR_BaseGameMode
 	{
 		super.OnGameStart();
 		if (IsMaster())
-			TBC_SpawnPoints.Create();
+			ODX_SpawnPoints.Create();
 	}
 }
 
-class TBC_SpawnPoints
+class ODX_SpawnPoints
 {
 	static const string FILE = "$profile:odx/spawn_points.txt";
 	// Per-faction prefabs (their m_sFaction and flag icon), GUIDs read from the 1.6.0.68 resourceDatabase.rdb; another
@@ -29,19 +29,19 @@ class TBC_SpawnPoints
 	{
 		if (!FileIO.FileExists(FILE))
 		{
-			Print("TBC_SpawnPoints: no " + FILE + ", no extra spawn points");
+			Print("ODX_SpawnPoints: no " + FILE + ", no extra spawn points");
 			return;
 		}
 		FileHandle file = FileIO.OpenFile(FILE, FileMode.READ);
 		if (!file)
 		{
-			Print("TBC_SpawnPoints: cannot open " + FILE);
+			Print("ODX_SpawnPoints: cannot open " + FILE);
 			return;
 		}
 		array<string> factions = PlayableFactions();
 		if (factions.IsEmpty())
 		{
-			Print("TBC_SpawnPoints: no playable faction, no extra spawn points");
+			Print("ODX_SpawnPoints: no playable faction, no extra spawn points");
 			file.Close();
 			return;
 		}
@@ -67,7 +67,7 @@ class TBC_SpawnPoints
 			}
 			if (parts.Count() < 2 || parsedX != parts[0].Length() || parsedZ != parts[1].Length())
 			{
-				Print("TBC_SpawnPoints: line " + lineNumber + " is not \"x z [name]\": " + line);
+				Print("ODX_SpawnPoints: line " + lineNumber + " is not \"x z [name]\": " + line);
 				continue;
 			}
 			string name = "Odx " + (created + 1);
@@ -82,14 +82,14 @@ class TBC_SpawnPoints
 			foreach (string faction : factions)
 			{
 				if (Spawn(world, position, faction, name))
-					Print("TBC_SpawnPoints: " + name + " (" + faction + ") at " + position.ToString());
+					Print("ODX_SpawnPoints: " + name + " (" + faction + ") at " + position.ToString());
 				else
-					Print("TBC_SpawnPoints: line " + lineNumber + ": spawning the " + faction + " point failed");
+					Print("ODX_SpawnPoints: line " + lineNumber + ": spawning the " + faction + " point failed");
 			}
 			created++;
 		}
 		file.Close();
-		Print("TBC_SpawnPoints: " + created + " position(s) for " + factions.Count() + " playable faction(s)");
+		Print("ODX_SpawnPoints: " + created + " position(s) for " + factions.Count() + " playable faction(s)");
 	}
 
 	protected static array<string> PlayableFactions()

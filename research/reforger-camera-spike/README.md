@@ -67,7 +67,7 @@ Either way works; Workbench shows compile errors, the game only logs them.
 **Game.** Steam → Arma Reforger → Properties → Launch options (or run `ArmaReforgerSteam.exe` with them; add `-window` for a window):
 
 ```
--addonsDir D:\project\client\research\reforger-camera-spike\addon -addons OdxCameraSpike -profile D:\odx-dev\reforger-profile
+-addonsDir D:\project\Game-Recorder\research\reforger-camera-spike\addon -addons OdxCameraSpike -profile D:\odx-dev\reforger-profile
 ```
 
 Or use `OdxReforger.exe` (a window: game folder, server `ip:port`, window or fullscreen, profile folder), one ~20 KB
@@ -75,13 +75,13 @@ file with an addon embedded: since 2026-10-20 the capture mod `capture/native/re
 round for odx-app, no flash square), not this spike's addon; the spike runs with the launch options above. It is built for .NET Framework 4.8 (in Windows 10 1903+ and 11, nothing to install). Build it on any OS
 with the .NET SDK: `dotnet build -c Release launcher/OdxReforger` → `launcher/OdxReforger/bin/Release/net48/OdxReforger.exe`.
 Releases are versioned: a tag `reforger-v<version>` puts it in the release of that name
-([releases](https://github.com/trquoccuong/client/releases)); the window title shows the version. Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's
+([releases](https://github.com/trquoccuong/Game-Recorder/releases)); the window title shows the version. Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's
 libraries), puts a "Odx Reforger" shortcut on the Desktop on the first run, remembers the fields in
 `%APPDATA%\OdxReforger\settings.txt`, and on Launch writes the addon into the game's `addons\` byte for byte (a server
 drops a client whose scripts differ) and starts `ArmaReforgerSteam.exe` with the arguments above plus `-client`.
 
 `-profile` puts `$profile:` on D:: it is the `profile\` folder inside it. The mod reports its state in the game's
-`console.log` (`logs\<date>\` in the same folder), prefixed `TBC_CameraSpike:`: "logging to …" once a camera exists. Start a single-player scenario (Game Master or Conflict on Everon).
+`console.log` (`logs\<date>\` in the same folder), prefixed `ODX_CameraSpike:`: "logging to …" once a camera exists. Start a single-player scenario (Game Master or Conflict on Everon).
 
 ### 2. Record
 

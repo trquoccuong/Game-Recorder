@@ -4,6 +4,8 @@ name: Release capture package
 # Start it by pushing a tag capture-v0.2.0, or by hand (Actions -> Release capture package -> Run workflow).
 # The package points at the orchestrator: repository variable ODX_ORCHESTRATOR (https://<domain>) and secret
 # ODX_ACCESS_KEY (deploy/.env on the orchestrator). The key ends up in the zip, so the releases stay private like the repo.
+# The client's delivery format names come from the repository variables ODX_VENDOR_NAME, ODX_FRAMES_BIN_MAGIC and
+# ODX_FRAMES_BIN_RECORD_TYPE (CaptureConfig), never from the repository.
 
 on:
   push:
@@ -46,10 +48,14 @@ jobs:
           MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
           ODX_ORCHESTRATOR: ${{ vars.ODX_ORCHESTRATOR }}
           ODX_ACCESS_KEY: ${{ secrets.ODX_ACCESS_KEY }}
+          ODX_VENDOR_NAME: ${{ vars.ODX_VENDOR_NAME }}
+          ODX_FRAMES_BIN_MAGIC: ${{ vars.ODX_FRAMES_BIN_MAGIC }}
+          ODX_FRAMES_BIN_RECORD_TYPE: ${{ vars.ODX_FRAMES_BIN_RECORD_TYPE }}
           INPUT_VERSION: ${{ inputs.version }}
         run: |
           $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME -replace '^capture-v', '' }
-          ./publish.ps1 -Version $version -Orchestrator $env:ODX_ORCHESTRATOR -AccessKey $env:ODX_ACCESS_KEY
+          ./publish.ps1 -Version $version -Orchestrator $env:ODX_ORCHESTRATOR -AccessKey $env:ODX_ACCESS_KEY `
+            -VendorName $env:ODX_VENDOR_NAME -FramesBinMagic $env:ODX_FRAMES_BIN_MAGIC -FramesBinRecordType $env:ODX_FRAMES_BIN_RECORD_TYPE
           "VERSION=$version" >> $env:GITHUB_ENV
 
       - name: Release

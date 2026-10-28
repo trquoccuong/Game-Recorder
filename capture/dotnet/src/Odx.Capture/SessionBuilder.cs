@@ -35,10 +35,12 @@ public static class SessionBuilder
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 
+    /// <param name="config">The client's format names (vendor, frames_bin.bin header); null: odx-capture.json next to odx.</param>
     /// <param name="player">Named in player.json; null for a capture outside a room.</param>
-    public static BuildReport Build(string captureDir, GameProfile profile, string vendorName = "odx", string? cameraDir = null,
+    public static BuildReport Build(string captureDir, GameProfile profile, CaptureConfig? config = null, string? cameraDir = null,
         PlayerIdentity? player = null)
     {
+        config ??= CaptureConfig.Load();
         var frames = VideoFrameLogReader.Read(CaptureFolder.Raw(captureDir, "video_frames.csv"));
         if (frames.Count == 0) throw new InvalidDataException("video_frames.csv has no frames");
         var recording = JsonNode.Parse(File.ReadAllText(CaptureFolder.Raw(captureDir, "recording.json")))!.AsObject();
@@ -63,7 +65,7 @@ public static class SessionBuilder
         string sessionId = Required<string>(recording, "capture_id");
         var session = new JsonObject
         {
-            ["vendor_name"] = vendorName,
+            ["vendor_name"] = config.VendorName.ToLowerInvariant(),
             ["game_title"] = profile.GameTitle,
             ["session_id"] = sessionId,
             ["created_at_utc"] = UtcText.Iso(startUnixMs),
@@ -87,8 +89,8 @@ public static class SessionBuilder
         File.WriteAllText(Path.Combine(captureDir, "session.json"), session.ToJsonString(Json));
         WriteKeyBindings(captureDir, profile);
         ClientFramesBin.Write(Path.Combine(captureDir, ClientFramesBin.FileName), sessionId, rows,
-            times.Select(t => t - times[0]).ToList(), times.Select(clockMap.ToUnixMs).ToList());
-        PlayerFile.Write(captureDir, session, startUnixMs, player);
+            times.Select(t => t - times[0]).ToList(), times.Select(clockMap.ToUnixMs).ToList(), config);
+        PlayerFile.Write(captureDir, session, startUnixMs, player, config.VendorName);
         return new BuildReport(sessionId, frames.Count, durationMs, unbound, cameras?.Count(c => c is not null) ?? 0, clock);
     }
 

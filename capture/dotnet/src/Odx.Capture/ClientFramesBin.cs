@@ -13,14 +13,14 @@ public static class ClientFramesBin
     /// <param name="timestampsMs">Unrounded ms since frame 0, one per row.</param>
     /// <param name="frameUtcMs">UTC of each frame on the session's clock (the orchestrator's time service in a room).</param>
     public static void Write(string path, string sessionId, IReadOnlyList<FrameRow> rows, IReadOnlyList<double> timestampsMs,
-        IReadOnlyList<double> frameUtcMs)
+        IReadOnlyList<double> frameUtcMs, CaptureConfig config)
     {
         using var output = File.Create(path);
         new FileHeader
         {
-            Magic = "CLIENT-MP",
+            Magic = config.FramesBinMagic,
             FormatVersion = 1,
-            RecordType = FrameRecord.Descriptor.FullName,
+            RecordType = config.FramesBinRecordType,
             SessionId = sessionId,
             Producer = $"Odx Capture {BuildInfo.Version}",
             CreatedUnixUs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() * 1000,

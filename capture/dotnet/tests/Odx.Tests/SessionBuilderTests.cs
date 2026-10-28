@@ -91,7 +91,7 @@ public class SessionBuilderTests
             Assert.Equal("cap-0001", (string?)player["session_id"]);
             Assert.Equal("2026-10-04T10:00:00.000000Z", (string?)player["recording"]!["video_first_frame_utc"]);
             Assert.Equal("2026-10-04T10:00:00Z", (string?)player["created_at_utc"]);
-            Assert.Equal("Odx", (string?)player["vendor_name"]);
+            Assert.Equal("Vendor", (string?)player["vendor_name"]);
             Assert.Equal((long)Math.Round(SessionFixtures.NFrames * 1000.0 / SessionFixtures.Fps), (long)player["duration_ms"]!);
             Assert.Null(player["vendor_clock_sync"]);
             Assert.Null(player["player"]);

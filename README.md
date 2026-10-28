@@ -1,4 +1,4 @@
-# Client — Odx game data capture
+# Odx game data capture
 
 Odx builds the software that records multiplayer gameplay. Every session follows the client's canonical format: one video per
 player, per-frame camera pose and intrinsics, input, and in multiplayer the server's state and every player on one clock.
@@ -13,7 +13,7 @@ player, per-frame camera pose and intrinsics, input, and in multiplayer the serv
 ## Repository layout
 
 ```
-client/
+Game-Recorder/
 ├── document/            Specs, SOW, plan, per-game analyses (source of truth; not tracked in git)
 ├── capture/             The product
 │   ├── dotnet/          C# (.NET 10): every tool outside the game process — OdxCapture.sln

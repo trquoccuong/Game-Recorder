@@ -11,7 +11,14 @@ namespace Odx.Core;
 /// <param name="Orchestrator">odx-orchestrator's address (http://host:5180); players then only type a room's invite code.
 /// Null: odx-app records on its own only.</param>
 /// <param name="AccessKey">Shared secret the orchestrator asks of every client (its --access-key); null sends none.</param>
-public sealed record CaptureConfig(string? TimeServer, Uri? Orchestrator = null, string? AccessKey = null)
+/// <param name="VendorName">vendor_name of the client's delivery format (player.json as spelled, lower case in
+/// session.json and the delivery folder).</param>
+/// <param name="FramesBinMagic">magic of frames_bin.bin's FileHeader in the client's format.</param>
+/// <param name="FramesBinRecordType">record_type of frames_bin.bin's FileHeader in the client's format.</param>
+/// <remarks>The client's format names stay out of the repository (NDA): publish.ps1 presets them from the CI variables; the
+/// defaults are placeholders.</remarks>
+public sealed record CaptureConfig(string? TimeServer, Uri? Orchestrator = null, string? AccessKey = null,
+    string VendorName = "Vendor", string FramesBinMagic = "CLIENT-MP", string FramesBinRecordType = "client.mp.v1.FrameRecord")
 {
     public const string FileName = "odx-capture.json";
 
@@ -30,12 +37,18 @@ public sealed record CaptureConfig(string? TimeServer, Uri? Orchestrator = null,
             if (!string.IsNullOrEmpty(orchestrator) &&
                 (!Uri.TryCreate(orchestrator, UriKind.Absolute, out uri) || uri.Scheme is not ("http" or "https")))
                 throw new InvalidDataException($"{path}: orchestrator must be an http:// address, not \"{orchestrator}\"");
-            string? key = json["access_key"]?.GetValue<string>().Trim();
-            return new CaptureConfig(string.IsNullOrEmpty(server) ? null : server, uri, string.IsNullOrEmpty(key) ? null : key);
+            var config = new CaptureConfig(NullIfEmpty(server), uri, NullIfEmpty(json["access_key"]?.GetValue<string>().Trim()));
+            if (NullIfEmpty(json["vendor_name"]?.GetValue<string>().Trim()) is { } vendor) config = config with { VendorName = vendor };
+            if (NullIfEmpty(json["frames_bin_magic"]?.GetValue<string>().Trim()) is { } magic) config = config with { FramesBinMagic = magic };
+            if (NullIfEmpty(json["frames_bin_record_type"]?.GetValue<string>().Trim()) is { } type)
+                config = config with { FramesBinRecordType = type };
+            return config;
         }
         catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
             throw new InvalidDataException($"{path}: {e.Message}", e);
         }
     }
+
+    private static string? NullIfEmpty(string? s) => string.IsNullOrEmpty(s) ? null : s;
 }

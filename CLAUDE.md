@@ -60,12 +60,12 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
-Odx is the vendor building game-data capture software for a client.
+Odx is the vendor building game-data capture software for a client. The client's names and delivery format names stay out of git (NDA): `document/` is local only, and the format names come from the deployment config (`CaptureConfig`).
 
 ## Directory structure
 
 ```
-document/                         # Specs and plans (Markdown, source of truth for requirements)
+document/                         # Specs and plans (Markdown, source of truth for requirements; local only, not in git)
   README.md                       # Index + reading order
   sow-round-4-multiplayer.md      # Signed SOW
   videogame-data-capture-spec-v2.md   # Canonical per-session format + validation checks (§1.5)

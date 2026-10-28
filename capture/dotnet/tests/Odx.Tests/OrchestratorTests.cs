@@ -187,7 +187,7 @@ public sealed class OrchestratorTests : IAsyncLifetime
         Assert.True(report.Pass, string.Join("; ", report.Players.SelectMany(p => p.Issues).Select(i => i.Message)));
         Assert.Equal("m1-r01", report.SessionId);
         Assert.Equal(2, report.ValidPlayers);
-        Assert.EndsWith(Path.Combine("odx", DateTime.UtcNow.ToString("MM-dd-yyyy", CultureInfo.InvariantCulture), "synthetic", "m1-r01"), dir);
+        Assert.EndsWith(Path.Combine(MergeCommand.Vendor, DateTime.UtcNow.ToString("MM-dd-yyyy", CultureInfo.InvariantCulture), "synthetic", "m1-r01"), dir);
 
         var serverEvents = MultiplayerSession.ReadEvents(Path.Combine(dir, "server", "events.jsonl")).Select(GameEvents.Type);
         Assert.Equal(["match_start", "round_countdown", "kill", "player_death", "round_start", "round_end"], serverEvents);
