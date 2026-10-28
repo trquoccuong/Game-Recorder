@@ -34,13 +34,9 @@ jobs:
           ctest --test-dir build -C Release --output-on-failure
 
   # The Arma Reforger launcher targets .NET Framework 4.8 (reference assemblies from NuGet), so it builds on Linux too.
-  # The exe, with the spike's addon embedded, is the run's artifact; on main it also replaces the release
-  # "reforger-launcher", so the newest one is always at releases/download/reforger-launcher/OdxReforger.exe.
+  # The exe, with the capture mod embedded, is the run's artifact; releases come from release-reforger.yml.
   reforger-launcher:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    concurrency: reforger-launcher-release
     steps:
       - uses: actions/checkout@v4
 
@@ -55,14 +51,3 @@ jobs:
         with:
           name: OdxReforger
           path: research/reforger-camera-spike/launcher/OdxReforger/bin/Release/net48/OdxReforger.exe
-
-      - name: Update the reforger-launcher release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release delete reforger-launcher --cleanup-tag --yes || true
-          gh release create reforger-launcher \
-            research/reforger-camera-spike/launcher/OdxReforger/bin/Release/net48/OdxReforger.exe \
-            --target "$GITHUB_SHA" --latest=false --title "Odx Reforger launcher" \
-            --notes "Built from ${GITHUB_SHA::7}. Copy OdxReforger.exe anywhere on the player's PC and double-click (research/reforger-camera-spike/README.md)."

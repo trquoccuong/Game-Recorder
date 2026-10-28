@@ -8,6 +8,9 @@
     <Nullable>enable</Nullable>
     <AssemblyName>OdxReforger</AssemblyName>
     <RootNamespace>OdxReforger</RootNamespace>
+    <!-- Release builds get the tag's version (release-reforger.yml); the window title shows it. -->
+    <Version>0.0.0-dev</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>

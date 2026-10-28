@@ -116,7 +116,7 @@ sealed class LauncherForm : Form
     public LauncherForm(Settings settings, string? game)
     {
         _settings = settings;
-        Text = "Odx Reforger Launcher";
+        Text = "Odx Reforger " + Application.ProductVersion;
         ClientSize = new Size(520, 210);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;

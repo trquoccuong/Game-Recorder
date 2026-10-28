@@ -1,0 +1,42 @@
+name: Release Reforger launcher
+
+# Builds OdxReforger.exe (the capture mod embedded) and attaches it to a GitHub release reforger-v<version>.
+# Start it by pushing a tag reforger-v0.2.0, or by hand (Actions -> Release Reforger launcher -> Run workflow).
+# The mod's scripts must match the server's byte for byte, so deploy the same commit's addon to the server.
+
+on:
+  push:
+    tags: ['reforger-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Launcher version, e.g. 0.2.0
+        required: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="${INPUT_VERSION:-${GITHUB_REF_NAME#reforger-v}}"
+          dotnet build -c Release -p:Version="$version" research/reforger-camera-spike/launcher/OdxReforger
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "reforger-v$VERSION" research/reforger-camera-spike/launcher/OdxReforger/bin/Release/net48/OdxReforger.exe \
+            --target "$GITHUB_SHA" --latest=false --title "Odx Reforger $VERSION" \
+            --notes "Built from ${GITHUB_SHA::7}. Copy OdxReforger.exe anywhere on the player's PC and double-click (research/reforger-camera-spike/README.md)."

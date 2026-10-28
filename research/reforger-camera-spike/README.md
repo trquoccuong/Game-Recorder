@@ -74,8 +74,8 @@ Or use `OdxReforger.exe` (a window: game folder, server `ip:port`, window or ful
 file with an addon embedded: since 2026-10-20 the capture mod `capture/native/reforger-mod/OdxCapture` (camera log per
 round for odx-app, no flash square), not this spike's addon; the spike runs with the launch options above. It is built for .NET Framework 4.8 (in Windows 10 1903+ and 11, nothing to install). Build it on any OS
 with the .NET SDK: `dotnet build -c Release launcher/OdxReforger` → `launcher/OdxReforger/bin/Release/net48/OdxReforger.exe`.
-CI puts the newest one, built from `main`, in the release
-[`reforger-launcher`](https://github.com/trquoccuong/client/releases/tag/reforger-launcher). Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's
+Releases are versioned: a tag `reforger-v<version>` puts it in the release of that name
+([releases](https://github.com/trquoccuong/client/releases)); the window title shows the version. Copy it anywhere on a player's PC and double-click: it finds the game (the last folder used, its own folder, or Steam's
 libraries), puts a "Odx Reforger" shortcut on the Desktop on the first run, remembers the fields in
 `%APPDATA%\OdxReforger\settings.txt`, and on Launch writes the addon into the game's `addons\` byte for byte (a server
 drops a client whose scripts differ) and starts `ArmaReforgerSteam.exe` with the arguments above plus `-client`.

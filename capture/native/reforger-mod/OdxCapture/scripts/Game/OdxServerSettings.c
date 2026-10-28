@@ -144,16 +144,19 @@ class TBC_Settings
 		array<AIAgent> agents = {};
 		GetGame().GetAIWorld().GetAIAgents(agents);
 		PlayerManager players = GetGame().GetPlayerManager();
-		int removed = 0;
 		foreach (AIAgent agent : agents)
 		{
-			IEntity character = agent.GetControlledEntity();
+			// Characters only: birds, animals and insects are AI agents too, and their native managers keep raw
+			// pointers to them; deleting a bird crashed the server (SIGSEGV in AIBirdManagerComponent, 2026-10-27).
+			ChimeraCharacter character = ChimeraCharacter.Cast(agent.GetControlledEntity());
 			if (!character || players.GetPlayerIdFromControlledEntity(character) != 0)
 				continue;
+			ResourceName prefabName;
+			EntityPrefabData prefab = character.GetPrefabData();
+			if (prefab)
+				prefabName = prefab.GetPrefabName();
+			Print("TBC_Settings: AI removed " + prefabName);
 			SCR_EntityHelper.DeleteEntityAndChildren(character);
-			removed++;
 		}
-		if (removed > 0)
-			Print("TBC_Settings: " + removed + " AI removed");
 	}
 }
