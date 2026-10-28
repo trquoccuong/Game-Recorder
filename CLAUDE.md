@@ -73,7 +73,7 @@ document/                         # Specs and plans (Markdown, source of truth f
   software-plan.md                # Architecture, modules, testing strategy (§7.10), roadmap
   games/                          # Per-game analyses + compliance ground rules
   reviews/                        # Reviews of sample/vendor data
-  raw/                            # Original PDFs (do not edit)
+  raw/                            # Original PDFs (do not edit; local only, not in git)
 capture/
   dotnet/                         # C# .NET 10 — everything outside the game process (OdxCapture.sln, publish.ps1, ffmpeg/)
     src/Odx.Core/                 #   portable: Input/ (logs, IPC, keys), Video/ (grid, status), Formats/ (frames.csv, CSV), Geometry/
