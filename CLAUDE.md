@@ -96,6 +96,8 @@ capture/
     extractor/                    # C++20 + Lua 5.4: in-game camera extractor DLL (camera_samples.csv), odx_synth, profiles
     cs2-plugin/                   # C++ Metamod:Source 2.0 plugin: CS2 dedicated server net message log (JSONL)
     reforger-mod/TbrainCapture/   # Enforce Script mod for Arma Reforger: camera log per round (odx-app converts it)
+    arma3-mod/tbrain_capture/     # SQF addon for Arma 3: render camera per frame -> tbrain_capture_x64.dll (built in extractor/)
+    arma3-mod/launcher/           #   TbrainArma3.exe (net48): installs @tbrain_capture into the game and starts it (build.ps1)
   profiles/                       # game profiles (session.json fields + key/button -> action bindings); games/ in the package
   config/
     tbrain-capture.json           # deployment config copied next to the executables (time_server, orchestrator)

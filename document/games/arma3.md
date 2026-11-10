@@ -31,7 +31,7 @@ Recommendation: keep it as a research item behind **Arma Reforger**, which offer
 | Genre / view | Military sim: FPS/TPS (`cameraView` = `INTERNAL`, `EXTERNAL`, `GUNNER` optics, `GROUP`) + land/air/sea vehicles with crew roles |
 | Status | Still maintained in its 13th year: **2.20** (2025, Steam Game Recording); **2.22** (11 Aug 2026, netcode improvements, new scripting commands and server events; 32-bit, Win 7/8 deprecated). Steam: about 7–11k concurrent players in mid-2026 **[to verify, third-party charts]** |
 | Players | Up to ~100+ per server, mission-defined **[to verify the hard cap]** |
-| Dedicated server | Yes, free, SteamCMD **app 233780** (`arma3server_x64.exe`; Linux build too). The Steam account does not need to own the game |
+| Dedicated server | Yes, free, SteamCMD **app 233780** (`arma3server_x64.exe`; Linux build too). SteamCMD needs a Steam account login: anonymous fails with "No subscription" (2026-11-10); the account does not need to own the game |
 | Ports (UDP) | **2302 game** (VON included), 2303 Steam query, 2304 Steam port, 2305 VON (reserved, unused), 2306 BattlEye. All shift with `-port=` |
 | Client process | `arma3_x64.exe` (`arma3battleye.exe` is the BattlEye wrapper the launcher uses when BE is on) |
 | Anti-cheat | BattlEye. **Official off switch on the server: `BattlEye = 0;`** (wiki: "Enables or disables the BattlEye anti-cheat engine. Requires installed BattlEye on server and clients joining the server"). The client launcher can start without BE |
@@ -86,7 +86,7 @@ What our tools do today vs what Arma 3 needs:
 |---|---|---|
 | Player video + input | odx-app (`odx record` + `odx input`) works unchanged: profile `window_process: arma3_x64` | `profiles/arma3.json` |
 | Player packets | pktmon on the profile's `network` ports, kept `raw` | Nothing (`udp/2302`) |
-| Player camera | `odx build --camera` reads `camera_samples.csv` | **New:** client addon (SQF `Draw3D` → `callExtension`) + extension DLL writing `camera_samples.csv` / `extractor.json`. C++ next to `native/extractor/`, signed `.pbo` + our `.bikey` |
+| Player camera | Written, not yet run in the game (2026-11-10): addon `native/arma3-mod/` (SQF `Draw3D` → `callExtension`), extension `tbrain_capture_x64.dll` (`native/extractor/`, QPC-stamped raw `arma3_camera.csv`), odx-app `camera_source: arma3-mod` → `Arma3Camera` → `camera_samples.csv` / `extractor.json`. Tested with a fixture and by loading the DLL outside the game | Pack + sign the `.pbo` (Arma 3 Tools) with our `.bikey`; the spike in §7 (FOV, `Draw3D` timing, HUD). Camera axes are differences of float32 world positions (~2 mm at 20 km, about 0.1°) **[to verify against `getCameraViewDirection`]** |
 | Server side | `odx game-server` only knows CS2 (`Odx.Games.Cs2`: RCON, SourceTV, plugin log) | **New `Odx.Games.Arma3`**: an `IGameServerRecorder` (start/stop logging per round) and an `IGameMerger` (server log → `server_state.bin`, `events.jsonl`). BattlEye RCon is unavailable with `BattlEye = 0`, so round control goes through our server extension (e.g. a local named pipe the agent opens) **[design to settle]** |
 | LAN | ZeroTier rooms not needed: players connect to the server's IP | — |
 

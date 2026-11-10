@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- .NET Framework 4.8 ships with Windows 10 1903+ and 11: the exe runs without installing a runtime.
+       Build with ../../build.ps1, which builds tbrain_capture_x64.dll first. -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>TbrainArma3</AssemblyName>
+    <RootNamespace>TbrainArma3</RootNamespace>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Windows.Forms" />
+    <EmbeddedResource Include="..\..\tbrain_capture\**\*" LogicalName="addon/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\..\extractor\build\Release\tbrain_capture_x64.dll" LogicalName="tbrain_capture_x64.dll" />
+  </ItemGroup>
+</Project>

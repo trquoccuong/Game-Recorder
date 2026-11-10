@@ -59,6 +59,7 @@ public sealed class CaptureRun : ICaptureRun
     private readonly string? _gameProfile;
     private readonly PlayerIdentity? _player;
     private readonly string? _reforgerDir;
+    private readonly string? _arma3Control;
     private RecorderStatus? _lastStatus;
 
     public string SessionDir { get; }
@@ -88,6 +89,19 @@ public sealed class CaptureRun : ICaptureRun
             {
                 _stderr.Add($"cannot start the Arma Reforger camera log: {e.Message}");
                 _reforgerDir = null;
+            }
+        }
+        if (profile?.CameraSource == Arma3Camera.Source)
+        {
+            _arma3Control = Arma3Camera.ControlPath();
+            try
+            {
+                Arma3Camera.Begin(_arma3Control, SessionDir);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                _stderr.Add($"cannot start the Arma 3 camera log: {e.Message}");
+                _arma3Control = null;
             }
         }
         string stopName = $@"Local\odx-stop-{Guid.NewGuid():N}";
@@ -180,6 +194,9 @@ public sealed class CaptureRun : ICaptureRun
         if (_reforgerDir is not null &&
             ReforgerCamera.Collect(_reforgerDir, Path.GetFileName(SessionDir), SessionDir, TimeSpan.FromSeconds(3)) is { } warning)
             lock (_stderr) _stderr.Add(warning);
+        if (_arma3Control is not null &&
+            Arma3Camera.Collect(_arma3Control, SessionDir, TimeSpan.FromSeconds(3)) is { } arma3Warning)
+            lock (_stderr) _stderr.Add(arma3Warning);
         List<string> errors;
         lock (_stderr) errors = [.. _stderr];
         var build = captureOk ? BuildSession() : null;

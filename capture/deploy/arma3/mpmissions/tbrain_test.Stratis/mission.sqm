@@ -1,0 +1,102 @@
+version=12;
+class Mission
+{
+	addOns[]={"A3_Characters_F"};
+	addOnsAuto[]={"A3_Characters_F"};
+	randomSeed=1;
+	class Intel
+	{
+		startWeather=0;
+		forecastWeather=0;
+		year=2035;
+		month=7;
+		day=6;
+		hour=12;
+		minute=0;
+	};
+	class Groups
+	{
+		items=2;
+		class Item0
+		{
+			side="WEST";
+			class Vehicles
+			{
+				items=4;
+				class Item0
+				{
+					position[]={1950,0,5650};
+					id=0;
+					side="WEST";
+					vehicle="B_Soldier_F";
+					player="PLAY CDG";
+					leader=1;
+					skill=0.6;
+				};
+				class Item1
+				{
+					position[]={1954,0,5650};
+					id=1;
+					side="WEST";
+					vehicle="B_Soldier_F";
+					player="PLAY CDG";
+					skill=0.6;
+				};
+				class Item2
+				{
+					position[]={1958,0,5650};
+					id=2;
+					side="WEST";
+					vehicle="B_Soldier_F";
+					player="PLAY CDG";
+					skill=0.6;
+				};
+				class Item3
+				{
+					position[]={1962,0,5650};
+					id=3;
+					side="WEST";
+					vehicle="B_Soldier_F";
+					player="PLAY CDG";
+					skill=0.6;
+				};
+			};
+		};
+		class Item1
+		{
+			side="LOGIC";
+			class Vehicles
+			{
+				items=1;
+				class Item0
+				{
+					position[]={1940,0,5640};
+					id=4;
+					side="LOGIC";
+					vehicle="HeadlessClient_F";
+					player="PLAY CDG";
+					leader=1;
+					skill=0.6;
+					text="tbrain_hc";
+					forceHeadlessClient=1;
+				};
+			};
+		};
+	};
+};
+class Intro
+{
+	addOns[]={};
+	addOnsAuto[]={};
+	randomSeed=1;
+	class Intel
+	{
+		startWeather=0;
+		forecastWeather=0;
+		year=2035;
+		month=7;
+		day=6;
+		hour=12;
+		minute=0;
+	};
+};
