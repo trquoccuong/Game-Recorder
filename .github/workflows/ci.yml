@@ -66,3 +66,41 @@ jobs:
             research/reforger-camera-spike/launcher/TbrainReforger/bin/Release/net48/TbrainReforger.exe \
             --target "$GITHUB_SHA" --latest=false --title "Tbrain Reforger launcher" \
             --notes "Built from ${GITHUB_SHA::7}. Copy TbrainReforger.exe anywhere on the player's PC and double-click (research/reforger-camera-spike/README.md)."
+
+  # The Arma 3 launcher embeds the C++ tbrain_capture_x64.dll, so unlike the Reforger one it needs MSVC + CMake and runs
+  # on Windows. build.ps1 builds the DLL (Release) then the net48 launcher that embeds it and the addon source; the
+  # launcher packs the .pbo itself, so no Arma 3 Tools are needed. On main it replaces the rolling release
+  # "arma3-launcher", so the newest one is always at releases/download/arma3-launcher/TbrainArma3.exe.
+  arma3-launcher:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    concurrency: arma3-launcher-release
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build TbrainArma3.exe
+        shell: pwsh
+        working-directory: capture/native/arma3-mod
+        run: ./build.ps1 -OutDir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TbrainArma3
+          path: capture/native/arma3-mod/dist/TbrainArma3.exe
+
+      - name: Update the arma3-launcher release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete arma3-launcher --cleanup-tag --yes 2>$null
+          gh release create arma3-launcher `
+            capture/native/arma3-mod/dist/TbrainArma3.exe `
+            --target $env:GITHUB_SHA --latest=false --title "Tbrain Arma 3 launcher" `
+            --notes "Built from $($env:GITHUB_SHA.Substring(0,7)). Copy TbrainArma3.exe anywhere on the player's PC and double-click (document/games/arma3.md)."
